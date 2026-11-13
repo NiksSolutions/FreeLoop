@@ -558,19 +558,31 @@ func (e *Engine) streamFor(sid string) *streamBuf {
 }
 
 // heldBack returns how many trailing bytes of text could begin a known
-// secret.
+// secret or one of its other spellings (base64, hex, URL-encoded), which
+// redact also only recognizes whole.
 func (e *Engine) heldBack(text string) int {
+	if text == "" {
+		return 0
+	}
 	e.mu.Lock()
-	known := e.known
+	known, forms := e.known, e.knownForms
 	e.mu.Unlock()
 	hold := 0
-	for _, k := range known {
+	last := text[len(text)-1]
+	check := func(k string) {
 		for l := min(len(k)-1, len(text)); l > hold; l-- {
-			if strings.HasSuffix(text, k[:l]) {
+			// Most lengths fail on the last byte; skip those cheaply.
+			if k[l-1] == last && strings.HasSuffix(text, k[:l]) {
 				hold = l
-				break
+				return
 			}
 		}
+	}
+	for _, k := range known {
+		check(k)
+	}
+	for _, f := range forms {
+		check(string(f))
 	}
 	return hold
 }

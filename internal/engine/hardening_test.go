@@ -48,6 +48,48 @@ func TestSecretSplitAcrossChunksIsRedacted(t *testing.T) {
 	}
 }
 
+// Review finding: a secret's base64, hex or URL-encoded spelling streamed
+// across two chunks was held back by neither, so it was stored whole.
+func TestEncodedSecretSplitAcrossChunksIsRedacted(t *testing.T) {
+	ctx := context.Background()
+	const secret = "ghp_abcdef0123456789XYZ"
+	for name, form := range map[string]string{
+		"base64": "Z2hwX2FiY2RlZjAxMjM0NTY3ODlYWVo=",
+		"hex":    "6768705f6162636465663031323334353637383958595a",
+		"url":    "ghp%2Fabcdef0123456789XYZ",
+	} {
+		dir := t.TempDir()
+		e := openTest(t, dir)
+		secret := secret
+		if name == "url" {
+			secret = "ghp/abcdef0123456789XYZ"
+		}
+		e.remember(secret)
+		ses, _ := demoSession(t, e, "", "")
+		half := len(form) / 2
+		for _, part := range []string{"it is " + form[:half], form[half:] + " and more"} {
+			e.emit(ses.ID, event.AgentMessageChunk, event.MessageChunk{Content: event.ContentBlock{Type: "text", Text: part}})
+		}
+		e.emit(ses.ID, event.TurnEnded, event.TurnEndedData{StopReason: "end_turn"})
+		evs, _ := e.Events(ctx, ses.ID, 0, 0)
+		var text strings.Builder
+		for _, ev := range evs {
+			var mc event.MessageChunk
+			if ev.Type == event.AgentMessageChunk && json.Unmarshal(ev.Data, &mc) == nil {
+				text.WriteString(mc.Content.Text)
+			}
+		}
+		if got := text.String(); !strings.Contains(got, "[REDACTED]") || !strings.HasSuffix(got, " and more") {
+			t.Errorf("%s: streamed text = %q", name, got)
+		}
+		b, _ := os.ReadFile(filepath.Join(dir, "sessions", ses.ID, "events.jsonl"))
+		if strings.Contains(string(b), form[half-6:half+6]) {
+			t.Errorf("%s: the secret's %s spelling is in the transcript", name, name)
+		}
+		e.Close()
+	}
+}
+
 // Review finding: a provider key was only redacted after its provider had
 // been used in this run of the app.
 func TestStoredKeysAreRedactedFromStartup(t *testing.T) {
