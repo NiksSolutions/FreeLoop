@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -181,26 +182,63 @@ func (p *Policy) writeRefusal(root, path string) string {
 	// project opened there.
 	gitDir, settings := environment.FoldPath(".git"), environment.FoldPath(ProjectSettingsDir)
 	for _, part := range pathParts(roots, path) {
-		switch environment.FoldPath(part) {
-		case gitDir:
+		switch {
+		case part == gitDir || shortNameOf(part, gitDir):
 			return fmt.Sprintf("%s is inside .git", path)
-		case settings:
+		case part == settings || shortNameOf(part, settings):
 			return fmt.Sprintf("%s is inside %s, the project's Freeloop settings, which only you edit", path, ProjectSettingsDir)
 		}
 	}
 	return ""
 }
 
-// pathParts returns path's names below whichever root it is in.
+// pathParts returns path's names below whichever root it is in, folded, and each as
+// Windows reads it (ntfsName).
 func pathParts(roots []string, path string) []string {
 	fp := environment.FoldPath(environment.Unaliased(path))
 	for _, r := range roots {
 		fr := environment.FoldPath(r)
 		if strings.HasPrefix(fp, fr+string(filepath.Separator)) {
-			return strings.Split(fp[len(fr)+1:], string(filepath.Separator))
+			parts := strings.Split(fp[len(fr)+1:], string(filepath.Separator))
+			for i, part := range parts {
+				parts[i] = ntfsName(part)
+			}
+			return parts
 		}
 	}
 	return nil
+}
+
+// ntfsName is the folder or file a name opens on Windows: without a stream after a
+// colon (.git::$INDEX_ALLOCATION is .git, and .git:x is a stream of it), and without
+// the trailing dots and spaces Windows drops (.git. is .git). It is applied on every
+// system: a Mac's SMB share of a Windows disk reads names so too, and elsewhere no one
+// names a folder so, so reading them as the name they spell costs nothing.
+func ntfsName(part string) string {
+	if i := strings.IndexByte(part, ':'); i >= 0 {
+		part = part[:i]
+	}
+	if t := strings.TrimRight(part, ". "); t != "" {
+		return t
+	}
+	return part
+}
+
+// shortName is an 8.3 short name: GIT~1, or GI3F2A~1 once there are a few.
+var shortName = regexp.MustCompile(`^([^~]{1,6})~[0-9]+(\.[^.]*)?$`)
+
+// shortNameOf reports a folded part that may be Windows' 8.3 short name for the folded
+// name. A short name keeps at least the first two characters of the name without its
+// leading dots, so one starting with those may be it. Another folder's short name that
+// starts the same way is caught too and is refused or asks, the safe side; elsewhere
+// than on Windows such names are rare.
+func shortNameOf(part, name string) bool {
+	m := shortName.FindStringSubmatch(part)
+	if m == nil {
+		return false
+	}
+	n := strings.TrimLeft(name, ".")
+	return n != "" && strings.HasPrefix(n, m[1][:min(2, len(m[1]))])
 }
 
 // ActedOnLater are the project files something outside a session later reads and
@@ -228,12 +266,13 @@ func (p *Policy) actedOn(root string, paths []string) bool {
 		}
 		// At any depth: opening a subfolder as a project makes its files active.
 		for _, name := range ActedOnLater {
-			if slices.Contains(parts, environment.FoldPath(name)) {
+			folded := environment.FoldPath(name)
+			if slices.ContainsFunc(parts, func(part string) bool { return part == folded || shortNameOf(part, folded) }) {
 				return true
 			}
 		}
 		// direnv looks in every folder on the way.
-		if parts[len(parts)-1] == environment.FoldPath(".envrc") {
+		if last := parts[len(parts)-1]; last == environment.FoldPath(".envrc") || shortNameOf(last, ".envrc") {
 			return true
 		}
 	}

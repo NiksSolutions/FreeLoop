@@ -8,6 +8,43 @@ import (
 	"github.com/FinanceNik/Freeloop/internal/environment"
 )
 
+// NTFS's other spellings of a folder are the folder: a stream (.git::$INDEX_ALLOCATION),
+// trailing dots and spaces, which Windows drops, and an 8.3 short name (GIT~1). An
+// external agent's edit is decided here and written by the agent, so the policy must
+// read them as Windows does. Reproduced on 2026-11-13 in accept-edits mode: each was
+// allowed (SEC-005). Refused on every system, where no one names a folder so.
+func TestProtectedFoldersInEveryNTFSSpelling(t *testing.T) {
+	home := environment.Canonical(t.TempDir())
+	p := NewPolicy(home, filepath.Join(home, "data"))
+	b := NewBroker(p, nil)
+	root := filepath.Join(home, "repo")
+	for _, rel := range []string{
+		".git/hooks/pre-commit", ".git::$INDEX_ALLOCATION/hooks/pre-commit", ".git./hooks/pre-commit", "GIT~1/hooks/pre-commit",
+		".freeloop::$INDEX_ALLOCATION/hooks.yaml", ".git:x", ".git. . /config", "sub/.GIT ./config", ".freeloop./rules.yaml",
+		"FREELO~1/hooks.yaml", "GI3F2A~1/config", "sub/git~2/config",
+	} {
+		path := filepath.Join(root, filepath.FromSlash(rel))
+		if p.writeRefusal(root, path) == "" {
+			t.Errorf("%s is writable", rel)
+		}
+		d, decided := b.evaluate(Context{Mode: ModeAcceptEdits, Root: root}, Request{Tool: "edit_file", Kind: KindEdit, Paths: []string{path}})
+		if !decided || d.Outcome != Denied || d.Actor != ActorProtectedPath {
+			t.Errorf("%s in accept-edits mode: %+v, %v", rel, d, decided)
+		}
+	}
+	// What a later tool acts on asks in any spelling too.
+	for _, rel := range []string{".vscode::$INDEX_ALLOCATION/settings.json", ".vscode./tasks.json", "VSCODE~1/tasks.json", ".envrc.", "sub/.envrc::$DATA"} {
+		if !p.actedOn(root, []string{filepath.Join(root, filepath.FromSlash(rel))}) {
+			t.Errorf("%s is not acted on later", rel)
+		}
+	}
+	for _, rel := range []string{"src/a.go", "PROGRA~1/x", "src/notes:1.txt", "gitignore.txt", "docs/v1./a.md", ".gitignore", "a~b/c"} {
+		if why := p.writeRefusal(root, filepath.Join(root, filepath.FromSlash(rel))); why != "" {
+			t.Errorf("%s refused: %s", rel, why)
+		}
+	}
+}
+
 // Linux's keyrings, browser profiles and password stores are closed like macOS's
 // Keychain and browsers, on every system, and the macOS entries stay.
 func TestKeyringsBrowsersAndPasswordStoresAreProtected(t *testing.T) {
