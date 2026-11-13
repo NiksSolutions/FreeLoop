@@ -345,15 +345,38 @@ func freeLoopbackPort() (int, error) {
 // server itself is on one (by address or by what its name resolves to), so
 // a server's metadata cannot point the app at services on this computer or its
 // network. Every request's host is checked before it is sent, proxied ones
-// too, and a direct connection's address once more after it is made.
+// too, and a direct connection's address once more after it is made. A
+// redirect from https to http is not followed (the SDK refuses one in
+// discovery; the token exchange, registration and refresh use this client).
 func oauthClient(serverURL string) *http.Client {
 	u, _ := url.Parse(serverURL)
 	if u != nil && hostIsPrivate(u.Hostname()) {
 		// Only the server itself: its metadata still cannot point at anything
 		// else on this computer or its network, whatever its name resolves to later.
-		return &http.Client{Timeout: 30 * time.Second, Transport: ownHostOnly{host: u.Host, own: http.DefaultTransport, others: publicClient().Transport}}
+		return &http.Client{Timeout: 30 * time.Second, CheckRedirect: oauthRedirects(u.Host),
+			Transport: ownHostOnly{host: u.Host, own: http.DefaultTransport, others: publicTransport(http.DefaultTransport)}}
 	}
-	return publicClient()
+	c := publicClient()
+	c.CheckRedirect = oauthRedirects("")
+	return c
+}
+
+// oauthRedirects is the redirect policy of a server's OAuth requests: no
+// https to http, and no hop to a private address other than own, the
+// server's own host when it is on one.
+func oauthRedirects(own string) func(*http.Request, []*http.Request) error {
+	return func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 10 {
+			return errors.New("stopped after 10 redirects")
+		}
+		if via[len(via)-1].URL.Scheme == "https" && req.URL.Scheme != "https" {
+			return fmt.Errorf("refused a redirect from https to %s", req.URL.Scheme)
+		}
+		if (own == "" || !strings.EqualFold(req.URL.Host, own)) && hostIsPrivate(req.URL.Hostname()) {
+			return fmt.Errorf("refused %s: this request may not reach a private address", req.URL.Host)
+		}
+		return nil
+	}
 }
 
 // ownHostOnly sends requests to one host directly and the rest through others.
@@ -375,9 +398,18 @@ func (t ownHostOnly) RoundTrip(r *http.Request) (*http.Response, error) {
 // resolves differently the second time gets no further. It goes through
 // http.DefaultTransport, so the local-only switch covers it.
 func publicClient() *http.Client {
-	base, ok := http.DefaultTransport.(*http.Transport)
+	return &http.Client{Transport: publicTransport(http.DefaultTransport), Timeout: 30 * time.Second}
+}
+
+// proxyAddrKey marks a request's context with the address of the proxy it
+// goes through, which its connection is to.
+type proxyAddrKey struct{}
+
+// publicTransport is publicClient's transport over rt.
+func publicTransport(rt http.RoundTripper) http.RoundTripper {
+	base, ok := rt.(*http.Transport)
 	if !ok {
-		return &http.Client{Transport: publicOnly{http.DefaultTransport}, Timeout: 30 * time.Second}
+		return publicOnly{next: rt}
 	}
 	t := base.Clone()
 	dial := t.DialContext
@@ -389,12 +421,11 @@ func publicClient() *http.Client {
 		if err != nil {
 			return nil, err
 		}
-		// Through a proxy the connection is the proxy's; the request's
-		// host was checked before it was sent.
-		if t.Proxy != nil {
-			if p, perr := t.Proxy(&http.Request{URL: &url.URL{Scheme: "https", Host: addr}}); perr == nil && p != nil {
-				return c, nil
-			}
+		// A connection to the request's own proxy is the proxy's; the
+		// request's host was checked before it was sent. Any other is
+		// direct, whatever a request with another scheme would do.
+		if proxy, _ := ctx.Value(proxyAddrKey{}).(string); proxy != "" && strings.EqualFold(proxy, addr) {
+			return c, nil
 		}
 		if ap, err := netip.ParseAddrPort(c.RemoteAddr().String()); err == nil && netguard.PrivateAddr(ap.Addr()) {
 			c.Close()
@@ -402,18 +433,36 @@ func publicClient() *http.Client {
 		}
 		return c, nil
 	}
-	return &http.Client{Transport: publicOnly{t}, Timeout: 30 * time.Second}
+	return publicOnly{next: t, proxy: t.Proxy}
 }
 
 // publicOnly refuses a request whose host is private or resolves to a
-// private address.
-type publicOnly struct{ next http.RoundTripper }
+// private address, and marks one that proxy sends through a proxy.
+type publicOnly struct {
+	next  http.RoundTripper
+	proxy func(*http.Request) (*url.URL, error)
+}
 
 func (p publicOnly) RoundTrip(r *http.Request) (*http.Response, error) {
 	if hostIsPrivate(r.URL.Hostname()) {
 		return nil, fmt.Errorf("refused %s: this request may not reach a private address", r.URL.Host)
 	}
+	if p.proxy != nil {
+		if u, err := p.proxy(r); err == nil && u != nil {
+			r = r.WithContext(context.WithValue(r.Context(), proxyAddrKey{}, proxyAddr(u)))
+		}
+	}
 	return p.next.RoundTrip(r)
+}
+
+// proxyAddr is the address the transport dials for a proxy, with its
+// scheme's port when it names none.
+func proxyAddr(u *url.URL) string {
+	if port := u.Port(); port != "" {
+		return net.JoinHostPort(u.Hostname(), port)
+	}
+	port := map[string]string{"http": "80", "https": "443", "socks5": "1080", "socks5h": "1080"}[u.Scheme]
+	return net.JoinHostPort(u.Hostname(), port)
 }
 
 // hostIsPrivate reports a host that is, or whose name resolves to, a

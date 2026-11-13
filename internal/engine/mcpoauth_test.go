@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -256,6 +257,88 @@ func TestOAuthClientRefusesPrivateAddresses(t *testing.T) {
 		t.Fatalf("a local server's own sign-in: %v", err)
 	}
 	resp.Body.Close()
+}
+
+// Review finding: the check of a direct connection's address was skipped when
+// an https request to it would have been proxied, so with HTTPS_PROXY set and
+// HTTP_PROXY not, a plain http name rebound to a private address got through.
+func TestDirectConnectionIsCheckedWhenOnlyHTTPSIsProxied(t *testing.T) {
+	private := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { t.Error("reached the private service") }))
+	defer private.Close()
+	httpsProxy, _ := url.Parse("http://192.0.2.1:3128")
+	base := http.DefaultTransport.(*http.Transport).Clone()
+	base.Proxy = func(r *http.Request) (*url.URL, error) {
+		if r.URL.Scheme == "https" {
+			return httpsProxy, nil
+		}
+		return nil, nil
+	}
+	// DNS rebinding: the name passes the check before the request, then
+	// lands on a private address.
+	base.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, network, private.Listener.Addr().String())
+	}
+	c := &http.Client{Transport: publicTransport(base), Timeout: 10 * time.Second}
+	if res, err := c.Get("http://rebind.invalid/token"); err == nil || !strings.Contains(err.Error(), "private address") {
+		if res != nil {
+			res.Body.Close()
+		}
+		t.Errorf("a direct connection reached a private address: %v", err)
+	}
+}
+
+// A proxy on this computer or its network still works: the connection to the
+// proxy itself is not refused.
+func TestProxiedRequestReachesAPrivateProxy(t *testing.T) {
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("proxied " + r.URL.Host)) }))
+	defer proxy.Close()
+	pu, _ := url.Parse(proxy.URL)
+	base := http.DefaultTransport.(*http.Transport).Clone()
+	base.Proxy = http.ProxyURL(pu)
+	c := &http.Client{Transport: publicTransport(base), Timeout: 10 * time.Second}
+	res, err := c.Get("http://public.invalid/x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	var b strings.Builder
+	io.Copy(&b, res.Body)
+	if b.String() != "proxied public.invalid" {
+		t.Errorf("body = %q", b.String())
+	}
+}
+
+// Review finding: the token exchange, registration and refresh followed any
+// redirect, an https one to http included.
+func TestOAuthRedirectPolicy(t *testing.T) {
+	via := func(raw string) []*http.Request {
+		r, _ := http.NewRequest(http.MethodPost, raw, nil)
+		return []*http.Request{r}
+	}
+	req := func(raw string) *http.Request {
+		r, _ := http.NewRequest(http.MethodPost, raw, nil)
+		return r
+	}
+	c := oauthClient("https://mcp.example.com/mcp")
+	if c.CheckRedirect == nil {
+		t.Fatal("the OAuth client follows any redirect")
+	}
+	if err := c.CheckRedirect(req("http://auth.example.com/token"), via("https://auth.example.com/token")); err == nil {
+		t.Error("an https to http redirect was followed")
+	}
+	if err := c.CheckRedirect(req("https://127.0.0.1/token"), via("https://auth.example.com/token")); err == nil {
+		t.Error("a redirect to a private address was followed")
+	}
+	if err := c.CheckRedirect(req("https://8.8.8.8/token"), via("https://auth.example.com/token")); err != nil {
+		t.Errorf("a redirect to a public address: %v", err)
+	}
+	own := oauthClient("http://127.0.0.1:8123/mcp")
+	if err := own.CheckRedirect(req("http://127.0.0.1:8123/token"), via("http://127.0.0.1:8123/register")); err != nil {
+		t.Errorf("a local server's redirect to itself: %v", err)
+	}
+	if err := own.CheckRedirect(req("http://localhost:9999/x"), via("http://127.0.0.1:8123/register")); err == nil {
+		t.Error("a local server redirected to another local service")
+	}
 }
 
 func TestSignInPageScheme(t *testing.T) {
