@@ -81,10 +81,12 @@ type server struct {
 	// from several sessions at once, the latest.
 	asker       *Asker
 	fingerprint string
-	status      Status
-	session     *sdk.ClientSession
-	proc        environment.Process
-	cancel      context.CancelFunc
+	// address is an HTTP server's URL, cleaned out of its errors.
+	address string
+	status  Status
+	session *sdk.ClientSession
+	proc    environment.Process
+	cancel  context.CancelFunc
 }
 
 // Manager is safe for concurrent use.
@@ -114,14 +116,14 @@ func (m *Manager) Start(ctx context.Context, l Launch) error {
 	m.Stop(id)
 
 	runCtx, cancel := context.WithCancel(context.Background())
-	s := &server{fingerprint: fp, cancel: cancel, status: Status{ID: id, State: Starting, Tools: []Tool{}}}
+	s := &server{fingerprint: fp, address: l.Config.URL, cancel: cancel, status: Status{ID: id, State: Starting, Tools: []Tool{}}}
 	m.mu.Lock()
 	m.servers[id] = s
 	m.mu.Unlock()
 
 	fail := func(err error) error {
 		cancel()
-		msg := err.Error()
+		msg := cleanError(err, l.Config.URL).Error()
 		if s.proc != nil {
 			if tail := strings.TrimSpace(environment.StderrAfterExit(s.proc)); tail != "" {
 				msg += ": " + lastLines(tail, 6)
@@ -318,7 +320,7 @@ func (m *Manager) Call(ctx context.Context, id, tool string, args json.RawMessag
 	}
 	res, err := cs.CallTool(ctx, &sdk.CallToolParams{Name: tool, Arguments: arguments})
 	if err != nil {
-		return Result{}, err
+		return Result{}, m.clean(id, err)
 	}
 	return Result{Text: render(res), IsError: res.IsError}, nil
 }

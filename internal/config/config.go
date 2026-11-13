@@ -330,6 +330,10 @@ func (c *Config) Validate() []Issue {
 			c.Sessions.IdleStop = ""
 		}
 	}
+	if err := CheckAddress("the registry address", c.MCP.RegistryURL); err != nil {
+		issues = append(issues, Issue{Field: "mcp.registryURL", Message: err.Error() + "; it is not used"})
+		c.MCP.RegistryURL = ""
+	}
 	var priceIssues, hookIssues []Issue
 	c.Prices, priceIssues = validatePrices(c.Prices)
 	var budgetIssues []Issue

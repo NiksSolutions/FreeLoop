@@ -85,6 +85,14 @@ func (s MCPServer) Validate() error {
 		if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
 			return fieldErr("url", "%q is not an http(s) URL", s.URL)
 		}
+		// A key in the address would sit in this file in plain text and
+		// come back in every error naming the address (SEC-004).
+		if u.User != nil {
+			return fieldErr("url", "the address holds a user name or password; give it as a header, which is kept in the Keychain")
+		}
+		if len(CredentialsIn(u)) > 0 {
+			return fieldErr("url", "the address holds a key in its query; give the key as a header, which is kept in the Keychain, if the server takes one")
+		}
 	case s.Transport != "stdio":
 		return fieldErr("transport", "%q must be stdio or http", s.Transport)
 	}

@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"regexp"
 	"strings"
 
 	"github.com/FinanceNik/Freeloop/internal/config"
@@ -274,48 +273,9 @@ func (e *Engine) approvalKey() ([]byte, error) {
 	return e.approvalSecret, nil
 }
 
-// credentialParam matches a query parameter that holds a credential.
-var credentialParam = regexp.MustCompile(`(?i)^(.*[_-])?(key|apikey|token|secret|password|passwd|pwd|auth|sig|signature)$`)
-
-// credentialsIn returns the credential-like values in an address's query and
-// userinfo. A {key} or {query} placeholder is not one.
-func credentialsIn(u *url.URL) []string {
-	var out []string
-	if u.User != nil {
-		if p, ok := u.User.Password(); ok && p != "" {
-			out = append(out, p)
-		}
-		if n := u.User.Username(); n != "" {
-			out = append(out, n)
-		}
-	}
-	for name, values := range u.Query() {
-		if credentialParam.MatchString(name) {
-			for _, v := range values {
-				if v != "" && v != "{key}" && v != "{query}" {
-					out = append(out, v)
-				}
-			}
-		}
-	}
-	return out
-}
-
-// checkAddress refuses an address holding a credential: config files are not a
-// place for one, a backup carries them, and it would show in errors.
-func checkAddress(what, raw string) error {
-	if strings.TrimSpace(raw) == "" {
-		return nil
-	}
-	u, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil {
-		return fmt.Errorf("%s is not an address: %w", what, err)
-	}
-	if u.User != nil {
-		return fmt.Errorf("%s holds a user name or password; those go in the Keychain, not in the address", what)
-	}
-	if len(credentialsIn(u)) > 0 {
-		return fmt.Errorf("%s holds a key in its query; enter the key separately so it stays in the Keychain", what)
-	}
-	return nil
-}
+// credentialsIn and checkAddress are config's, which mcp.yaml and
+// mcp.registryURL are checked with too.
+var (
+	credentialsIn = config.CredentialsIn
+	checkAddress  = config.CheckAddress
+)

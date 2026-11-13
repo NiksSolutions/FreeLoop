@@ -88,7 +88,7 @@ func (m *Manager) Resources(ctx context.Context, id string) ([]Resource, error) 
 	for range 20 {
 		res, err := cs.ListResources(ctx, params)
 		if err != nil {
-			return nil, err
+			return nil, m.clean(id, err)
 		}
 		for _, r := range res.Resources {
 			out = append(out, Resource{URI: r.URI, Name: r.Name, Title: r.Title, Description: r.Description, MIMEType: r.MIMEType})
@@ -115,7 +115,7 @@ func (m *Manager) Prompts(ctx context.Context, id string) ([]Prompt, error) {
 	for range 20 {
 		res, err := cs.ListPrompts(ctx, params)
 		if err != nil {
-			return nil, err
+			return nil, m.clean(id, err)
 		}
 		for _, p := range res.Prompts {
 			pr := Prompt{Name: p.Name, Title: p.Title, Description: p.Description, Arguments: []PromptArgument{}}
@@ -144,7 +144,7 @@ func (m *Manager) ReadResource(ctx context.Context, id, uri string) (string, err
 	}
 	res, err := cs.ReadResource(ctx, &sdk.ReadResourceParams{URI: uri})
 	if err != nil {
-		return "", err
+		return "", m.clean(id, err)
 	}
 	if len(res.InputRequests) > 0 {
 		return "", errors.New("the server asks for more input, which Freeloop does not answer yet")
@@ -180,7 +180,7 @@ func (m *Manager) GetPrompt(ctx context.Context, id, name string, args map[strin
 	}
 	res, err := cs.GetPrompt(ctx, &sdk.GetPromptParams{Name: name, Arguments: args})
 	if err != nil {
-		return PromptText{}, err
+		return PromptText{}, m.clean(id, err)
 	}
 	if len(res.InputRequests) > 0 {
 		return PromptText{}, errors.New("the server asks for more input, which Freeloop does not answer yet")

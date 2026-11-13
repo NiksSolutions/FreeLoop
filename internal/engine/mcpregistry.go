@@ -274,6 +274,9 @@ func (e *Engine) MCPRegistryAddress() string { return e.Config().MCP.RegistryURL
 // SetMCPRegistryAddress keeps a registry's address; empty forgets it.
 func (e *Engine) SetMCPRegistryAddress(address string) error {
 	address = strings.TrimRight(strings.TrimSpace(address), "/")
+	if err := checkAddress("the registry address", address); err != nil {
+		return err
+	}
 	if address != "" && !registryAddress(address) {
 		return fmt.Errorf("%q is not an https address", address)
 	}

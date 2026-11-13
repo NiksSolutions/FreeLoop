@@ -50,7 +50,7 @@ func TestSearchMCPRegistry(t *testing.T) {
 	if calls != 0 {
 		t.Fatal("connected before an address was set")
 	}
-	for _, bad := range []string{"http://example.com", "ftp://x", "not a url"} {
+	for _, bad := range []string{"http://example.com", "ftp://x", "not a url", "https://registry.example.com/?apiKey=abc"} {
 		if err := e.SetMCPRegistryAddress(bad); err == nil {
 			t.Errorf("%q was accepted", bad)
 		}

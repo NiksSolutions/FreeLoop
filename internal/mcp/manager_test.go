@@ -203,3 +203,38 @@ func TestHeadersStayOnTheServersHost(t *testing.T) {
 		t.Errorf("the redirect target got %q", v)
 	}
 }
+
+// SEC-004: a key in a server's address (one written before addresses with keys
+// were refused, or by another program) does not reach an error, which goes to
+// the transcript, the model, the MCP page and the log.
+func TestErrorsDoNotRepeatAKeyInTheAddress(t *testing.T) {
+	const key = "exa-SUPERSECRETKEY0123456789"
+	srv := httptest.NewServer(sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server { return testServer() }, nil))
+	m := New(nil)
+	defer m.StopAll()
+	l := Launch{Config: config.MCPServer{ID: "exa", Transport: "http", URL: srv.URL + "/mcp?exaApiKey=" + key}}
+	if err := m.Start(context.Background(), l); err != nil {
+		t.Fatal(err)
+	}
+	srv.CloseClientConnections()
+	srv.Close()
+	_, err := m.Call(context.Background(), "exa", "echo", []byte(`{"text":"hi"}`))
+	if err == nil {
+		t.Fatal("a call to a closed server worked")
+	}
+	if strings.Contains(err.Error(), key) {
+		t.Errorf("the call's error repeats the key: %v", err)
+	}
+	// Starting against the closed server fails the same way, into the status.
+	l.Config.Headers = map[string]string{"X-Restart": "1"}
+	if err := m.Start(context.Background(), l); err == nil || strings.Contains(err.Error(), key) {
+		t.Errorf("start = %v", err)
+	}
+	if st := m.Status("exa"); st.Error == "" || strings.Contains(st.Error, key) {
+		t.Errorf("status = %+v", st)
+	}
+	user := Launch{Config: config.MCPServer{ID: "user", Transport: "http", URL: strings.Replace(srv.URL, "http://", "http://me:pw-SECRET@", 1) + "/mcp"}}
+	if err := m.Start(context.Background(), user); err == nil || strings.Contains(err.Error(), "pw-SECRET") {
+		t.Errorf("start with a password = %v", err)
+	}
+}
