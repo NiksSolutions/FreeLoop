@@ -27,7 +27,7 @@ import (
 const AppVersion = "0.1.0-beta.1"
 
 // latestReleaseURL is the GitHub API for the project's latest release.
-const latestReleaseURL = "https://api.github.com/repos/FinanceNik/Freeloop/releases/latest"
+const latestReleaseURL = "https://api.github.com/repos/NiksSolutions/FreeLoop/releases/latest"
 
 // updateInterval is how often the check runs.
 const updateInterval = 24 * time.Hour
@@ -180,7 +180,7 @@ func fetchRelease(ctx context.Context, url string) (version, page string, assets
 	}
 	// Only a page on GitHub opens from the app.
 	if !strings.HasPrefix(rel.HTMLURL, "https://github.com/") {
-		rel.HTMLURL = "https://github.com/FinanceNik/Freeloop/releases"
+		rel.HTMLURL = "https://github.com/NiksSolutions/FreeLoop/releases"
 	}
 	assets = map[string]releaseAsset{}
 	for _, a := range rel.Assets {

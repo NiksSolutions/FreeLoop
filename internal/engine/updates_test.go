@@ -67,7 +67,7 @@ func TestUpdateCheck(t *testing.T) {
 		hits.Add(1)
 		ua.Store(r.Header.Get("User-Agent") + "|" + r.URL.RawQuery)
 		w.Header().Set("Content-Type", "application/json")
-		io.WriteString(w, `{"tag_name":"v0.2.0","html_url":"https://github.com/FinanceNik/Freeloop/releases/tag/v0.2.0","draft":false,"prerelease":false}`)
+		io.WriteString(w, `{"tag_name":"v0.2.0","html_url":"https://github.com/NiksSolutions/FreeLoop/releases/tag/v0.2.0","draft":false,"prerelease":false}`)
 	}))
 	defer srv.Close()
 	e := openTest(t, t.TempDir())
@@ -93,7 +93,7 @@ func TestUpdateCheck(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	info := e.UpdateStatus()
-	if !info.Newer || info.Latest != "0.2.0" || info.URL != "https://github.com/FinanceNik/Freeloop/releases/tag/v0.2.0" {
+	if !info.Newer || info.Latest != "0.2.0" || info.URL != "https://github.com/NiksSolutions/FreeLoop/releases/tag/v0.2.0" {
 		t.Fatalf("on: %+v", info)
 	}
 	if got := ua.Load().(string); got != "Freeloop-update-check|" {
@@ -135,7 +135,7 @@ func TestUpdateCheckFailures(t *testing.T) {
 			t.Errorf("%s: the failed check was not recorded", body)
 		}
 		switch {
-		case want == "" && (err != nil || info.URL != "https://github.com/FinanceNik/Freeloop/releases"):
+		case want == "" && (err != nil || info.URL != "https://github.com/NiksSolutions/FreeLoop/releases"):
 			t.Errorf("%s: %+v, %v", body, info, err)
 		case want != "" && (err == nil || !strings.Contains(err.Error(), want) || info.Newer || !strings.Contains(e.UpdateStatus().Error, want)):
 			t.Errorf("%s: %+v, %v", body, info, err)

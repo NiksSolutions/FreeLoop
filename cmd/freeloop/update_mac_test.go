@@ -89,7 +89,7 @@ func TestUpdateInPlaceOnAMac(t *testing.T) {
 				URL  string `json:"browser_download_url"`
 				Size int64  `json:"size"`
 			}
-			json.NewEncoder(w).Encode(map[string]any{"tag_name": "v9.0.0", "html_url": "https://github.com/FinanceNik/Freeloop/releases/tag/v9.0.0", "assets": []asset{
+			json.NewEncoder(w).Encode(map[string]any{"tag_name": "v9.0.0", "html_url": "https://github.com/NiksSolutions/FreeLoop/releases/tag/v9.0.0", "assets": []asset{
 				{"Freeloop.dmg", srv.URL + "/download/Freeloop.dmg", int64(len(image))},
 				{"SHA256SUMS", srv.URL + "/download/SHA256SUMS", int64(len(sums))},
 				{"SHA256SUMS.sig", srv.URL + "/download/SHA256SUMS.sig", int64(len(sig))},

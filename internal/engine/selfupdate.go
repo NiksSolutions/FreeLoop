@@ -33,7 +33,7 @@ import (
 // releaseDownloads is where GitHub serves a release's files from. Only
 // addresses under it are fetched: the signature guards what a file is, and
 // this guards whom the app talks to (SEC-009).
-const releaseDownloads = "https://github.com/FinanceNik/Freeloop/releases/download/"
+const releaseDownloads = "https://github.com/NiksSolutions/FreeLoop/releases/download/"
 
 // maxUpdateSize bounds a release file; the Mac's disk image is about a tenth.
 const maxUpdateSize = 2 << 30

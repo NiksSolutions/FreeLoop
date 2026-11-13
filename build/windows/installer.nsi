@@ -157,7 +157,7 @@ Section "Install"
   WriteRegStr   HKCU "${UNINST_KEY}" "Publisher"            "${COMPANY_NAME}"
   WriteRegStr   HKCU "${UNINST_KEY}" "DisplayIcon"          "$INSTDIR\${EXECUTABLE}"
   WriteRegStr   HKCU "${UNINST_KEY}" "InstallLocation"      "$INSTDIR"
-  WriteRegStr   HKCU "${UNINST_KEY}" "URLInfoAbout"         "https://github.com/FinanceNik/FreeLoop"
+  WriteRegStr   HKCU "${UNINST_KEY}" "URLInfoAbout"         "https://github.com/NiksSolutions/FreeLoop"
   WriteRegStr   HKCU "${UNINST_KEY}" "UninstallString"      '"$INSTDIR\uninstall.exe"'
   WriteRegStr   HKCU "${UNINST_KEY}" "QuietUninstallString" '"$INSTDIR\uninstall.exe" /S'
   WriteRegDWORD HKCU "${UNINST_KEY}" "NoModify" 1

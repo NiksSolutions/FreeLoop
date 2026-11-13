@@ -19,3 +19,4 @@ The steps in DEVELOPING.md, "A public repository" (written as "Before the reposi
 ## Notes
 - After this: tag `v0.1.0-beta.1` and ask three to five testers (ROADMAP.md, stage 4), then the things under "Out of scope" in the PRD.
 - 2026-11-13: the user made the repository public. A scan of all of history found neither the release key nor any real key or token; `main` is the only branch. Not yet done: CI's first run after the switch, private vulnerability reporting (off), the description and topics, and four commits of the same day under another address than the `noreply` one.
+- 2026-11-13: CI's first runs failed on both systems (a transcript could not be truncated on Windows; the test sshd could not read the runner's config on Linux); fixed the same day. The account was renamed `NiksSolutions`, and every address the app uses follows it (DEVELOPING.md, "A public repository").

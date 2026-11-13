@@ -32,7 +32,7 @@ import (
 
 // pushSubject is the VAPID `sub` claim: the project's URL, which a push service may
 // use to reach whoever runs the sender. Apple refuses a push without a valid one.
-const pushSubject = "https://github.com/FinanceNik/Freeloop"
+const pushSubject = "https://github.com/NiksSolutions/FreeLoop"
 
 // pushTTL is how long a push service keeps a message for a phone that is off.
 const pushTTL = time.Hour

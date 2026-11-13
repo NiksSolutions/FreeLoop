@@ -51,7 +51,7 @@ type Preset struct {
 var Presets = []Preset{
 	{ID: "openai", Name: "OpenAI", BaseURL: "https://api.openai.com/v1", NeedsKey: true, StreamUsage: true, ToolsKnown: true, Effort: "openai"},
 	{ID: "openrouter", Name: "OpenRouter", BaseURL: "https://openrouter.ai/api/v1", NeedsKey: true, StreamUsage: true, ToolsKnown: true, Effort: "openrouter",
-		Headers: map[string]string{"HTTP-Referer": "https://github.com/FinanceNik/Freeloop", "X-Title": "Freeloop"},
+		Headers: map[string]string{"HTTP-Referer": "https://github.com/NiksSolutions/FreeLoop", "X-Title": "Freeloop"},
 		Note:    "Not every OpenRouter model supports tools; pick one that does."},
 	{ID: "lmstudio", Name: "LM Studio", BaseURL: "http://localhost:1234/v1", Local: true, StreamUsage: true},
 	{ID: "llamacpp", Name: "llama.cpp server", BaseURL: "http://localhost:8080/v1", Local: true, StreamUsage: true,

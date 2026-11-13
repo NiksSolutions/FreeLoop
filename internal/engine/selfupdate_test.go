@@ -65,7 +65,7 @@ func newFakeRelease(t *testing.T, version string) *fakeRelease {
 			}
 			assets = append(assets, a)
 		}
-		json.NewEncoder(w).Encode(map[string]any{"tag_name": "v" + f.version, "html_url": "https://github.com/FinanceNik/Freeloop/releases/tag/v" + f.version, "assets": assets})
+		json.NewEncoder(w).Encode(map[string]any{"tag_name": "v" + f.version, "html_url": "https://github.com/NiksSolutions/FreeLoop/releases/tag/v" + f.version, "assets": assets})
 	}))
 	t.Cleanup(f.srv.Close)
 	return f
@@ -297,8 +297,10 @@ func TestUpdateNotPossible(t *testing.T) {
 func TestReleaseDownload(t *testing.T) {
 	e := &Engine{}
 	for addr, want := range map[string]bool{
-		"https://github.com/FinanceNik/Freeloop/releases/download/v0.2.0/Freeloop.dmg": true,
-		"https://github.com/FinanceNik/FreeLoop/releases/download/v0.2.0/Freeloop.dmg": true,
+		"https://github.com/NiksSolutions/FreeLoop/releases/download/v0.2.0/Freeloop.dmg": true,
+		"https://github.com/nikssolutions/freeloop/releases/download/v0.2.0/Freeloop.dmg": true,
+		// The account's old name, which someone else could take.
+		"https://github.com/FinanceNik/Freeloop/releases/download/v0.2.0/Freeloop.dmg": false,
 		"https://github.com/Other/Freeloop/releases/download/v0.2.0/Freeloop.dmg":      false,
 		"https://github.com.evil.example/FinanceNik/Freeloop/releases/download/x":      false,
 		"http://github.com/FinanceNik/Freeloop/releases/download/v0.2.0/Freeloop.dmg":  false,

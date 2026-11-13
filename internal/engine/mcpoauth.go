@@ -160,7 +160,7 @@ func (e *Engine) oauthHandler(s config.MCPServer) (auth.OAuthHandler, error) {
 	cfg := &auth.AuthorizationCodeHandlerConfig{
 		DynamicClientRegistrationConfig: &auth.DynamicClientRegistrationConfig{Metadata: &oauthex.ClientRegistrationMetadata{
 			ClientName:              "Freeloop",
-			ClientURI:               "https://github.com/FinanceNik/Freeloop",
+			ClientURI:               "https://github.com/NiksSolutions/FreeLoop",
 			RedirectURIs:            []string{redirect},
 			GrantTypes:              []string{"authorization_code", "refresh_token"},
 			ResponseTypes:           []string{"code"},

@@ -14,7 +14,7 @@ section: devel
 priority: optional
 maintainer: "The Freeloop Authors <91248623+FinanceNik@users.noreply.github.com>"
 vendor: "The Freeloop Authors"
-homepage: "https://github.com/FinanceNik/FreeLoop"
+homepage: "https://github.com/NiksSolutions/FreeLoop"
 license: Apache-2.0
 description: |-
   Run AI coding agents with your own models
