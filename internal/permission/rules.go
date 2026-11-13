@@ -55,7 +55,9 @@ const (
 // A rule with neither command nor path matches every call of its tools.
 //
 // Shell deny rules see through common wrappers (variable assignments, env,
-// command, exec, a leading backslash, subshells, sh -c '...'), but a shell
+// command, exec, a leading backslash, subshells, sh -c '...', cmd /c and
+// PowerShell's -Command) and read the program by name whatever its path,
+// Windows extension or letter case (programName), but a shell
 // can always spell a command another way; until shell commands run in a
 // sandbox, deny rules for shell are a guard against mistakes, not against a
 // determined agent.
@@ -167,7 +169,176 @@ var rtkRunners = []string{"proxy", "bypass", "run", "err", "test", "summary"}
 // keywords come before a command without being one.
 var keywords = []string{"!", "if", "then", "elif", "else", "do", "while", "until", "time"}
 
-var shellC = regexp.MustCompile(`^(?:\S*/)?(?:sh|bash|zsh|dash|ksh)\s+(?:--?[a-zA-Z-]+\s+)*?-[a-z]*c[a-z]*\s+(.*)$`)
+// shellC finds what sh -c runs. The program word has been through programName, so
+// /usr/bin/BASH and bash.exe are bash here.
+var shellC = regexp.MustCompile(`^(?:sh|bash|zsh|dash|ksh|ash|mksh|yash|fish|csh|tcsh)\s+(?:--?[a-zA-Z-]+\s+)*?-[a-z]*c[a-z]*\s+(.*)$`)
+
+// programName is how a deny rule reads a program word, so that every spelling of one
+// program is one name: the last name of a path split at either slash, without the
+// extension Windows runs it by (.exe, .cmd, .bat, .com), in lower case, since macOS's
+// and Windows' volumes find GIT and Git.EXE as git. Only deny rules read it: a name
+// that matches more makes a deny rule stop more, while an allow rule matched this way
+// would approve programs the user never named, so allow rules compare as written.
+func programName(word string) string {
+	if i := strings.LastIndexAny(word, `/\`); i >= 0 {
+		word = word[i+1:]
+	}
+	word = strings.ToLower(word)
+	for _, ext := range []string{".exe", ".cmd", ".bat", ".com"} {
+		if s, ok := strings.CutSuffix(word, ext); ok && s != "" {
+			return s
+		}
+	}
+	return word
+}
+
+// programNames are the names a raw program word can run as: as the shell reads it,
+// where a backslash escapes, and, when it has one, as Windows reads it, where a
+// backslash separates folders ('C:\Git\cmd\git.exe').
+func programNames(raw string) []string {
+	names := []string{programName(strings.TrimPrefix(unquoted(raw), "="))}
+	if i := strings.LastIndex(raw, `\`); i >= 0 {
+		if alt := programName(unquoted(raw[i+1:])); alt != "" && alt != names[0] {
+			names = append(names, alt)
+		}
+	}
+	return names
+}
+
+// denyPattern is a deny rule's command with its program read as programName reads
+// the command's, so `deny Git.exe push *` is `deny git push *`.
+func denyPattern(pattern string) string {
+	f := strings.Fields(pattern)
+	if len(f) == 0 || f[0] == "*" {
+		return pattern
+	}
+	f[0] = programName(strings.TrimPrefix(unquoted(f[0]), "="))
+	return strings.Join(f, " ")
+}
+
+// Windows' command interpreters, whose line a deny rule must read too.
+var (
+	cmdShells = []string{"cmd"}
+	psShells  = []string{"powershell", "pwsh", "powershell_ise"}
+)
+
+// cmdLine returns the line cmd /c (or /k, or Git Bash's //c) runs, and whether cmd
+// hides from the rules what it runs: a line read from its input, a switch not known,
+// escapes (^), variables (%x%, !x!), and its own launchers (call, start), loops and
+// conditions, which run a command a rule cannot see as the program.
+func cmdLine(words []string) (inner string, hidden bool) {
+	for i, w := range words {
+		w = unquoted(w)
+		s := strings.TrimLeft(w, "/")
+		if s == w || s == "" {
+			return "", true
+		}
+		switch unicode.ToLower(rune(s[0])) {
+		case 'c', 'k', 'r':
+			inner = strings.Join(append([]string{s[1:]}, words[i+1:]...), " ")
+			if strings.TrimSpace(inner) == "" || strings.ContainsAny(inner, "^%!") {
+				return inner, true
+			}
+			for _, seg := range segments(inner) {
+				f := strings.Fields(strings.Trim(seg, "(){} \t'\""))
+				if len(f) > 0 && slices.Contains([]string{"call", "start", "if", "for"}, strings.ToLower(unquoted(f[0]))) {
+					return inner, true
+				}
+			}
+			return inner, false
+		case 'd', 'q', 's', 'a', 'u', 'e', 'f', 'v', 't':
+		default:
+			return "", true
+		}
+	}
+	// Without /c, cmd runs what it reads, which no rule sees.
+	return "", len(words) > 0
+}
+
+// quotedOperator reports a shell operator inside quotes in line.
+func quotedOperator(line string) bool {
+	var quote rune
+	for _, c := range line {
+		switch {
+		case quote != 0 && c == quote:
+			quote = 0
+		case quote != 0 && strings.ContainsRune("&|;\n", c):
+			return true
+		case quote == 0 && (c == '\'' || c == '"'):
+			quote = c
+		}
+	}
+	return false
+}
+
+// psNoValue and psValue are PowerShell's parameters before its command, which may be
+// shortened to any prefix (OQ-044 runs commands through Git Bash, but a command can
+// start PowerShell itself).
+var (
+	psNoValue = []string{"noprofile", "nologo", "noninteractive", "noexit", "sta", "mta", "login", "interactive", "nop", "noni", "l", "i"}
+	psValue   = []string{"executionpolicy", "ex", "ep", "windowstyle", "w", "inputformat", "if", "outputformat", "o", "of", "workingdirectory", "wd", "configurationname", "settingsfile", "version", "v", "psconsolefile", "configurationfile", "custompipename"}
+	// psHiders run or rename a command a rule cannot see as the program.
+	psHiders = []string{".", "&", "iex", "invoke-expression", "start-process", "saps", "start", "invoke-command", "icm", "invoke-item", "ii",
+		"set-alias", "sal", "new-alias", "nal", "set-item", "si", "new-item", "ni", "start-job", "sajb", "start-threadjob", "invoke-restmethod", "irm", "-encodedcommand"}
+)
+
+func psParam(name string, list []string) bool {
+	return slices.ContainsFunc(list, func(full string) bool {
+		return name == full || (len(name) >= 3 && strings.HasPrefix(full, name))
+	})
+}
+
+// psLine returns the line PowerShell runs with -Command (or with no parameter before
+// it, which Windows PowerShell reads as a command), and whether it hides from the
+// rules what it runs: an encoded command, a parameter not known, a command read from
+// its input, or a line that builds, calls or renames what it runs.
+func psLine(words []string) (inner string, hidden bool) {
+	for i := 0; i < len(words); i++ {
+		w := unquoted(words[i])
+		if !strings.HasPrefix(w, "-") && !strings.HasPrefix(w, "/") {
+			inner = strings.Join(words[i:], " ")
+			break
+		}
+		name, _, valued := strings.Cut(strings.ToLower(strings.TrimLeft(w, "-/")), ":")
+		switch {
+		case name == "":
+			return "", true
+		case strings.HasPrefix("command", name), name == "cwa", len(name) > 7 && strings.HasPrefix("commandwithargs", name):
+			inner = strings.Join(words[i+1:], " ")
+		case name == "f" || (len(name) >= 2 && strings.HasPrefix("file", name)):
+			// A script runs its own lines, as `bash script.sh` does; "-" is its input.
+			return "", i+1 < len(words) && unquoted(words[i+1]) == "-"
+		case psParam(name, psValue):
+			if !valued {
+				i++
+			}
+			continue
+		case psParam(name, psNoValue):
+			continue
+		default:
+			// -EncodedCommand, -e, -ec and anything else not known.
+			return "", true
+		}
+		break
+	}
+	if inner == "" {
+		// -Command with nothing after it is read from the input, or its line was cut at
+		// an operator inside its quotes.
+		return "", slices.ContainsFunc(words, func(w string) bool {
+			n := strings.ToLower(strings.TrimLeft(unquoted(w), "-/"))
+			return n != "" && (strings.HasPrefix("command", n) || n == "cwa")
+		})
+	}
+	if strings.ContainsAny(inner, "$`(){}&@+[]%") || strings.TrimSpace(unquoted(inner)) == "-" {
+		return inner, true
+	}
+	for _, f := range strings.Fields(inner) {
+		if slices.Contains(psHiders, strings.ToLower(strings.Trim(unquoted(f), ";"))) {
+			return inner, true
+		}
+	}
+	return inner, false
+}
 
 // substitution finds what $(...) and backticks run.
 var substitution = regexp.MustCompile("\\$\\(([^()]*)\\)|`([^`]*)`")
@@ -204,7 +375,14 @@ func commandsOf(cmd string, depth int) (out, unseen []string) {
 		fields := strings.Fields(seg)
 		for len(fields) > 0 {
 			f := unquoted(fields[0])
-			valued, wrapper := wrappers[filepath.Base(f)]
+			name := ""
+			for _, n := range programNames(fields[0]) {
+				if _, ok := wrappers[n]; ok {
+					name = n
+					break
+				}
+			}
+			valued, wrapper := wrappers[name]
 			switch {
 			case slices.Contains(keywords, f):
 				fields = fields[1:]
@@ -212,7 +390,7 @@ func commandsOf(cmd string, depth int) (out, unseen []string) {
 				fields = fields[1:] // VAR=value
 			case wrapper:
 				// A rule can name rtk itself, which runs what follows it.
-				if filepath.Base(f) == "rtk" {
+				if name == "rtk" {
 					out = append(out, "rtk "+strings.Join(fields[1:], " "))
 				}
 				fields = fields[1:]
@@ -226,11 +404,11 @@ func commandsOf(cmd string, depth int) (out, unseen []string) {
 					}
 				}
 				// timeout's first word is the time.
-				if filepath.Base(f) == "timeout" && len(fields) > 0 {
+				if name == "timeout" && len(fields) > 0 {
 					fields = fields[1:]
 				}
 				// Some of rtk's own commands run what follows them.
-				if filepath.Base(f) == "rtk" {
+				if name == "rtk" {
 					for len(fields) > 0 && (slices.Contains(rtkRunners, fields[0]) || strings.HasPrefix(fields[0], "-")) {
 						fields = fields[1:]
 					}
@@ -249,7 +427,9 @@ func commandsOf(cmd string, depth int) (out, unseen []string) {
 		for i := range fields {
 			fields[i] = unquoted(fields[i])
 		}
-		fields[0] = filepath.Base(strings.TrimPrefix(fields[0], "="))
+		// The program by the name every spelling of it shares (programName).
+		names := programNames(raw[0])
+		fields[0] = names[0]
 		switch {
 		case strings.ContainsAny(raw[0], "$`") || (strings.ContainsAny(raw[0], "*?[") && raw[0] != "[" && raw[0] != "[["):
 			// A glob in the program word is expanded to the program that runs.
@@ -259,6 +439,9 @@ func commandsOf(cmd string, depth int) (out, unseen []string) {
 		}
 		simple := strings.Join(fields, " ")
 		out = append(out, simple)
+		for _, alt := range names[1:] {
+			out = append(out, strings.Join(append([]string{alt}, fields[1:]...), " "))
+		}
 		if g := withoutGitOptions(fields); g != "" {
 			out = append(out, g)
 		}
@@ -273,6 +456,25 @@ func commandsOf(cmd string, depth int) (out, unseen []string) {
 			inner, in = commandsOf(strings.Join(fields[1:], " "), depth+1)
 			out, unseen = append(out, inner...), append(unseen, in...)
 		}
+		// Windows' interpreters run their line too: cmd /c and PowerShell's -Command
+		// are read as sh -c is, and what they hide from the rules is unseen.
+		var inner string
+		var hidden bool
+		switch {
+		case slices.Contains(cmdShells, fields[0]):
+			inner, hidden = cmdLine(raw[1:])
+		case slices.Contains(psShells, fields[0]):
+			inner, hidden = psLine(raw[1:])
+		}
+		// segments splits at an operator inside quotes, which sh would not, but cmd and
+		// PowerShell then would: their line is not what the segment shows.
+		if hidden || (inner != "" && quotedOperator(cmd)) {
+			unseen = append(unseen, "")
+		}
+		if inner != "" && depth < 3 {
+			in, un := commandsOf(inner, depth+1)
+			out, unseen = append(out, in...), append(unseen, un...)
+		}
 	}
 	return out, unseen
 }
@@ -280,14 +482,13 @@ func commandsOf(cmd string, depth int) (out, unseen []string) {
 // hidesFromDenyRules reports a line that builds its program, or the subcommand of a
 // program a shell deny rule names, when it runs: "$a push", "git $sub".
 func hidesFromDenyRules(rules []Rule, cmd string) bool {
-	if cmd == "" || !strings.ContainsAny(cmd, "$`*?[") {
+	if cmd == "" {
 		return false
 	}
 	var programs []string
 	for _, r := range rules {
 		if ok, _ := path.Match(r.Tool, "shell"); r.Effect == Deny && r.Command != "" && ok {
-			f := strings.Fields(unquoted(r.Command))
-			if len(f) > 0 {
+			if f := strings.Fields(denyPattern(r.Command)); len(f) > 0 {
 				programs = append(programs, f[0])
 			}
 		}
@@ -421,8 +622,9 @@ func (r Rule) matchCommand(cmd string) bool {
 		if r.Literal {
 			return exactForm(cmd) == exactForm(r.Command)
 		}
+		pattern := denyPattern(r.Command)
 		return slices.ContainsFunc(simpleCommands(cmd, 0), func(s string) bool {
-			return commandMatches(r.Command, s) || flagSetMatches(r.Command, s)
+			return commandMatches(pattern, s) || flagSetMatches(pattern, s)
 		})
 	}
 	pattern := normalize(r.Command)

@@ -155,3 +155,76 @@ func TestAWriteDenyRuleStopsAnExternalAgentsEdit(t *testing.T) {
 		t.Errorf("an edit elsewhere: %+v, %v", d, decided)
 	}
 }
+
+// A deny rule names a program, not a spelling of it: git.exe, a path with either slash,
+// GIT on a volume that ignores case (APFS, NTFS), a shell, cmd or PowerShell that runs
+// the line. Reproduced on 2026-11-13 with `deny git push *` in bypass mode: the first
+// lines below were allowed by the mode (SEC-003).
+func TestShellDenyRulesSeeOtherSpellingsOfTheProgram(t *testing.T) {
+	home := environment.Canonical(t.TempDir())
+	b := NewBroker(NewPolicy(home, filepath.Join(home, "data")), nil)
+	root := filepath.Join(home, "repo")
+	deny := Rule{Effect: Deny, Tool: "shell", Command: "git push *", Scope: ScopeGlobal}
+	allowShell := Rule{Effect: Allow, Tool: "shell", Scope: ScopeGlobal}
+	b.SetRules(fixedRules{deny}, nil)
+	for _, line := range []string{
+		`git push origin main`, `git.exe push origin main`, `/mingw64/bin/git.exe push origin main`, `GIT push origin main`,
+		`Git.EXE push origin main`, `bash.exe -c "git push origin main"`, `cmd //c git push origin main`,
+		`powershell -Command "git push origin main"`,
+		`'C:\Git\cmd\git.exe' push origin`, `C:/Git/cmd/GIT.CMD push`, `git.bat push`, `git.com push`, `GIT -C . push`,
+		`/usr/bin/BASH -lc 'git push'`, `C:/Git/bin/sh.exe -c "git push"`, `cmd /c git push origin main`,
+		`cmd.exe /C "git push origin main"`, `CMD /d /s /c "git push"`, `cmd /k git push`, `pwsh -c 'git push'`,
+		`powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "git push"`, `pwsh -NoLogo -Com "git.exe push"`,
+		`powershell git push origin`, `ENV.EXE git push`, `/usr/bin/Sudo git push`,
+	} {
+		if !deny.Matches(shellReq(line), root) {
+			t.Errorf("%q got past the rule", line)
+		}
+		if d, decided := b.evaluate(Context{Mode: ModeBypass, Root: root}, shellReq(line)); !decided || d.Outcome != Denied {
+			t.Errorf("%q in bypass mode: %+v, %v", line, d, decided)
+		}
+	}
+	// A rule written with another spelling is the same rule.
+	if !(Rule{Effect: Deny, Tool: "shell", Command: "Git.exe push *"}).Matches(shellReq("git push origin"), root) {
+		t.Error("deny Git.exe push * does not stop git push")
+	}
+	// What a line hides from the rules asks, and bypass refuses it: an encoded
+	// PowerShell command, a cmd line with its escapes, variables and own launchers, a
+	// PowerShell line that builds, calls or renames what it runs, an option not known.
+	for _, line := range []string{
+		`powershell -EncodedCommand ZwBpAHQAIABwAHUAcwBoAA==`, `pwsh -enc ZwBpAHQA`, `powershell -e ZwBpAHQA`, `pwsh -ec ZwBpAHQA`,
+		`cmd /c "g^it push"`, `cmd /c %G% push`, `cmd /c call git push`, `cmd /c start git push`, `cmd /v:on /c "!g! push"`,
+		`powershell -Command "& ('gi'+'t') push"`, `pwsh -c "iex 'git push'"`, `pwsh -c "Invoke-Expression 'git push'"`,
+		"pwsh -c \"g`it push\"", `pwsh -c "Set-Alias g git; g push"`, `powershell -NoProfile -Unknown x`,
+		`pwsh -c "Start-Process git -ArgumentList push"`, `pwsh -c '. git push'`,
+	} {
+		b.SetRules(fixedRules{deny, allowShell}, nil)
+		if d, decided := b.evaluate(Context{Mode: ModeAsk, Root: root}, shellReq(line)); decided {
+			t.Errorf("%q in ask mode with allow shell was decided: %+v", line, d)
+		}
+		if d, decided := b.evaluate(Context{Mode: ModeBypass, Root: root}, shellReq(line)); !decided || d.Outcome != Denied {
+			t.Errorf("%q in bypass mode: %+v, %v", line, d, decided)
+		}
+	}
+	// Other commands still run.
+	b.SetRules(fixedRules{deny}, nil)
+	for _, line := range []string{
+		`git.exe status`, `GIT pull`, `cmd /c git status`, `cmd //c dir`, `powershell -Command "git status"`, `pwsh -NoProfile -c Get-ChildItem`,
+		`bash.exe -c "git log"`, `echo git push`, `gitk push`, `git-push origin`, `echo 100%`,
+	} {
+		if d, decided := b.evaluate(Context{Mode: ModeBypass, Root: root}, shellReq(line)); !decided || d.Outcome != Allowed {
+			t.Errorf("%q in bypass mode: %+v, %v", line, d, decided)
+		}
+	}
+	// An allow rule stays as written: `allow git *` approves git, not GIT or git.exe,
+	// which on a volume that tells case apart may be another program.
+	b.SetRules(fixedRules{{Effect: Allow, Tool: "shell", Command: "git *", Scope: ScopeGlobal}}, nil)
+	if d, decided := b.evaluate(Context{Mode: ModeAsk, Root: root}, shellReq("git status")); !decided || d.Outcome != Allowed {
+		t.Errorf("git status: %+v, %v", d, decided)
+	}
+	for _, line := range []string{`GIT status`, `git.exe status`, `/tmp/x/git status`} {
+		if d, decided := b.evaluate(Context{Mode: ModeAsk, Root: root}, shellReq(line)); decided {
+			t.Errorf("%q was decided by allow git *: %+v", line, d)
+		}
+	}
+}
