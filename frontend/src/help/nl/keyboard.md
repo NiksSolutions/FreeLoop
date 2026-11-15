@@ -77,7 +77,7 @@ Het berichtvak vult aan met wat eerder is getypt. Daarvoor gaat niets naar een m
 
 | Toetsen | Doet |
 | --- | --- |
-| → of End | De grijze rest overnemen van een eerdere prompt die net zo begint als de tekst |
+| Tab, → of End | De grijze rest overnemen van een eerdere prompt die net zo begint als de tekst |
 | {{⌥→|Ctrl+→}} | Het volgende woord ervan overnemen |
 | Escape | De grijze tekst verbergen tot er verder wordt getypt |
 | ↑ in een leeg vak | De eerdere prompts van dit project terughalen, de nieuwste eerst |

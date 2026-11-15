@@ -34,7 +34,7 @@ import {
 import { pickLabel } from "./a11y.ts";
 import AttachedImages from "./AttachedImages.tsx";
 import { useDismiss } from "./useDismiss.ts";
-import { placeholder } from "./composer.ts";
+import { placeholder, tabAction } from "./composer.ts";
 import ToolView, { openSessionEvent } from "./ToolView.tsx";
 import Tags from "./Tags.tsx";
 import { prepareImage, type PreparedImage } from "./imageprep.ts";
@@ -821,6 +821,23 @@ export default function SessionView({ session, transcript, focus, prices, initia
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.nativeEvent.isComposing) return;
+    // Tab takes what the box offers, and moves the focus on only when it offers
+    // nothing (tabAction).
+    if (e.key === "Tab" && !e.altKey && !e.ctrlKey && !e.metaKey) {
+      const action = tabAction({
+        shift: e.shiftKey,
+        history: historyOpen ? historyMatches.length : null,
+        commands: slash !== null ? slashMatches.length : 0,
+        mention: mention ? (files === null ? "loading" : matches.length) : null,
+        rest,
+      });
+      if (action !== "move") e.preventDefault();
+      if (action === "history") chooseHistory(historyMatches[Math.min(pick, historyMatches.length - 1)]);
+      else if (action === "command") chooseCommand(slashMatches[Math.min(pick, slashMatches.length - 1)]);
+      else if (action === "mention") choose(matches[Math.min(pick, matches.length - 1)]);
+      else if (action === "suggestion") putText(draft + rest);
+      return;
+    }
     if (historyOpen) {
       const n = historyMatches.length;
       if ((e.key === "ArrowDown" || e.key === "ArrowUp") && n > 0) {
@@ -847,7 +864,7 @@ export default function SessionView({ session, transcript, focus, prices, initia
         setPick((p) => (p + (e.key === "ArrowDown" ? 1 : n - 1)) % n);
         return;
       }
-      if ((e.key === "Enter" && !primaryKey(e) && !e.shiftKey) || e.key === "Tab") {
+      if (e.key === "Enter" && !primaryKey(e) && !e.shiftKey) {
         e.preventDefault();
         chooseCommand(slashMatches[Math.min(pick, n - 1)]);
         return;
@@ -866,7 +883,7 @@ export default function SessionView({ session, transcript, focus, prices, initia
         setPick((p) => (p + (e.key === "ArrowDown" ? 1 : n - 1)) % n);
         return;
       }
-      if ((e.key === "Enter" && !primaryKey(e)) || e.key === "Tab") {
+      if (e.key === "Enter" && !primaryKey(e)) {
         e.preventDefault();
         choose(matches[Math.min(pick, n - 1)]);
         return;
@@ -879,8 +896,8 @@ export default function SessionView({ session, transcript, focus, prices, initia
       return;
     }
     const plain = !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey;
-    // The grey rest of an earlier prompt: → or End takes it all, ⌥→ (Ctrl+→ outside
-    // a Mac) its next word, Escape hides it.
+    // The grey rest of an earlier prompt: → or End takes it all, as Tab does above, ⌥→
+    // (Ctrl+→ outside a Mac) its next word, Escape hides it.
     if (rest) {
       if (plain && (e.key === "ArrowRight" || e.key === "End")) {
         e.preventDefault();

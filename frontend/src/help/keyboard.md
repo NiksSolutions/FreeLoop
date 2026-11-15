@@ -77,7 +77,7 @@ The message box completes from what you typed before. Nothing is sent to a model
 
 | Keys | Does |
 | --- | --- |
-| → or End | Take the grey rest of an earlier prompt that starts like your text |
+| Tab, → or End | Take the grey rest of an earlier prompt that starts like your text |
 | {{⌥→|Ctrl+→}} | Take its next word |
 | Escape | Hide the grey text until you type on |
 | ↑ in an empty box | Bring back this project's earlier prompts, newest first |

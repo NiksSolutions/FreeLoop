@@ -688,7 +688,7 @@ export const de = translationOf<typeof en>()({
   "composer.fileList": "Dateien",
   "composer.listing": "Dateien werden aufgelistet…",
   "composer.noFiles": "Keine passenden Dateien",
-  "composer.suggestion": "Vorschlag: {text}. Pfeil nach rechts übernimmt ihn.",
+  "composer.suggestion": "Vorschlag: {text}. Tab oder Pfeil nach rechts übernimmt ihn.",
   "composer.history.recalled": "Früherer Prompt {n} von {total}",
   "composer.history.title": "Frühere Prompts",
   "composer.history.search": "Frühere Prompts durchsuchen",

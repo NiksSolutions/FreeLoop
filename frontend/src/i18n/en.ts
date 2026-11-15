@@ -721,7 +721,7 @@ export const en = {
   "composer.listing": "Listing files…",
   "composer.noFiles": "No matching files",
   // Earlier prompts (GUI-049).
-  "composer.suggestion": "Suggestion: {text}. Right Arrow accepts it.",
+  "composer.suggestion": "Suggestion: {text}. Tab or Right Arrow accepts it.",
   "composer.history.recalled": "Earlier prompt {n} of {total}",
   "composer.history.title": "Earlier prompts",
   "composer.history.search": "Search earlier prompts",

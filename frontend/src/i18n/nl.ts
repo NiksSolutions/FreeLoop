@@ -687,7 +687,7 @@ export const nl = translationOf<typeof en>()({
   "composer.fileList": "Bestanden",
   "composer.listing": "Bestanden worden opgehaald…",
   "composer.noFiles": "Geen passende bestanden",
-  "composer.suggestion": "Suggestie: {text}. Pijl-rechts neemt hem over.",
+  "composer.suggestion": "Suggestie: {text}. Tab of pijl-rechts neemt hem over.",
   "composer.history.recalled": "Eerdere prompt {n} van {total}",
   "composer.history.title": "Eerdere prompts",
   "composer.history.search": "Eerdere prompts doorzoeken",

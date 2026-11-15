@@ -77,7 +77,7 @@ Das Nachrichtenfeld vervollständigt aus dem, was früher getippt wurde. Dafür 
 
 | Tasten | Bewirkt |
 | --- | --- |
-| → oder Ende | Den grauen Rest eines früheren Prompts übernehmen, der so anfängt wie der Text |
+| Tab, → oder Ende | Den grauen Rest eines früheren Prompts übernehmen, der so anfängt wie der Text |
 | {{⌥→|Ctrl+→}} | Sein nächstes Wort übernehmen |
 | Escape | Den grauen Text ausblenden, bis weitergetippt wird |
 | ↑ in einem leeren Feld | Die früheren Prompts dieses Projekts zurückholen, die neuesten zuerst |

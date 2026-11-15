@@ -619,6 +619,13 @@ await step("earlier prompts come back, and @ puts the session's files first", as
   await sleep(150);
   check("→ takes it", box.value === "go and read the notes", `it reads "${box.value}"`);
   check("and the grey text goes", !pane.querySelector(".composer-ghost"));
+  // The user's report: Tab moved the focus to the model and effort picker instead.
+  type(box, "go and ");
+  await until("the grey rest once more", () => pane.querySelector(".composer-ghost"), 3000);
+  const taken = !key("Tab");
+  await sleep(150);
+  check("Tab takes it as well, held in the box", taken && box.value === "go and read the notes", `it reads "${box.value}"`);
+  check("with nothing offered, Tab moves the focus on", key("Tab"));
   type(box, "");
   await sleep(100);
   await openPalette("search earlier prompts");
