@@ -377,6 +377,10 @@ export const en = {
   "styles.deleteAsk": "Delete the style {name}? The fonts and colors on screen stay as they are.",
   "styles.folder": "Show the styles folder {where}, to share a style or add one as a file",
   "styles.discardAsk": "The fonts and colors you changed are not saved in a style. Switch anyway?",
+  // The two groups of the Style list: the user's own styles and those that come with the app.
+  "styles.saved": "Saved",
+  "styles.builtin": "Built in",
+  "styles.builtinChangedNote": "The fonts or colors differ from the style. A built-in style stays as it is: save them as a new style to keep them.",
 
   "fonts.text": "Text",
   "fonts.textHint": "The interface and messages.",

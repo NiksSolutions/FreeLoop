@@ -1149,7 +1149,7 @@ export default function App() {
       page("rules", t("settings.page.rules"), () => setScreen({ kind: "rules" }), { keywords: "permission rules allow deny would this be allowed check" }),
       page("settings", t("settings.title"), () => setScreen(settingsScreen()), { keywords: "preferences" }),
       page("appearance", t("settings.page.appearance"), () => setScreen({ kind: "appearance" }), { keywords: "theme dark light font size colors style styles template provider marks" }),
-      // Each saved style, once there is one, and the app's own look (GUI-053).
+      // Each style, saved or built in, and the app's own look (GUI-053).
       ...(styles.length === 0
         ? []
         : [null, ...styles].map((s) => ({

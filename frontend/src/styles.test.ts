@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isChanged, lookOf, sameLook, selectedStyle, styleColors, styleFonts } from "./styles.ts";
+import { groupStyles, isChanged, lookOf, sameLook, selectedStyle, styleColors, styleFonts } from "./styles.ts";
 
 const paper = { id: "paper", name: "Paper", textFont: "Inter", codeFont: "", light: { accent: "#7c3aed", bg: "#ffffff" }, dark: null };
 const night = { id: "night", name: "Night", textFont: "", codeFont: "Menlo", light: {}, dark: { bg: "#000000" } };
@@ -47,4 +47,11 @@ test("applying a style puts all of its values in place, and the app's own clears
   assert.deepEqual(styleFonts(null), { textFont: "", codeFont: "" });
   // What is applied is what the style holds, so it is not shown as changed.
   assert.ok(!isChanged(lookOf(styleColors(night), styleFonts(night)), night));
+});
+
+test("the list shows the user's styles apart from the app's own, each in its order", () => {
+  const nord = { ...night, id: "nord", name: "Nord", builtin: true };
+  const niks = { ...night, id: "niks", name: "Niks Theme", builtin: true };
+  assert.deepEqual(groupStyles([niks, night, nord, paper]), { saved: [night, paper], builtin: [niks, nord] });
+  assert.deepEqual(groupStyles([]), { saved: [], builtin: [] });
 });

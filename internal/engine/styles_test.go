@@ -17,8 +17,8 @@ func TestStylesFollowTheFolder(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer e.Close()
-	if s := e.Styles(); len(s) != 0 {
-		t.Fatalf("a new data folder has styles: %+v", s)
+	if s := e.Styles(); len(s) != len(config.BuiltinStyles()) {
+		t.Fatalf("a new data folder has styles besides the built-in ones: %+v", s)
 	}
 
 	// Saved as new: the ID comes from the name and does not take another's.
@@ -92,6 +92,57 @@ func TestStylesFollowTheFolder(t *testing.T) {
 	folder, err := e.StylesFolder()
 	if err != nil || folder != filepath.Join(dir, config.StylesDir) {
 		t.Fatalf("folder = %q, %v", folder, err)
+	}
+}
+
+// GUI-053: the app's own styles are listed beside the saved ones and stay as they
+// are; a file with one's ID takes its place until it is deleted.
+func TestBuiltinStylesStayAsTheyAre(t *testing.T) {
+	dir := t.TempDir()
+	e, err := Open(Options{DataDir: dir, Secrets: secrets.NewMemory(), Home: t.TempDir(), WatchInterval: -1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer e.Close()
+	nord := e.style("nord")
+	if !nord.Builtin || nord.Name != "Nord" || nord.Dark["bg"] == "" {
+		t.Fatalf("nord = %+v", nord)
+	}
+	// A new style named as a built-in one gets an ID of its own.
+	if s, err := e.SaveStyle(config.Style{Name: "Nord"}); err != nil || s.ID != "nord-2" {
+		t.Fatalf("new = %+v, %v", s, err)
+	}
+	changed := nord
+	changed.Light = map[string]string{"accent": "#d14b8f"}
+	if _, err := e.SaveStyle(changed); err == nil {
+		t.Error("a built-in style was updated")
+	}
+	if err := e.DeleteStyle("nord"); err == nil {
+		t.Error("a built-in style was deleted")
+	}
+	if _, err := os.Stat(filepath.Join(dir, config.StyleFile("nord"))); !os.IsNotExist(err) {
+		t.Fatalf("a file was written for the built-in style: %v", err)
+	}
+
+	// Put in the folder by hand, a file with its ID replaces it and can be changed.
+	os.MkdirAll(filepath.Join(dir, config.StylesDir), 0o700)
+	if err := os.WriteFile(filepath.Join(dir, config.StyleFile("nord")), []byte(`{"name":"My Nord","dark":{"bg":"#000000"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	e.reload([]string{config.StyleFile("nord")})
+	mine := e.style("nord")
+	if mine.Builtin || mine.Name != "My Nord" {
+		t.Fatalf("the file did not replace the built-in style: %+v", mine)
+	}
+	mine.Dark = map[string]string{"bg": "#111111"}
+	if _, err := e.SaveStyle(mine); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.DeleteStyle("nord"); err != nil {
+		t.Fatal(err)
+	}
+	if s := e.style("nord"); !s.Builtin || s.Name != "Nord" {
+		t.Fatalf("deleting the file did not bring the built-in style back: %+v", s)
 	}
 }
 

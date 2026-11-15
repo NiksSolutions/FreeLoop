@@ -8,23 +8,23 @@ import (
 	"github.com/FinanceNik/Freeloop/internal/config"
 )
 
-// loadStyles rereads the saved styles (GUI-053).
+// loadStyles rereads the saved styles (GUI-053), listed with the app's own.
 func (e *Engine) loadStyles() {
 	styles, issues := config.LoadStyles(e.dataDir)
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.styles = styles
+	e.styles = config.StylesWithBuiltins(styles)
 	e.issues[issueStyles] = issues
 }
 
-// Styles returns the saved styles, sorted by name.
+// Styles returns the app's styles and the saved ones, sorted by name.
 func (e *Engine) Styles() []config.Style {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return slices.Clone(e.styles)
 }
 
-// style returns the saved style id, or a zero Style.
+// style returns the style id, or a zero Style.
 func (e *Engine) style(id string) config.Style {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -35,7 +35,8 @@ func (e *Engine) style(id string) config.Style {
 }
 
 // SaveStyle writes a style. One without an ID is new and gets an ID made from
-// its name that no file in the folder has.
+// its name that no file in the folder and no built-in style has. A built-in style
+// is not written: it is saved as a new one.
 func (e *Engine) SaveStyle(s config.Style) (config.Style, error) {
 	files := config.Fingerprint(e.dataDir)
 	if s.ID == "" {
@@ -48,12 +49,15 @@ func (e *Engine) SaveStyle(s config.Style) (config.Style, error) {
 		}
 		s.ID = base
 		for n := 2; ; n++ {
-			if _, taken := files[config.StyleFile(s.ID)]; !taken {
+			if _, taken := files[config.StyleFile(s.ID)]; !taken && !config.IsBuiltinStyle(s.ID) {
 				break
 			}
 			s.ID = fmt.Sprintf("%s-%d", base, n)
 		}
 	} else {
+		if e.style(s.ID).Builtin {
+			return config.Style{}, fmt.Errorf("%s comes with the app and stays as it is; save it as a new style", e.style(s.ID).Name)
+		}
 		e.mu.Lock()
 		broken := slices.ContainsFunc(e.issues[issueStyles], func(is config.Issue) bool {
 			return is.Unreadable && is.File == config.StyleFile(s.ID)
@@ -70,8 +74,12 @@ func (e *Engine) SaveStyle(s config.Style) (config.Style, error) {
 	return e.style(s.ID), nil
 }
 
-// DeleteStyle removes a saved style. The look on screen stays as it is.
+// DeleteStyle removes a saved style. The look on screen stays as it is. A built-in
+// style has no file to remove; one that a file replaced comes back.
 func (e *Engine) DeleteStyle(id string) error {
+	if s := e.style(id); s.Builtin {
+		return fmt.Errorf("%s comes with the app and cannot be deleted", s.Name)
+	}
 	if err := config.DeleteStyle(e.dataDir, id); err != nil {
 		return err
 	}

@@ -373,6 +373,9 @@ export const nl = translationOf<typeof en>()({
   "styles.deleteAsk": "De stijl {name} verwijderen? De lettertypen en kleuren op het scherm blijven zoals ze zijn.",
   "styles.folder": "De map met stijlen {where} tonen, om een stijl te delen of als bestand toe te voegen",
   "styles.discardAsk": "De gewijzigde lettertypen en kleuren staan in geen stijl. Toch wisselen?",
+  "styles.saved": "Opgeslagen",
+  "styles.builtin": "Meegeleverd",
+  "styles.builtinChangedNote": "De lettertypen of kleuren wijken af van de stijl. Een meegeleverde stijl blijft zoals hij is: om ze te houden als nieuwe stijl opslaan.",
 
   "fonts.text": "Tekst",
   "fonts.textHint": "De interface en de berichten.",

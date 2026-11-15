@@ -30,6 +30,8 @@ type Style struct {
 	CodeFont string            `json:"codeFont"`
 	Light    map[string]string `json:"light"`
 	Dark     map[string]string `json:"dark"`
+	// Builtin marks a style the app ships (builtinstyles.go), which has no file.
+	Builtin bool `json:"builtin"`
 }
 
 // styleFile is what a style's file holds: the style without its ID.

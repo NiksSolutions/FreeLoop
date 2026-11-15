@@ -16,6 +16,15 @@ export interface StyleValues {
   codeFont: string;
   light: Entries;
   dark: Entries;
+  // A style the app ships: chosen and saved as new like any other, never updated
+  // or deleted.
+  builtin?: boolean;
+}
+
+// groupStyles parts the list into the user's styles and the app's own, each in
+// the order given.
+export function groupStyles<T extends { builtin?: boolean }>(styles: readonly T[]): { saved: T[]; builtin: T[] } {
+  return { saved: styles.filter((s) => !s.builtin), builtin: styles.filter((s) => s.builtin) };
 }
 
 export interface Look {

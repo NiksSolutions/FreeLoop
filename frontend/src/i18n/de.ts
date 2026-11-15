@@ -374,6 +374,9 @@ export const de = translationOf<typeof en>()({
   "styles.deleteAsk": "Den Stil {name} löschen? Schriften und Farben auf dem Bildschirm bleiben, wie sie sind.",
   "styles.folder": "Den Ordner der Stile {where} zeigen, um einen Stil weiterzugeben oder als Datei hinzuzufügen",
   "styles.discardAsk": "Die geänderten Schriften und Farben sind in keinem Stil gespeichert. Trotzdem wechseln?",
+  "styles.saved": "Gespeichert",
+  "styles.builtin": "Mitgeliefert",
+  "styles.builtinChangedNote": "Schriften oder Farben weichen vom Stil ab. Ein mitgelieferter Stil bleibt, wie er ist: Zum Behalten als neuen Stil speichern.",
 
   "fonts.text": "Text",
   "fonts.textHint": "Die Oberfläche und die Nachrichten.",

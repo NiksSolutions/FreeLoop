@@ -1064,6 +1064,17 @@ await step("a style keeps the fonts and colors, and choosing it brings them back
     withText(".style-picker button", "Delete style").click();
     await until("the style gone", () => !all("option", select()).some((o) => o.value === id), 5000);
     check("deleting leaves the look as it is", accent() === "#d14b8f" && shown() === "Freeloop (default) (changed)", `${accent()} ${shown()}`);
+
+    // The styles the app ships: listed apart, chosen like a saved one, never updated or deleted.
+    const builtIn = all("optgroup", select()).find((g) => g.label === "Built in");
+    const names = builtIn ? all("option", builtIn).map((o) => o.textContent) : [];
+    check("the app's own styles are listed apart", ["Gruvbox", "Niks Theme", "Nord", "Rosé Pine", "Solarized"].every((n) => names.includes(n)), names.join(", "));
+    pick("nord");
+    await until("Nord's accent", () => ["#88c0d0", "#4c6d97"].includes(accent()), 3000);
+    check("a built-in style is chosen like a saved one", shown() === "Nord", shown());
+    check("a built-in style offers neither Update nor Delete", !withText(".style-picker button", "Update style") && !withText(".style-picker button", "Delete style"));
+    pick("");
+    await until("the app's own accent", () => accent() === own, 3000);
   } finally {
     window.fetch = real;
   }

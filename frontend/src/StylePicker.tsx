@@ -3,12 +3,13 @@ import { t } from "./i18n.ts";
 import { EngineService, type Style } from "./api.ts";
 import { ask } from "./ask.ts";
 import { inFileManager, showInFiles } from "./platform.ts";
-import { isChanged, selectedStyle, type Look } from "./styles.ts";
+import { groupStyles, isChanged, selectedStyle, type Look } from "./styles.ts";
 
 // The styles of Settings → Appearance (GUI-053): saved sets of the fonts and
 // colors below, one file each in the styles folder. Choosing one copies it over
 // the fonts and colors in force; changing those afterwards marks it changed,
-// and only Update writes the change into the style.
+// and only Update writes the change into the style. The styles the app ships are
+// listed apart and never updated or deleted, only saved as new.
 
 interface Props {
   styles: Style[];
@@ -36,7 +37,7 @@ export default function StylePicker({ styles, look, chosen, onApply, onChoose, o
     const n = name?.trim();
     if (!n || busy) return;
     setBusy(true);
-    EngineService.SaveStyle({ id: "", version: 1, name: n, ...look })
+    EngineService.SaveStyle({ id: "", version: 1, name: n, builtin: false, ...look })
       .then((s) => {
         setName(null);
         onChanged();
@@ -58,6 +59,12 @@ export default function StylePicker({ styles, look, chosen, onApply, onChoose, o
       .catch(onError);
   };
   const label = (n: string, on: boolean) => (on && changed ? t("styles.changed", { name: n }) : n);
+  const { saved, builtin } = groupStyles(styles);
+  const option = (s: Style) => (
+    <option key={s.id} value={s.id}>
+      {label(s.name, s === style)}
+    </option>
+  );
 
   return (
     <div className="style-picker">
@@ -66,14 +73,11 @@ export default function StylePicker({ styles, look, chosen, onApply, onChoose, o
         {t("styles.style")}
         <select className="style-select" value={style?.id ?? ""} onChange={(e) => onApply(selectedStyle(styles, e.target.value))}>
           <option value="">{label(t("styles.own"), !style)}</option>
-          {styles.map((s) => (
-            <option key={s.id} value={s.id}>
-              {label(s.name, s === style)}
-            </option>
-          ))}
+          {saved.length > 0 && <optgroup label={t("styles.saved")}>{saved.map(option)}</optgroup>}
+          {builtin.length > 0 && <optgroup label={t("styles.builtin")}>{builtin.map(option)}</optgroup>}
         </select>
       </label>
-      {style && changed && <p className="muted">{t("styles.changedNote")}</p>}
+      {style && changed && <p className="muted">{t(style.builtin ? "styles.builtinChangedNote" : "styles.changedNote")}</p>}
       <div className="row wrap">
         {name === null ? (
           <button type="button" onClick={() => setName("")}>
@@ -111,15 +115,17 @@ export default function StylePicker({ styles, look, chosen, onApply, onChoose, o
         )}
         {style && changed && (
           <>
-            <button type="button" onClick={update}>
-              {t("styles.update")}
-            </button>
+            {!style.builtin && (
+              <button type="button" onClick={update}>
+                {t("styles.update")}
+              </button>
+            )}
             <button type="button" onClick={() => onApply(style, false)}>
               {t("common.revert")}
             </button>
           </>
         )}
-        {style && (
+        {style && !style.builtin && (
           <button type="button" onClick={remove}>
             {t("styles.delete")}
           </button>
