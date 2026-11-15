@@ -1039,9 +1039,11 @@ func (s *session) CreateTerminal(ctx context.Context, r sdk.CreateTerminalReques
 	for _, v := range r.Env {
 		env[v.Name] = v.Value
 	}
-	spec := environment.ExecSpec{Argv: append([]string{r.Command}, r.Args...), Env: env, Timeout: environment.MaxTimeout}
+	// The agent's variables are the request's: never the environment's own, so they
+	// cannot steer a program that runs the command for it here, such as docker.
+	spec := environment.ExecSpec{Argv: append([]string{r.Command}, r.Args...), RequestEnv: env, Timeout: environment.MaxTimeout}
 	if len(r.Args) == 0 && strings.ContainsAny(r.Command, " ;&|") {
-		spec = environment.ExecSpec{Command: r.Command, Env: env, Timeout: environment.MaxTimeout}
+		spec = environment.ExecSpec{Command: r.Command, RequestEnv: env, Timeout: environment.MaxTimeout}
 	}
 	if r.Cwd != nil {
 		spec.Cwd = *r.Cwd

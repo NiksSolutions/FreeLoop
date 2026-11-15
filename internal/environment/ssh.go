@@ -573,6 +573,7 @@ func (s *SSH) run(ctx context.Context, spec ExecSpec) (ExecResult, error) {
 		vars = map[string]string{}
 	}
 	maps.Copy(vars, spec.Env)
+	maps.Copy(vars, spec.RequestEnv)
 	lines := []string{assignLine("__fl_cwd", cwd, false), assignLine("__fl_cmd", command, false)}
 	for _, name := range slices.Sorted(maps.Keys(vars)) {
 		if !validEnvName(name) {

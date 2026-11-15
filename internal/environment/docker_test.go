@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -72,7 +73,7 @@ func TestDockerEnvironment(t *testing.T) {
 	if res.Output != want {
 		t.Errorf("output = %q, want %q", res.Output, want)
 	}
-	args, _ := d.execArgs(false, "", nil, "x")
+	args, _ := d.execArgs(false, "", nil, nil, "x")
 	if slices.ContainsFunc(args, func(a string) bool { return strings.Contains(a, "s3cr3t") }) {
 		t.Errorf("a secret value is on the docker command line: %v", args)
 	}
@@ -171,7 +172,7 @@ func TestDockerProtectsHostConfig(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, ".freeloop", "hooks.yaml")); err == nil {
 		t.Error("the container wrote .freeloop/hooks.yaml")
 	}
-	args, env := d.execArgs(false, "", nil, "x")
+	args, env := d.execArgs(false, "", nil, nil, "x")
 	if _, ok := env["DOCKER_HOST"]; ok || !slices.Contains(args, "DOCKER_HOST=tcp://evil:1") || !slices.Contains(args, "SECRET") {
 		t.Errorf("args = %v, CLI env = %v", args, env)
 	}
@@ -256,6 +257,79 @@ func TestContainerPath(t *testing.T) {
 	for _, c := range cases {
 		if got := containerPath(c.goos, c.in); got != c.want {
 			t.Errorf("containerPath(%s, %q) = %q, want %q", c.goos, c.in, got, c.want)
+		}
+	}
+}
+
+// Security review, 2026-11-13: a variable could steer the docker CLI on the host when
+// its name differed only in case from one the deny list knew, which Windows reads as
+// the same, or was one the list missed, such as USERPROFILE, where the CLI looks for
+// its config: a config.json in the project could then add a CLI plugin, which runs on
+// the host. The probe from the review.
+func TestDockerVariablesCannotSteerTheHostCLI(t *testing.T) {
+	d := &Docker{opts: DockerOptions{Container: "c", Root: "/p"}, host: &Local{root: "/p"}}
+	_, hostEnv := d.execArgs(false, "", map[string]string{"docker_config": `C:\p\cfg`, "Docker_Host": "tcp://evil:2375", "USERPROFILE": `C:\p\home`}, nil, "id")
+	if len(hostEnv) != 0 {
+		t.Errorf("the host docker CLI's environment gets %v", hostEnv)
+	}
+	// What an agent's terminal names goes on the command line whatever its name, also
+	// over the user's own variable of that name, which keeps its value off it.
+	d.opts.Env = map[string]string{"SECRET": "s3cr3t", "SHARED": "mine"}
+	d.opts.PlainEnv = map[string]string{"PLAIN": "p", "ALSO": "x"}
+	args, hostEnv := d.execArgs(false, "", nil, map[string]string{"NOT_LISTED": "v", "SHARED": "theirs", "ALSO": "y"}, "id")
+	if len(hostEnv) != 1 || hostEnv["SECRET"] != "s3cr3t" {
+		t.Errorf("the host docker CLI's environment gets %v", hostEnv)
+	}
+	for _, want := range []string{"NOT_LISTED=v", "SHARED=theirs", "ALSO=y", "PLAIN=p", "SECRET"} {
+		if !slices.Contains(args, want) {
+			t.Errorf("%s is not on the command line %v", want, args)
+		}
+	}
+	if slices.Contains(args, "ALSO=x") || slices.ContainsFunc(args, func(a string) bool { return strings.Contains(a, "mine") || strings.Contains(a, "s3cr3t") }) {
+		t.Errorf("args = %v", args)
+	}
+	for _, name := range []string{"docker_config", "Path", "PATHEXT", "HOME", "UserProfile", "APPDATA", "LocalAppData", "HOMEDRIVE",
+		"HOMEPATH", "ProgramData", "SystemRoot", "ComSpec", "TEMP", "tmp", "TMPDIR", "xdg_config_home", "SSH_AUTH_SOCK",
+		"HTTPS_PROXY", "http_proxy", "ALL_PROXY", "NO_PROXY", "SSL_CERT_FILE", "GODEBUG", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES", "BUILDX_CONFIG", "NOTARY_AUTH"} {
+		if !hostSensitive(name) {
+			t.Errorf("%s may reach the host docker CLI", name)
+		}
+	}
+	if hostSensitive("API_KEY") || hostSensitive("GITHUB_TOKEN") {
+		t.Error("an ordinary secret is kept off the CLI's environment and so put on its command line")
+	}
+}
+
+// With local-only mode on, the image is built without network too, so a project's
+// Dockerfile cannot send anything out from a RUN step (NFR-OFF-003).
+func TestDockerBuildsWithoutNetworkInLocalOnlyMode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the stand-in docker is a shell script")
+	}
+	bin := t.TempDir()
+	calls := filepath.Join(bin, "calls")
+	os.WriteFile(filepath.Join(bin, "docker"), []byte("#!/bin/sh\necho \"$*\" >> '"+calls+"'\n[ \"$1\" = inspect ] && exit 1\n[ \"$1\" = exec ] && echo Dockerfile\nexit 0\n"), 0o755)
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	for _, noNetwork := range []bool{true, false} {
+		os.Remove(calls)
+		root := Canonical(t.TempDir())
+		os.WriteFile(filepath.Join(root, "Dockerfile"), []byte("FROM alpine:3.20\n"), 0o644)
+		d, err := NewDocker(DockerOptions{ID: "d", Container: "c", Root: root, Dockerfile: filepath.Join(root, "Dockerfile"), Guard: denyGuard{}, NoNetwork: noNetwork})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := d.Start(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		b, _ := os.ReadFile(calls)
+		var build string
+		for _, line := range strings.Split(string(b), "\n") {
+			if strings.HasPrefix(line, "build ") {
+				build = line
+			}
+		}
+		if build == "" || strings.Contains(build, "--network none") != noNetwork {
+			t.Errorf("local-only %v: the build was %q", noNetwork, build)
 		}
 	}
 }

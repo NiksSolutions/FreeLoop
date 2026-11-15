@@ -163,6 +163,9 @@ func (l *Local) Exec(ctx context.Context, spec ExecSpec) (ExecResult, error) {
 	for k, v := range spec.Env {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}
+	for k, v := range spec.RequestEnv {
+		cmd.Env = append(cmd.Env, k+"="+v)
+	}
 	out := &capped{limit: limit}
 	errOut := out
 	if spec.SeparateStderr {

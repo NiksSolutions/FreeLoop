@@ -65,7 +65,7 @@ func (d *Docker) OpenTerminal(ctx context.Context, spec TerminalSpec) (Terminal,
 	for k, v := range spec.Env {
 		env[k] = v
 	}
-	args, hostEnv := d.execArgs(true, spec.Cwd, env, id)
+	args, hostEnv := d.execArgs(true, spec.Cwd, env, nil, id)
 	// -t after -i: the last argument execArgs adds is the container.
 	args = append(append(append([]string{}, args[:len(args)-1]...), "-t"), args[len(args)-1])
 	if len(spec.Argv) > 0 {

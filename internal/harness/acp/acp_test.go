@@ -544,3 +544,62 @@ func TestATerminalIsJudgedAsItRuns(t *testing.T) {
 		t.Error("a refused terminal ran")
 	}
 }
+
+// execRecorder is an environment that keeps what it was asked to run.
+type execRecorder struct {
+	*environment.Local
+	specs chan environment.ExecSpec
+}
+
+func (r execRecorder) Exec(ctx context.Context, spec environment.ExecSpec) (environment.ExecResult, error) {
+	r.specs <- spec
+	return environment.ExecResult{}, nil
+}
+
+// Security review, 2026-11-13: the variables an agent names for its terminal are the
+// request's, shown in what was approved, and are passed as such, so an environment
+// that runs commands through another program, as Docker does through its CLI on this
+// computer, can keep them out of that program's own environment.
+func TestATerminalsVariablesAreTheRequests(t *testing.T) {
+	home := t.TempDir()
+	root := filepath.Join(home, "repo")
+	os.MkdirAll(root, 0o755)
+	policy := permission.NewPolicy(home, filepath.Join(home, "appdata"))
+	local, err := environment.NewLocal(environment.LocalOptions{Root: root, Guard: policy.Guard(root), Shell: []string{"sh", "-c"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := execRecorder{Local: local, specs: make(chan environment.ExecSpec, 1)}
+	rec := &recorder{}
+	broker := permission.NewBroker(policy, func(_ string, typ event.Type, data any) { rec.emit(typ, data) })
+	exe, _ := os.Executable()
+	h := Harness{Preset: config.HarnessPreset{ID: "ref", Name: "Reference", Command: exe, Env: map[string]string{acptest.EnvVar: "1"}}}
+	hs, err := h.NewSession(context.Background(), harness.Params{SessionID: "ses", Env: env, Broker: broker, Mode: permission.ModeAsk, Emit: rec.emit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer hs.Close()
+	s := hs.(*session)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	go func() {
+		for range 400 {
+			if p := broker.Pending(); len(p) == 1 {
+				broker.Decide(p[0].ID, "allow_once", "", "")
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}()
+	if _, err := s.CreateTerminal(ctx, sdk.CreateTerminalRequest{SessionId: "s1", Command: "true", Env: []sdk.EnvVariable{{Name: "DOCKER_CONFIG", Value: "cfg"}}}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case spec := <-env.specs:
+		if len(spec.Env) != 0 || spec.RequestEnv["DOCKER_CONFIG"] != "cfg" {
+			t.Errorf("Env = %v, RequestEnv = %v", spec.Env, spec.RequestEnv)
+		}
+	case <-ctx.Done():
+		t.Fatal("nothing ran")
+	}
+}

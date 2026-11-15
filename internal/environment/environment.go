@@ -50,6 +50,12 @@ type ExecSpec struct {
 	Cwd string
 	// Env adds variables to the environment's own.
 	Env map[string]string
+	// RequestEnv adds variables a request named, an agent's terminal/create, after
+	// Env. Their values were shown in what was approved, so they are no secret, but
+	// they are not trusted either: an environment that runs commands through a program
+	// on this computer keeps them out of that program's own environment (Docker puts
+	// them on the docker command line, where they reach only the container).
+	RequestEnv map[string]string
 	// Timeout defaults to DefaultTimeout and is capped at MaxTimeout.
 	Timeout time.Duration
 	// MaxOutput caps the combined output kept, in bytes. Default 30 KB.

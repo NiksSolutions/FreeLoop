@@ -55,8 +55,9 @@ type DockerOptions struct {
 	// host (.freeloop/, the devcontainer files). A missing directory ending
 	// in / is created first; other missing paths are skipped.
 	ReadOnly []string
-	// NoNetwork creates the container without a network (local-only mode,
-	// NFR-OFF-003).
+	// NoNetwork creates the container without a network, and builds its image
+	// with none for its RUN steps (local-only mode, NFR-OFF-003). Pulling a base
+	// image is the Docker daemon's own doing, which this does not cover.
 	NoNetwork bool
 	// Setup runs once after the container is created; Health before every
 	// session start (ENV-007).
@@ -206,7 +207,17 @@ func (d *Docker) Start(ctx context.Context) (string, error) {
 			if buildCtx == "" {
 				buildCtx = filepath.Dir(d.opts.Dockerfile)
 			}
-			if _, err := d.run(ctx, MaxTimeout, nil, "build", "-q", "-t", image, "-f", d.opts.Dockerfile, buildCtx); err != nil {
+			// In local-only mode the build has no network either, as the container
+			// will not: a RUN step cannot send the project anywhere. One that needs
+			// to download fails, and the error says why.
+			build := []string{"build", "-q", "-t", image}
+			if d.opts.NoNetwork {
+				build = append(build, "--network", "none")
+			}
+			if _, err := d.run(ctx, MaxTimeout, nil, append(build, "-f", d.opts.Dockerfile, buildCtx)...); err != nil {
+				if d.opts.NoNetwork {
+					return "", fmt.Errorf("%w (local-only mode builds the image without network, so a step that downloads fails; build it once with local-only mode off, or use an image)", err)
+				}
 				return "", err
 			}
 			did = append(did, "built the image")
@@ -295,9 +306,12 @@ func (d *Docker) Remove(ctx context.Context) error {
 	return err
 }
 
-// execArgs is the docker exec command line: variables by name only, their
-// values in the CLI's own environment.
-func (d *Docker) execArgs(interactive bool, cwd string, env map[string]string, execID string) ([]string, map[string]string) {
+// execArgs is the docker exec command line: the app's and the user's variables by
+// name only, their values in the CLI's own environment, so a secret is on no command
+// line; a name that would steer the CLI there goes on the command line instead. The
+// variables a request named (request) are not secret, and always go on the command
+// line: what an agent names never reaches the docker CLI on this computer.
+func (d *Docker) execArgs(interactive bool, cwd string, env, request map[string]string, execID string) ([]string, map[string]string) {
 	args := []string{"exec", "-e", execMarker + "=" + execID}
 	if interactive {
 		args = append(args, "-i")
@@ -311,8 +325,12 @@ func (d *Docker) execArgs(interactive bool, cwd string, env map[string]string, e
 	all := map[string]string{}
 	maps.Copy(all, d.opts.Env)
 	maps.Copy(all, env)
+	for k := range request {
+		delete(all, k)
+	}
 	for k, v := range d.opts.PlainEnv {
-		if _, set := all[k]; !set {
+		_, set := all[k]
+		if _, asked := request[k]; !set && !asked {
 			args = append(args, "-e", k+"="+v)
 		}
 	}
@@ -323,6 +341,9 @@ func (d *Docker) execArgs(interactive bool, cwd string, env map[string]string, e
 			continue
 		}
 		args = append(args, "-e", k)
+	}
+	for _, k := range slices.Sorted(maps.Keys(request)) {
+		args = append(args, "-e", k+"="+request[k])
 	}
 	return append(args, d.opts.Container), all
 }
@@ -348,14 +369,24 @@ func symlinkOnPath(p string, bases []string) string {
 	return ""
 }
 
-// hostSensitive reports names that would change what the docker CLI on
-// the host does if they were in its environment.
+// hostSensitive reports names that would change what the docker CLI on the host does
+// if they were in its environment: where it finds its config and plugins (DOCKER_*,
+// HOME, USERPROFILE and the other folders Windows names), which daemon and proxy it
+// talks to, how programs and libraries are found, and Go's own settings. Windows reads
+// a name in any case as the same, so the check ignores case everywhere.
 func hostSensitive(name string) bool {
+	name = strings.ToUpper(name)
 	switch name {
-	case "PATH", "HOME", "TMPDIR", "SHELL", "USER":
+	case "PATH", "PATHEXT", "HOME", "TMPDIR", "TEMP", "TMP", "SHELL", "USER", "USERNAME", "LOGNAME",
+		"USERPROFILE", "APPDATA", "LOCALAPPDATA", "HOMEDRIVE", "HOMEPATH", "PROGRAMDATA", "PROGRAMFILES",
+		"PROGRAMFILES(X86)", "PROGRAMW6432", "COMMONPROGRAMFILES", "ALLUSERSPROFILE", "PUBLIC",
+		"SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "COMSPEC", "PSMODULEPATH",
+		"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "SSL_CERT_FILE", "SSL_CERT_DIR",
+		"GODEBUG", "GOTRACEBACK", "GOMAXPROCS", "GOGC", "GOMEMLIMIT", "TZ", "ZONEINFO", "TERM", "COLUMNS", "LINES":
 		return true
 	}
-	for _, p := range []string{"DOCKER_", "DYLD_", "LD_", "XDG_", "BUILDKIT_", "COMPOSE_"} {
+	for _, p := range []string{"DOCKER_", "DYLD_", "LD_", "XDG_", "BUILDKIT_", "BUILDX_", "COMPOSE_", "NOTARY_", "SSH_",
+		"OTEL_"} {
 		if strings.HasPrefix(name, p) {
 			return true
 		}
@@ -383,7 +414,7 @@ func resolvesInside(root, p string) bool {
 // too, where killing the docker CLI would not reach.
 func (d *Docker) Exec(ctx context.Context, spec ExecSpec) (ExecResult, error) {
 	id := newExecID()
-	args, env := d.execArgs(spec.Stdin != nil, spec.Cwd, spec.Env, id)
+	args, env := d.execArgs(spec.Stdin != nil, spec.Cwd, spec.Env, spec.RequestEnv, id)
 	timeout := spec.Timeout
 	if timeout <= 0 {
 		timeout = DefaultTimeout
@@ -446,7 +477,7 @@ func (p *containerProcess) Kill() {
 // pipes, an ACP agent for example (ENV-006).
 func (d *Docker) Spawn(ctx context.Context, spec SpawnSpec) (Process, error) {
 	id := newExecID()
-	args, env := d.execArgs(true, spec.Cwd, spec.Env, id)
+	args, env := d.execArgs(true, spec.Cwd, spec.Env, nil, id)
 	if spec.LoginShell {
 		args = append(args, "sh", "-lc", `exec "$0" "$@"`)
 	}
