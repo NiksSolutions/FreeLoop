@@ -173,7 +173,7 @@ func TestScriptsRunInTheContainer(t *testing.T) {
 	ranIn := func(what string) {
 		t.Helper()
 		for _, line := range strings.Split(log(), "\n") {
-			if strings.HasPrefix(line, "exec ") && strings.Contains(line, marker+"-"+what) {
+			if strings.HasPrefix(line, "exec ") && strings.Contains(line, shPath(marker)+"-"+what) {
 				return
 			}
 		}

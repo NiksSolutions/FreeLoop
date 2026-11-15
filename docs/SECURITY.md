@@ -460,6 +460,14 @@ Hosted MCP servers suggest a key in the address (`?exaApiKey=…`). It was accep
 - **A sign-in's direct connection when only HTTPS is proxied.** The check of a direct connection's address was skipped whenever an https request there would have been proxied, which with `HTTPS_PROXY` alone is every address, so a redirect to a plain-http name rebound to a private address got through. Only a connection to the proxy's own address skips it now, and the token, registration and refresh requests refuse a redirect from https to http or to a private address (`TestDirectConnectionIsCheckedWhenOnlyHTTPSIsProxied`, `TestOAuthRedirectPolicy`).
 - **The policy page on Windows** said a command was allowed by the sandbox for a sandboxed environment that cannot start there (OQ-044); it says so now only where a sandbox runs (`TestCheckPolicyWithoutAConfiner`).
 
+### Found when the tests first ran on Windows
+
+CI ran the Go tests to the end on Windows for the first time on 2026-11-15. Besides tests that assumed Unix, it showed:
+
+- **Device names.** Windows reads `CON`, `NUL`, `COM1`, `LPT1`, `CONIN$` and `nul.txt` as devices in any folder, so a read of `C:\proj\CON` waited for the keyboard and a write to `COM1` reached hardware. Reads and writes through the environment now refuse such names, before and after resolving links (`dosDevice`; `TestReadRefusesDevicesAndHugeFiles`).
+- **Other spellings of a name in the SSH sync.** On Windows the remote could send `.git./hooks/pre-commit`, `.git::$INDEX_ALLOCATION/hooks/pre-commit`, `GIT~1/…` or a trailing space, which the held-back names compared by spelling did not catch. The sync now refuses any part Windows would read as another name, a stream or a device (`dosAlias`; `TestValidSyncPath`). The broker already refused them for agents' writes (above).
+- **Checks that tested nothing.** Tests proving that a git filter, a hook, an install or a setup command did not run wrote their marker with `touch C:\...`, which Git Bash reads as escapes, so on Windows they passed whatever happened; they quote the path now.
+
 ## Review cadence
 
 This document is reviewed at every milestone boundary in [ROADMAP.md](ROADMAP.md) and whenever a scenario in the table gets a new control or a new scenario appears in an issue. Scenarios in the table have automated tests where a review wrote one, among them `TestAPlantedInstructionApprovesNothing` (`internal/engine/untrusted_test.go`), `TestCheckPolicy` and those in `internal/engine/security_test.go`; no list maps each row to a test, so a row without one rests on the reviews above (RISKS S-01).
