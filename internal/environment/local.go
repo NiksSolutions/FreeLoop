@@ -415,14 +415,21 @@ const MaxReadBytes = 10 << 20
 // resolved once, the result is checked, and that path is opened with no symbolic
 // link followed anywhere in it, so a folder swapped for a link between the check
 // and the open, by a process racing the tool call, fails instead of leading
-// around the guard. Not blocking keeps a FIFO from hanging the open.
+// around the guard. Not blocking keeps a FIFO from hanging the open, and a Windows
+// device such as CON is not opened at all.
 func (f *localFS) openRead(abs string) (*os.File, error) {
+	if err := device(abs); err != nil {
+		return nil, err
+	}
 	real, err := filepath.EvalSymlinks(abs)
 	if err != nil {
 		return nil, err
 	}
 	if real != abs {
 		if err := f.guard.CheckRead(real); err != nil {
+			return nil, err
+		}
+		if err := device(real); err != nil {
 			return nil, err
 		}
 	}
@@ -512,6 +519,14 @@ func (f *localFS) writeMode(p string, data []byte, newMode os.FileMode) error {
 		if err := f.guard.CheckWrite(real); err != nil {
 			return err
 		}
+	}
+	// On Windows COM1 or PRN in any folder is a port or a printer, and NUL swallows
+	// what an agent believes it saved.
+	if err := device(abs); err != nil {
+		return err
+	}
+	if err := device(real); err != nil {
+		return err
 	}
 	afterCheck()
 	// A link put in place since the check, here or in a folder on the way, is not

@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -22,7 +23,8 @@ type hostGuard struct{ root string }
 
 func (g hostGuard) CheckRead(p string) error { return nil }
 func (g hostGuard) CheckWrite(p string) error {
-	if strings.Contains(p, "/guarded/") {
+	// p is this system's spelling: C:\...\guarded\x on Windows.
+	if strings.Contains(filepath.ToSlash(p), "/guarded/") {
 		return fmt.Errorf("%w: %s", ErrProtected, p)
 	}
 	return nil
@@ -501,6 +503,13 @@ func TestValidSyncPath(t *testing.T) {
 			t.Errorf("%q refused", good)
 		}
 	}
+	// On Windows these open .git, a device or another file's stream, so the names held
+	// back would come back by another spelling; elsewhere they are plain names.
+	for _, alias := range []string{".git./hooks/pre-commit", ".git::$INDEX_ALLOCATION/hooks/pre-commit", "GIT~1/hooks/pre-commit", ".git /config", "src/nul.txt", "COM1", "Makefile:evil"} {
+		if got := validSyncPath(alias); got == dosNames {
+			t.Errorf("validSyncPath(%q) = %v on this system", alias, got)
+		}
+	}
 }
 
 // Hook runners' and tool managers' configs run here later, so a command over there must
@@ -643,6 +652,14 @@ func TestSSHSessionsDoNotShareAConnection(t *testing.T) {
 			}
 		}
 		return ""
+	}
+	if runtime.GOOS == "windows" {
+		// Windows' OpenSSH cannot share a connection: every command makes its own, so
+		// no two sessions share one, and none uses the user's own sharing either.
+		if path(one) != "ControlPath=none" || path(two) != "ControlPath=none" {
+			t.Errorf("control paths on Windows: %q %q, want none", path(one), path(two))
+		}
+		return
 	}
 	if path(one) == "" || path(one) == path(two) {
 		t.Errorf("control paths: %q %q", path(one), path(two))

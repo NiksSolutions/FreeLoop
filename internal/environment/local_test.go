@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -27,6 +28,18 @@ func (g denyGuard) CheckWrite(p string) error {
 		return ErrProtected
 	}
 	return nil
+}
+
+// bashSpelling is how the shell's pwd prints a folder of this computer: as it is,
+// except on Windows, where Git Bash spells C:\Users\a as /c/Users/a.
+func bashSpelling(p string) string {
+	if runtime.GOOS != "windows" {
+		return p
+	}
+	if vol := filepath.VolumeName(p); len(vol) == 2 && vol[1] == ':' {
+		return "/" + strings.ToLower(vol[:1]) + filepath.ToSlash(p[2:])
+	}
+	return filepath.ToSlash(p)
 }
 
 func newTest(t *testing.T, g Guard) *Local {
@@ -142,7 +155,7 @@ func TestExec(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.ExitCode != 3 || !strings.Contains(res.Output, l.Root()) || !strings.Contains(res.Output, "err") {
+	if res.ExitCode != 3 || !strings.Contains(res.Output, bashSpelling(l.Root())) || !strings.Contains(res.Output, "err") {
 		t.Errorf("result = %+v", res)
 	}
 	res, _ = l.Exec(ctx, ExecSpec{Command: "echo $X", Env: map[string]string{"X": "from-env"}})
@@ -256,9 +269,26 @@ func TestResolveFollowsSymlinks(t *testing.T) {
 
 func TestReadRefusesDevicesAndHugeFiles(t *testing.T) {
 	l := newTest(t, nil)
-	os.Symlink("/dev/zero", filepath.Join(l.Root(), "zero"))
-	if _, err := l.FS().ReadFile("zero"); err == nil || !strings.Contains(err.Error(), "not a regular file") {
-		t.Errorf("read of /dev/zero: %v", err)
+	if runtime.GOOS == "windows" {
+		// Windows has no /dev/zero; its devices are names that are devices in any
+		// folder. CON would wait for someone to type, so none is opened, and none
+		// written either: COM1 or PRN is hardware.
+		for _, name := range []string{"CON", "nul", "sub/nul.txt", "COM1", "CONIN$", "aux.log"} {
+			if _, err := l.FS().ReadFile(name); err == nil || !strings.Contains(err.Error(), "not a regular file") {
+				t.Errorf("read of %s: %v", name, err)
+			}
+			if err := l.FS().WriteFile(name, []byte("x")); err == nil || !strings.Contains(err.Error(), "not a regular file") {
+				t.Errorf("write of %s: %v", name, err)
+			}
+		}
+		if _, err := l.FS().ReadFile(filepath.Join(l.Root(), "NUL")); err == nil {
+			t.Error("read of NUL by its full path")
+		}
+	} else {
+		os.Symlink("/dev/zero", filepath.Join(l.Root(), "zero"))
+		if _, err := l.FS().ReadFile("zero"); err == nil || !strings.Contains(err.Error(), "not a regular file") {
+			t.Errorf("read of /dev/zero: %v", err)
+		}
 	}
 	big := filepath.Join(l.Root(), "big.bin")
 	f, _ := os.Create(big)

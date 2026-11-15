@@ -91,7 +91,8 @@ func hashOf(b []byte) string {
 }
 
 // validSyncPath reports a relative path that means what it says on both sides: plain,
-// clean, and with nothing invisible in it that could make it read as another.
+// clean, and with nothing invisible in it that could make it read as another, nor, on
+// Windows, a name Windows reads as another (dosAlias).
 func validSyncPath(rel string) bool {
 	if rel == "" || len(rel) > 4096 || !utf8.ValidString(rel) || strings.HasPrefix(rel, "/") || strings.Contains(rel, `\`) {
 		return false
@@ -107,6 +108,11 @@ func validSyncPath(rel string) bool {
 	for _, part := range strings.Split(rel, "/") {
 		// A leading ~ would mean the home folder to whatever reads the path next.
 		if part == "" || part == "." || part == ".." || part == "~" || len(part) > 255 {
+			return false
+		}
+		// On Windows .git. and .git::$INDEX_ALLOCATION open .git, and GIT~1 may: the
+		// names held back would be passed by another spelling. NUL or COM1 is a device.
+		if dosNames && dosAlias(part) {
 			return false
 		}
 	}

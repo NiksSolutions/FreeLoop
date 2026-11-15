@@ -35,3 +35,26 @@ func TestFarPath(t *testing.T) {
 		}
 	}
 }
+
+// On Windows these names are devices in any folder, so a read of C:\p\CON waits for
+// typing and a write of C:\p\COM1 reaches a port; the table runs on every system.
+func TestDosDevice(t *testing.T) {
+	for in, want := range map[string]bool{
+		`C:\p\NUL`: true, `C:\p\nul.txt`: true, `con`: true, `C:/p/Con.tar.gz`: true, `aux`: true, `PRN`: true,
+		`COM1`: true, `lpt9.log`: true, `COM¹`: true, `NUL `: true, `NUL .txt`: true, `nul:stream`: true,
+		`CONIN$`: true, `conout$`: true, `CLOCK$`: true,
+		`C:\NUL\x.txt`: false, `null`: false, `console.go`: false, `COM10`: false, `LPT`: false, `aux_x`: false, `x.nul`: false, ``: false,
+	} {
+		if got := dosDevice(in); got != want {
+			t.Errorf("dosDevice(%q) = %v, want %v", in, got, want)
+		}
+	}
+	for in, want := range map[string]bool{
+		".git.": true, ".git::$INDEX_ALLOCATION": true, "GIT~1": true, "git~12": true, ".git ": true, "nul": true, "a:b": true,
+		".git": false, "a~b": false, "~": false, "x.txt": false, "ünï": false,
+	} {
+		if got := dosAlias(in); got != want {
+			t.Errorf("dosAlias(%q) = %v, want %v", in, got, want)
+		}
+	}
+}
