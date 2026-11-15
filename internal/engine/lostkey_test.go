@@ -37,7 +37,7 @@ func TestLostApprovalKeyAdoptsNothing(t *testing.T) {
 		}
 		return string(b)
 	}
-	write(config.FileName, "version: 1\nhooks:\n  - event: session_start\n    command: touch "+old+"\n")
+	write(config.FileName, "version: 1\nhooks:\n  - event: session_start\n    command: touch "+shPath(old)+"\n")
 	open := func(store secrets.Store) *Engine {
 		t.Helper()
 		e, err := Open(Options{DataDir: dir, Secrets: store, Home: t.TempDir(), Dev: true, WatchInterval: -1})

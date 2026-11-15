@@ -149,7 +149,7 @@ func TestScriptsRunInTheContainer(t *testing.T) {
 	os.MkdirAll(filepath.Join(repo, ProjectDir), 0o755)
 	os.WriteFile(filepath.Join(repo, ".env"), []byte("SECRET=1\n"), 0o600)
 	os.WriteFile(filepath.Join(repo, ProjectDir, config.WorktreeFileName), []byte(
-		"copy: [.env]\nsetup: touch "+marker+"-setup\narchive: touch "+marker+"-archive\n"), 0o644)
+		"copy: [.env]\nsetup: touch "+shPath(marker)+"-setup\narchive: touch "+shPath(marker)+"-archive\n"), 0o644)
 	dir := t.TempDir()
 	e := openTest(t, dir)
 	defer e.Close()
@@ -209,7 +209,7 @@ func TestScriptsRunInTheContainer(t *testing.T) {
 	}
 
 	// A container that never started has nothing to clean up.
-	os.WriteFile(filepath.Join(repo, ProjectDir, config.WorktreeFileName), []byte("archive: touch "+marker+"-archive\n"), 0o644)
+	os.WriteFile(filepath.Join(repo, ProjectDir, config.WorktreeFileName), []byte("archive: touch "+shPath(marker)+"-archive\n"), 0o644)
 	other, err := e.CreateSession(ctx, CreateSessionRequest{ProjectRoot: repo, ProviderID: DemoProviderID, EnvironmentID: "box", Worktree: true})
 	if err != nil {
 		t.Fatal(err)

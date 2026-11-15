@@ -563,7 +563,7 @@ func TestOptimizerInstallIsOnlyTyped(t *testing.T) {
 	defer e.Close()
 	fakeOptimizer(t, e)
 	marker := filepath.Join(t.TempDir(), "installed")
-	e.optimizers[0].Install = "touch " + marker
+	e.optimizers[0].Install = "touch " + shPath(marker)
 	ses, _ := demoSession(t, e, "s", "ask")
 	info, err := e.TypeOptimizerInstall(ctx, ses.ID, "fake")
 	if err != nil {
@@ -684,7 +684,7 @@ func TestOptimizerRefusesAProgramInTheProject(t *testing.T) {
 	root := environment.Canonical(t.TempDir())
 	marker := filepath.Join(root, "ran")
 	os.MkdirAll(filepath.Join(root, "bin"), 0o755)
-	os.WriteFile(filepath.Join(root, "bin", "fake-optimizer"), []byte("#!/bin/sh\ntouch "+marker+"\n"), 0o755)
+	os.WriteFile(filepath.Join(root, "bin", "fake-optimizer"), []byte("#!/bin/sh\ntouch "+shPath(marker)+"\n"), 0o755)
 	t.Setenv("PATH", filepath.Join(root, "bin")+string(os.PathListSeparator)+os.Getenv("PATH"))
 	env, err := e.localEnv(root, nil)
 	if err != nil {

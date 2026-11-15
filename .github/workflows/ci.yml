@@ -135,11 +135,13 @@ jobs:
         env:
           FREELOOP_CHECK_EVENTS: ${{ github.workspace }}/schemas/events.json
         run: |
+          # Windows starts processes about three times slower than Linux, which with -race
+          # takes the engine's tests past go test's default ten minutes.
           if command -v gcc >/dev/null 2>&1; then
-            CGO_ENABLED=1 go test -race ./internal/... ./cmd/freeloop-sbom
+            CGO_ENABLED=1 go test -race -timeout 30m ./internal/... ./cmd/freeloop-sbom
           else
             echo "::warning::no gcc on the runner: Go tests without -race"
-            go test ./internal/... ./cmd/freeloop-sbom
+            go test -timeout 30m ./internal/... ./cmd/freeloop-sbom
           fi
 
       - name: Frontend tests

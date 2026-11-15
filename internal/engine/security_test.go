@@ -29,7 +29,7 @@ func nestedRepo(t *testing.T, repo string) (marker string) {
 	gitIn(t, sub, "add", "f.txt")
 	gitIn(t, sub, "commit", "-qm", "one")
 	marker = filepath.Join(t.TempDir(), "ran")
-	gitIn(t, sub, "config", "filter.x.clean", "touch "+marker+"; cat")
+	gitIn(t, sub, "config", "filter.x.clean", "touch "+shPath(marker)+"; cat")
 	os.WriteFile(filepath.Join(sub, ".gitattributes"), []byte("* filter=x\n"), 0o644)
 	return marker
 }

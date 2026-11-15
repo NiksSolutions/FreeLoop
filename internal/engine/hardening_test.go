@@ -126,7 +126,7 @@ func TestGitCallsDoNotRunRepositoryCommands(t *testing.T) {
 			t.Fatalf("git config: %v %s", err, out)
 		}
 	}
-	setConfig("core.fsmonitor", "touch "+marker+"; false")
+	setConfig("core.fsmonitor", "touch "+shPath(marker)+"; false")
 	e := openTest(t, t.TempDir())
 	defer e.Close()
 	env, err := e.localEnv(repo, nil)
@@ -141,7 +141,7 @@ func TestGitCallsDoNotRunRepositoryCommands(t *testing.T) {
 		t.Fatal("core.fsmonitor ran")
 	}
 
-	setConfig("filter.evil.clean", "touch "+marker)
+	setConfig("filter.evil.clean", "touch "+shPath(marker))
 	os.WriteFile(filepath.Join(repo, ".gitattributes"), []byte("* filter=evil\n"), 0o644)
 	st := gitState(ctx, env, true)
 	if _, err := os.Stat(marker); err == nil {

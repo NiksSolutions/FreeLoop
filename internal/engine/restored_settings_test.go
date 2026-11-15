@@ -107,7 +107,7 @@ func TestRestoredSettingsDoNotWeaken(t *testing.T) {
 			if _, err := e.ImportConfig(ctx, craftedBundle(t, c.files(marker))); err != nil {
 				t.Fatal(err)
 			}
-			asked := runShell(t, e, CreateSessionRequest{ProjectRoot: root, Mode: "ask", EnvironmentID: c.env}, "touch "+marker)
+			asked := runShell(t, e, CreateSessionRequest{ProjectRoot: root, Mode: "ask", EnvironmentID: c.env}, "touch "+shPath(marker))
 			if exists(marker) {
 				t.Errorf("the model's command wrote %s (asked: %v)", marker, asked)
 			}
