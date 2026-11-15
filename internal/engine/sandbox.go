@@ -126,6 +126,9 @@ func (e *Engine) sandboxEnv(ctx context.Context, ses session.Session, cfg config
 	}
 	c := environment.Confinement{
 		Home: home, Write: []string{root}, Scratch: []string{cache, tmp},
+		// Removed and replaced by a link, either would be the next session's
+		// scratch space wherever the link led.
+		NoMove:     []string{cache, tmp},
 		NoAccess:   e.broker.Policy().NeverRead(),
 		ReadAlways: []string{filepath.Join(environment.Canonical(e.dataDir), config.SkillsDir)},
 		Network:    environment.Network(cmp.Or(cfg.Sandbox.Network, string(environment.NetworkLocalhost))),
@@ -201,14 +204,19 @@ func (e *Engine) sandboxEnv(ctx context.Context, ses session.Session, cfg config
 	c.ProtectedPatterns = append(c.ProtectedPatterns, bareRepositoryPatterns(quoted)...)
 	sid := ses.ID
 	allVars := e.loginVars(ctx, host)
-	// The user's name, as a global config of its own: a variable would beat what
-	// the repository says. A command can change this copy, which only it reads.
+	// Git's own config is closed to confined commands, so they get only the user's
+	// name, as a global config of its own: a variable would beat what the
+	// repository says. A command can change this copy, so only confined commands
+	// are pointed at it. The terminal, agents and MCP servers run unconfined and
+	// keep the user's own config, or a command could write core.fsmonitor here and
+	// have them run it (security review, 2026-11-13).
+	cacheEnv["GIT_CONFIG_GLOBAL"] = "/dev/null"
 	if e.loginGitConfig != "" {
 		own := filepath.Join(cache, "gitconfig")
 		if err := environment.WriteCacheFile(own, []byte(e.loginGitConfig)); err != nil {
 			return nil, nil, err
 		}
-		allVars["GIT_CONFIG_GLOBAL"] = own
+		cacheEnv["GIT_CONFIG_GLOBAL"] = own
 	}
 	maps.Copy(allVars, vars)
 	env, err := environment.NewLocal(environment.LocalOptions{
@@ -313,8 +321,8 @@ var gitActive = []string{"config", "config.worktree", "hooks", "commondir", "git
 // sandbox, which cannot read those files. A login shell outside the sandbox reads
 // them once, with everything else the app runs that way, and what looks like a
 // secret stays out: such a command needs no approval, so a prompt-injected
-// printenv would otherwise hand it to the model. Git's own config is closed too,
-// so it gets only the user's name from it.
+// printenv would otherwise hand it to the model. Git's own config is closed too;
+// loginGitConfig keeps only the user's name from it.
 func (e *Engine) loginVars(ctx context.Context, host *environment.Local) map[string]string {
 	e.loginOnce.Do(func() {
 		e.loginEnv = map[string]string{}
@@ -347,7 +355,6 @@ func (e *Engine) loginVars(ctx context.Context, host *environment.Local) map[str
 		if e.loginGitConfig != "" {
 			e.loginGitConfig = "[user]\n" + e.loginGitConfig
 		}
-		e.loginEnv["GIT_CONFIG_GLOBAL"] = "/dev/null"
 	})
 	return maps.Clone(e.loginEnv)
 }

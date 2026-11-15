@@ -91,6 +91,8 @@ type SandboxOptions struct {
 	Base     Confinement
 	// Env replaces, for confined commands only, the variables that name caches
 	// and temp files, so nothing is written where the user's own tools read.
+	// Whatever names a file such commands can change belongs here, never in
+	// LocalOptions.Env, which the unconfined terminal and Spawn also get.
 	Env map[string]string
 	// NetworkEnv goes only with commands that have the sandbox's own network,
 	// not those given NetworkAll: the variables of an egress proxy (ENV-010).
@@ -216,8 +218,30 @@ func PrivateCache(dir string) error {
 }
 
 // WriteCacheFile writes a file under the app's caches that only the user reads.
+// The folder may be one confined commands write, so whatever stands at path, a
+// link to one of the user's files included, is replaced and never written
+// through: a new file is made beside it and renamed over it.
 func WriteCacheFile(path string, data []byte) error {
-	if err := os.WriteFile(path, data, 0o600); err != nil {
+	f, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*")
+	if err != nil {
+		return fmt.Errorf("environment: %w", err)
+	}
+	tmp := f.Name()
+	_, err = f.Write(data)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Rename(tmp, path)
+		if err != nil {
+			// A folder planted at path: rename cannot replace it.
+			if rerr := os.RemoveAll(path); rerr == nil {
+				err = os.Rename(tmp, path)
+			}
+		}
+	}
+	if err != nil {
+		os.Remove(tmp)
 		return fmt.Errorf("environment: %w", err)
 	}
 	return nil
@@ -268,9 +292,22 @@ func RemoveOwned(root, dir string) error {
 // builds read, which would be a way out.
 func SandboxCaches(dir string) (cache, tmp string, env map[string]string, err error) {
 	cache, tmp = filepath.Join(dir, "cache"), filepath.Join(dir, "tmp")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", "", nil, fmt.Errorf("environment: %w", err)
+	}
 	for _, d := range []string{cache, tmp} {
-		if err := os.MkdirAll(d, 0o700); err != nil {
+		// A command could have put a link here, to a folder it would then
+		// be given to write; whatever is not a folder of its own goes.
+		if fi, err := os.Lstat(d); err == nil && !fi.IsDir() {
+			if err := os.Remove(d); err != nil {
+				return "", "", nil, fmt.Errorf("environment: %w", err)
+			}
+		}
+		if err := os.Mkdir(d, 0o700); err != nil && !os.IsExist(err) {
 			return "", "", nil, fmt.Errorf("environment: %w", err)
+		}
+		if fi, err := os.Lstat(d); err != nil || !fi.IsDir() {
+			return "", "", nil, fmt.Errorf("environment: %s is not a folder", d)
 		}
 	}
 	cache, tmp = Canonical(cache), Canonical(tmp)

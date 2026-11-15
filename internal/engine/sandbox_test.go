@@ -622,6 +622,19 @@ func TestSandboxCannotMoveASocketIn(t *testing.T) {
 	}
 }
 
+// The project's cache and temp folders could be removed and replaced by a link to
+// the home folder, which the next session then took as its scratch space and let
+// its commands write (security review, 2026-11-13).
+func TestSandboxCannotSwapItsScratchFolders(t *testing.T) {
+	_, env, _, home := sandboxedProject(t)
+	for _, v := range []string{"XDG_CACHE_HOME", "TMPDIR"} {
+		out, code := inSandbox(t, env, `d="$`+v+`"; rm -rf "$d" || exit 0; ln -s `+home+` "$d" || exit 0; exit 9`)
+		if code == 9 {
+			t.Errorf("%s was replaced by a link: %s", v, out)
+		}
+	}
+}
+
 // A .git file naming another repository must not open that repository up.
 func TestSandboxIgnoresAPlantedGitFile(t *testing.T) {
 	e, _, repo, _ := sandboxedProject(t)
