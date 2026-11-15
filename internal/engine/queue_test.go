@@ -80,10 +80,12 @@ func TestQueueStartsUnderItsLimit(t *testing.T) {
 func TestQueuePausedAndFailing(t *testing.T) {
 	ctx := context.Background()
 	e, root := queueEngine(t)
-	e.AddTask(config.Task{Prompt: "a", ProjectRoot: root, ProfileID: "main"})
+	// Paused before the task is added: the engine's schedule loop runs the queue as it
+	// opens, and found the task in between on CI.
 	if _, err := e.SetQueue(true, 0); err != nil {
 		t.Fatal(err)
 	}
+	e.AddTask(config.Task{Prompt: "a", ProjectRoot: root, ProfileID: "main"})
 	e.runQueue(ctx, time.Now())
 	if q, _ := e.Queue(); q.Tasks[0].State != "waiting" {
 		t.Errorf("a paused queue started %v", states(q))
