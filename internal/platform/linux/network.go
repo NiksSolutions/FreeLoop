@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -28,7 +29,10 @@ import (
 //     at the port its variables name: the app's own binary (RunSandboxBridge).
 //
 // Either way the namespace is private, so the host's abstract sockets, D-Bus's
-// among them, stay out of reach.
+// among them, stay out of reach. So it is for all of the network, the setup, run
+// and archive commands': pasta's namespace with its interface configured
+// (pastaArgs), or without pasta, or offline, the sandbox's own loopback and
+// nothing else.
 
 // pastaPaths are where pasta is looked for: absolute, like bwrap's.
 var pastaPaths = []string{"/usr/bin/pasta", "/bin/pasta", "/usr/local/bin/pasta"}
@@ -50,14 +54,26 @@ type netPlan struct {
 	bridge []string
 }
 
-// network plans c's network. Only localhost, the listed hosts' setting too, needs
-// one.
+// network plans c's network. None is a namespace of its own with nothing in it.
 func (b Bubblewrap) network(c environment.Confinement) (netPlan, error) {
-	if c.Network != environment.NetworkLocalhost {
+	switch c.Network {
+	case environment.NetworkAll:
+		// The host's own namespace would open its abstract sockets, X11's among
+		// them, so all of the network is pasta's too. Without pasta, or offline,
+		// the command keeps a loopback of its own, as localhost does: it fails
+		// closed, and installing passt gives it the network.
+		if !b.noPasta {
+			if p := pastaArgs(true); p != nil {
+				return netPlan{pasta: p, mounts: resolverMounts(p)}, nil
+			}
+		}
+		return netPlan{}, nil
+	case environment.NetworkLocalhost:
+	default:
 		return netPlan{}, nil
 	}
 	if !b.noPasta {
-		if p := pastaArgs(); p != nil {
+		if p := pastaArgs(false); p != nil {
 			return netPlan{pasta: p}, nil
 		}
 	}
@@ -102,10 +118,17 @@ func bridgeMounts(self, appDir string) ([]string, string) {
 //     it names is a way to send data out, which macOS's sandbox does not offer;
 //   - no --config-net, so pasta's interface stays down, with no address or route.
 //
+// With all of the network (all) the namespace is pasta's still, so the host's
+// abstract sockets stay out of reach, but its interface is configured as the
+// host's (--config-net) and every port is forwarded both ways: -t auto and -u auto
+// offer what the command listens on to the host, the Run button's dev server, and
+// -T auto and -U auto give it the host's loopback. Its name server is pasta's,
+// which passes lookups to the host's (--dns-forward, resolverMounts).
+//
 // That version will not start without a default route, so offline the sandbox
 // keeps its own loopback; and it warns on the command's output about a family with
 // none, so it is told to use only the family that has one.
-func pastaArgs() []string {
+func pastaArgs(all bool) []string {
 	pasta := firstFile(pastaPaths)
 	if pasta == "" {
 		return nil
@@ -123,7 +146,44 @@ func pastaArgs() []string {
 	case !v4 && !v6:
 		return nil
 	}
+	if all {
+		args = append(args, "--config-net", "-t", "auto", "-u", "auto", "-T", "auto", "-U", "auto")
+		if v4 {
+			args = append(args, "--dns-forward", sandboxResolver)
+		}
+		return append(args, "--")
+	}
 	return append(args, "-t", "none", "-u", "none", "-T", "auto", "-U", "none", "--")
+}
+
+// sandboxResolver is the name server a command with all of the network is given:
+// pasta answers there with the host's own, which may listen on a loopback the
+// command does not share, or be named by a file under /run, which it does not see.
+const sandboxResolver = "169.254.1.1"
+
+// resolverMounts put a resolv.conf naming sandboxResolver where the host's is, for
+// pasta's options p.
+func resolverMounts(p []string) []string {
+	if !slices.Contains(p, "--dns-forward") {
+		return nil
+	}
+	dest, err := filepath.EvalSymlinks("/etc/resolv.conf")
+	if err != nil {
+		return nil
+	}
+	base, err := os.UserCacheDir()
+	if err != nil {
+		return nil
+	}
+	dir := filepath.Join(base, "freeloop")
+	file := filepath.Join(dir, "sandbox-resolv.conf")
+	const text = "nameserver " + sandboxResolver + "\n"
+	if b, err := os.ReadFile(file); err != nil || string(b) != text {
+		if environment.PrivateCache(dir) != nil || environment.WriteCacheFile(file, []byte(text)) != nil {
+			return nil
+		}
+	}
+	return []string{"--ro-bind", file, dest}
 }
 
 // defaultRoute4 reports an IPv4 default route in /proc/net/route, whose fields

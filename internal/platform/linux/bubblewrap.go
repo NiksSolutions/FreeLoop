@@ -33,11 +33,12 @@ const maxPatternWalk = 200_000
 //     read, and a new terminal session, so none can be fed input;
 //   - files: the root read-only; the project, its caches and temp files writable;
 //     the home folder emptied, with what may be read mounted back;
-//   - sockets: /tmp, /run and the home folder are fresh, so Docker's, the SSH agent's,
-//     D-Bus's and the keyring's sockets are out of reach;
-//   - network: none, or the sandbox's own loopback, in a namespace of its own; or the
-//     host's when the environment allows all of it. network says how localhost and
-//     the listed hosts reach this computer's loopback.
+//   - sockets: /tmp, /var/tmp, /run and the home folder are fresh, so Docker's, the
+//     SSH agent's, D-Bus's and the keyring's sockets are out of reach, and any other
+//     program's socket is hidden too (sockets.go);
+//   - network: always a namespace of its own, so the host's abstract sockets are out
+//     of reach: none, or the sandbox's own loopback, or with all of it pasta's full
+//     network. network says how each reaches this computer's loopback.
 //
 // What it cannot do is protect a path that does not exist when the command starts:
 // only existing paths can be mounted read-only.
@@ -79,8 +80,10 @@ func bubblewrapArgs(c environment.Confinement, n netPlan) ([]string, error) {
 		"--die-with-parent", "--new-session",
 		"--unshare-pid", "--unshare-ipc", "--unshare-uts", "--unshare-cgroup-try",
 	}
+	// Never the host's network namespace, even for all of the network: that would
+	// open the host's abstract sockets, X11's and D-Bus's among them, which no
+	// mount can hide (security review, 2026-11-13).
 	switch {
-	case c.Network == environment.NetworkAll:
 	case n.pasta != nil:
 		// pasta's network namespace, whose loopback it serves. bwrap starts in it as
 		// root of pasta's user namespace, which owns that network: as that, a command
@@ -90,34 +93,67 @@ func bubblewrapArgs(c environment.Confinement, n netPlan) ([]string, error) {
 	default:
 		a = append(a, "--unshare-net")
 	}
-	a = append(a, "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp", "--tmpfs", "/run")
+	// Other programs' sockets the command would see (sockets.go). Those under a
+	// folder mounted back go on top of it, below; the rest go first, so that what
+	// is emptied or mounted next goes on top of them.
+	a = append(a, "--ro-bind", "/", "/")
+	var readOnly, readMounted []string
+	type mount struct {
+		path string
+		args []string
+	}
+	var mounts, covers []mount
+	for _, s := range socketCovers(shownSockets(hostSockets(), c.Home, append(slices.Clone(c.Write), c.Scratch...), c.Read)) {
+		if s.dir {
+			readOnly = append(readOnly, s.path)
+		}
+		if slices.ContainsFunc(c.Read, func(r string) bool { return within(s.path, r) }) {
+			covers = append(covers, mount{s.path, s.args})
+		} else {
+			a = append(a, s.args...)
+		}
+	}
+
+	a = append(a, "--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp", "--tmpfs", "/run")
 	// /var/run is usually a link to /run; a folder of its own gets emptied too.
-	if fi, err := os.Lstat("/var/run"); err == nil && fi.IsDir() {
-		a = append(a, "--tmpfs", "/var/run")
+	// /var/tmp is the other place for temp files and their sockets.
+	for _, d := range []string{"/var/run", "/var/tmp"} {
+		if isDir(d) {
+			a = append(a, "--tmpfs", d)
+		}
+	}
+	for _, d := range socketDirs {
+		if isDir(d) {
+			a = append(a, "--tmpfs", d)
+			readOnly = append(readOnly, d)
+		}
 	}
 	a = append(a, n.mounts...)
 	a = append(a, "--tmpfs", c.Home)
 
-	// What can be read and written, outer folders first so inner mounts go on top.
-	type mount struct{ path, kind string }
-	var mounts []mount
+	// What can be read and written, outer folders first so inner mounts go on top,
+	// and a folder's sockets covered after it is mounted.
 	for _, p := range c.Read {
-		mounts = append(mounts, mount{p, "--ro-bind"})
+		mounts = append(mounts, mount{p, []string{"--ro-bind", p, p}})
+		readMounted = append(readMounted, p)
 	}
 	write := "--bind"
 	if c.ReadOnly {
 		write = "--ro-bind"
 	}
 	for _, p := range c.Write {
-		mounts = append(mounts, mount{p, write})
+		mounts = append(mounts, mount{p, []string{write, p, p}})
+		readMounted = append(readMounted, p)
 	}
 	for _, p := range c.Scratch {
-		mounts = append(mounts, mount{p, "--bind"})
+		mounts = append(mounts, mount{p, []string{"--bind", p, p}})
+		readMounted = append(readMounted, p)
 	}
+	mounts = append(mounts, covers...)
 	slices.SortStableFunc(mounts, func(x, y mount) int { return depth(x.path) - depth(y.path) })
 	for _, m := range mounts {
 		if exists(m.path) {
-			a = append(a, m.kind, m.path, m.path)
+			a = append(a, m.args...)
 		}
 	}
 
@@ -140,9 +176,8 @@ func bubblewrapArgs(c environment.Confinement, n netPlan) ([]string, error) {
 	}
 	// Neither read nor written: an empty folder or file in its place. Under the home
 	// folder only what was mounted back is there to hide.
-	var readOnly []string
 	mounted := func(p string) bool {
-		return slices.ContainsFunc(mounts, func(m mount) bool { return within(p, m.path) })
+		return slices.ContainsFunc(readMounted, func(m string) bool { return within(p, m) })
 	}
 	for _, p := range append(slices.Clone(c.NoAccess), walked.noAccess...) {
 		if within(p, c.Home) && !mounted(p) {

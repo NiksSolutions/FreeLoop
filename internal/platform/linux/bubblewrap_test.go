@@ -3,6 +3,7 @@
 package linux
 
 import (
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -60,12 +61,196 @@ func runIn(b Bubblewrap, project string, c environment.Confinement, script strin
 	return strings.TrimSpace(string(out)), err
 }
 
-// The test binary is the bridge inside the sandbox, as the app's is.
+// The test binary is the bridge inside the sandbox, as the app's is, and what
+// tries a Unix socket or serves a port from inside it, which the image has no
+// tool for.
 func TestMain(m *testing.M) {
-	if len(os.Args) > 1 && os.Args[1] == environment.SandboxBridgeArg {
-		os.Exit(environment.RunSandboxBridge(os.Args[2:]))
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case environment.SandboxBridgeArg:
+			os.Exit(environment.RunSandboxBridge(os.Args[2:]))
+		case unixProbeArg:
+			conn, err := net.DialTimeout("unix", os.Args[2], 2*time.Second)
+			if err != nil {
+				fmt.Println("refused:", err)
+				os.Exit(1)
+			}
+			conn.Close()
+			fmt.Println("connected")
+			os.Exit(0)
+		case serveArg:
+			ln, err := net.Listen("tcp", os.Args[2])
+			if err != nil {
+				fmt.Println(err)
+				os.Exit(1)
+			}
+			go http.Serve(ln, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { io.WriteString(w, "in the sandbox") }))
+			time.Sleep(10 * time.Second)
+			os.Exit(0)
+		}
 	}
 	os.Exit(m.Run())
+}
+
+const (
+	unixProbeArg = "unix-probe"
+	serveArg     = "serve"
+)
+
+// withSelf mounts the test binary into the sandbox, for TestMain's helpers.
+func withSelf(t *testing.T, c environment.Confinement) (environment.Confinement, string) {
+	t.Helper()
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Read = append(slices.Clone(c.Read), self)
+	return c, self
+}
+
+// A security review (2026-11-13) reached sockets of programs outside the sandbox:
+// with all of the network, the host's abstract sockets (X11's, which takes
+// keystrokes; D-Bus's), since that shared the host's network namespace; and in
+// every mode, a path socket outside the folders the sandbox empties, such as LXD's
+// or the Nix daemon's, which mounting the root read-only does not close. None may
+// answer, in any network mode; the project's own socket still does.
+func TestTheSandboxKeepsOtherProgramsSocketsOut(t *testing.T) {
+	home, project, _ := sandboxed(t)
+	abstract := "@freeloop-probe-" + strconv.Itoa(os.Getpid())
+	al, err := net.Listen("unix", abstract)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer al.Close()
+	others := []string{abstract}
+	// /var/tmp, and a folder the sandbox shows as it is: the real home folder,
+	// which is not the sandbox's.
+	realHome, _ := os.UserHomeDir()
+	var shown string
+	for _, dir := range []string{"/var/tmp", realHome} {
+		d, err := os.MkdirTemp(dir, "flprobe")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer os.RemoveAll(d)
+		sock := filepath.Join(d, "s")
+		l, err := net.Listen("unix", sock)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer l.Close()
+		others = append(others, sock)
+		shown = d
+	}
+	// What else is in a socket's folder is still there, read-only.
+	os.WriteFile(filepath.Join(shown, "notes.txt"), []byte("beside the socket"), 0o644)
+	os.Mkdir(filepath.Join(shown, "sub"), 0o755)
+	os.WriteFile(filepath.Join(shown, "sub", "deeper.txt"), []byte("deeper"), 0o644)
+	os.Symlink("notes.txt", filepath.Join(shown, "link"))
+	own := filepath.Join(project, "own.sock")
+	ol, err := net.Listen("unix", own)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ol.Close()
+	for _, mode := range []struct {
+		name string
+		b    Bubblewrap
+		n    environment.Network
+	}{
+		{"none", Bubblewrap{}, environment.NetworkNone},
+		{"localhost", Bubblewrap{}, environment.NetworkLocalhost},
+		{"localhost without pasta", Bubblewrap{noPasta: true}, environment.NetworkLocalhost},
+		{"all", Bubblewrap{}, environment.NetworkAll},
+		{"all without pasta", Bubblewrap{noPasta: true}, environment.NetworkAll},
+	} {
+		c, self := withSelf(t, base(home, project))
+		c.Network = mode.n
+		for _, sock := range others {
+			if out, err := runIn(mode.b, project, c, self+" "+unixProbeArg+" '"+sock+"'"); err == nil {
+				t.Errorf("%s: %s answered: %q", mode.name, sock, out)
+			}
+		}
+		if out, err := runIn(mode.b, project, c, self+" "+unixProbeArg+" '"+own+"'"); err != nil {
+			t.Errorf("%s: the project's own socket: %q, %v", mode.name, out, err)
+		}
+	}
+
+	c, self := withSelf(t, base(home, project))
+	if out, err := runIn(Bubblewrap{}, project, c, "cd "+shown+" && cat notes.txt sub/deeper.txt link"); out != "beside the socketdeeperbeside the socket" {
+		t.Errorf("the rest of a socket's folder: %q, %v", out, err)
+	}
+	if out, err := runIn(Bubblewrap{}, project, c, "echo x > "+filepath.Join(shown, "notes.txt")); err == nil {
+		t.Errorf("a socket's folder became writable: %q", out)
+	}
+	// A socket gone by the time the command starts does not stop it.
+	gone := filepath.Join(shown, "gone.sock")
+	gl, err := net.Listen("unix", gone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	argv, err := Bubblewrap{}.Confine(c, []string{self, unixProbeArg, gone})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gl.Close()
+	os.Remove(gone)
+	cmd := exec.Command(argv[0], argv[1:]...)
+	cmd.Dir = project
+	if out, _ := cmd.CombinedOutput(); !strings.Contains(string(out), "refused:") {
+		t.Errorf("a socket that went away: %s", out)
+	}
+}
+
+// ENV-009: with all of the network the command has its own namespace through
+// pasta, and still has a route beyond this computer (TestTheSandboxsRealHosts
+// tries the internet), this computer's loopback, and is reached there by the
+// user's browser: the Run button's dev server. pasta gives the namespace this
+// computer's own address, so that address is the namespace's, not this computer's.
+func TestTheSandboxsWholeNetworkThroughPasta(t *testing.T) {
+	home, project, _ := sandboxed(t)
+	needPasta(t)
+	dev := hostServer(t, "127.0.0.1:0", "dev-server")
+	c, self := withSelf(t, base(home, project))
+	c.Network = environment.NetworkAll
+	run := func(script string) (string, error) { return runIn(Bubblewrap{}, project, c, script) }
+	if out, _ := run("awk 'NR>1 && $2==\"00000000\"' /proc/net/route; awk '$1==\"00000000000000000000000000000000\" && $10!=\"lo\"' /proc/net/ipv6_route"); out == "" {
+		t.Error("no default route in the sandbox")
+	}
+	if out, err := run("curl -sS -m 5 http://" + dev + "/"); out != "dev-server" {
+		t.Errorf("the host's loopback: %q, %v", out, err)
+	}
+	if out, _ := run("grep CapEff /proc/self/status; id -u"); out != "CapEff:\t0000000000000000\n"+strconv.Itoa(os.Getuid()) {
+		t.Errorf("capabilities and user: %q", out)
+	}
+	if out, err := run("exit 3"); err == nil || !strings.Contains(err.Error(), "exit status 3") {
+		t.Errorf("exit status through pasta: %v, %q", err, out)
+	}
+	// A server in the sandbox, reached from this computer's loopback.
+	free, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := free.Addr().String()
+	free.Close()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		runIn(Bubblewrap{}, project, c, self+" "+serveArg+" "+addr)
+	}()
+	var got string
+	for i := 0; i < 16 && got != "in the sandbox"; i++ {
+		time.Sleep(500 * time.Millisecond)
+		if resp, err := http.Get("http://" + addr + "/"); err == nil {
+			b, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			got = string(b)
+		}
+	}
+	if got != "in the sandbox" {
+		t.Errorf("a server in the sandbox from this computer: %q", got)
+	}
+	<-done
 }
 
 func base(home, project string) environment.Confinement {
@@ -223,7 +408,7 @@ func outsideAddr(t *testing.T) string {
 
 func needPasta(t *testing.T) {
 	t.Helper()
-	if pastaArgs() == nil {
+	if pastaArgs(false) == nil {
 		t.Skip("pasta is not installed here, or this computer has no default route")
 	}
 }
@@ -322,7 +507,7 @@ func TestTheSandboxsListedHosts(t *testing.T) {
 	c := base(home, project)
 	c.Network, c.Certificates, c.ProxySocket, c.ProxyPort = environment.NetworkLocalhost, true, socket, port
 	ways := map[string]Bubblewrap{"bridge": {noPasta: true}}
-	if pastaArgs() != nil {
+	if pastaArgs(false) != nil {
 		ways["pasta"] = Bubblewrap{}
 	} else {
 		t.Log("pasta is not installed here: only the bridge is tried")
@@ -379,7 +564,7 @@ func TestTheSandboxsRealHosts(t *testing.T) {
 		env += k + "='" + v + "' "
 	}
 	for name, b := range map[string]Bubblewrap{"bridge": {noPasta: true}, "pasta": {}} {
-		if name == "pasta" && pastaArgs() == nil {
+		if name == "pasta" && pastaArgs(false) == nil {
 			continue
 		}
 		for _, command := range []string{
@@ -401,6 +586,17 @@ func TestTheSandboxsRealHosts(t *testing.T) {
 	}
 	if len(blocked) != 1 || blocked[0] != "example.com" {
 		t.Errorf("blocked = %v", blocked)
+	}
+	// All of the network, through pasta's namespace: names resolve and the
+	// internet answers, with no proxy.
+	if pastaArgs(true) != nil {
+		all := base(home, project)
+		all.Network = environment.NetworkAll
+		for _, command := range []string{"curl -sS -m 30 -o /dev/null https://example.com", "git ls-remote https://github.com/git/git.git HEAD"} {
+			if out, err := runIn(Bubblewrap{}, project, all, command); err != nil {
+				t.Errorf("all: %s: %v: %.300s", command, err, out)
+			}
+		}
 	}
 }
 
@@ -425,10 +621,24 @@ func TestTheSandboxsNetworkPlan(t *testing.T) {
 	if !slices.Contains(args, "--unshare-net") || slices.Index(args, bridgeExe) < slices.Index(args, "/run") {
 		t.Errorf("bwrap's options with the bridge: %v", args)
 	}
-	for _, network := range []environment.Network{environment.NetworkNone, environment.NetworkAll} {
-		c.Network = network
-		if n, _ := (Bubblewrap{}).network(c); n.pasta != nil || n.bridge != nil {
-			t.Errorf("%s: %+v", network, n)
+	c.Network = environment.NetworkNone
+	if n, _ := (Bubblewrap{}).network(c); n.pasta != nil || n.bridge != nil {
+		t.Errorf("none: %+v", n)
+	}
+	// All of the network is never the host's namespace: pasta's, or without it a
+	// namespace of its own.
+	c.Network = environment.NetworkAll
+	if n, _ := (Bubblewrap{noPasta: true}).network(c); n.pasta != nil || n.bridge != nil {
+		t.Errorf("all without pasta: %+v", n)
+	} else if args, _ := bubblewrapArgs(c, n); !slices.Contains(args, "--unshare-net") {
+		t.Errorf("all without pasta shares the host's network: %v", args)
+	}
+	if n, _ := (Bubblewrap{}).network(c); n.pasta != nil {
+		if !slices.Contains(n.pasta, "--config-net") || n.bridge != nil {
+			t.Errorf("all through pasta: %+v", n)
+		}
+		if args, _ := bubblewrapArgs(c, n); !slices.Contains(args, "--unshare-user") {
+			t.Errorf("bwrap's options for all in pasta's namespace: %v", args)
 		}
 	}
 	c.Network = environment.NetworkLocalhost
@@ -458,5 +668,36 @@ func TestBridgeMounts(t *testing.T) {
 	}
 	if _, exe := bridgeMounts("/usr/bin/freeloop", "/tmp/.mount_other"); exe != bridgeExe {
 		t.Errorf("an APPDIR the program is not in was used: %q", exe)
+	}
+}
+
+// Which sockets are hidden, without running anything: /proc/net/unix's paths that
+// exist, outside what the command writes and what the sandbox empties anyway,
+// unless mounted back.
+func TestWhichSocketsAreHidden(t *testing.T) {
+	dir := t.TempDir()
+	sock := filepath.Join(dir, "s")
+	l, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	real, _ := filepath.EvalSymlinks(sock)
+	text := "Num       RefCount Protocol Flags    Type St Inode Path\n" +
+		"0000000000000000: 00000002 00000000 00010000 0001 01  4242 " + sock + "\n" +
+		"0000000000000000: 00000002 00000000 00010000 0001 01  4243 @/tmp/.X11-unix/X0\n" +
+		"0000000000000000: 00000002 00000000 00010000 0001 01  4244 /nonexistent/gone.sock\n" +
+		"0000000000000000: 00000003 00000000 00000000 0001 03  4245\n"
+	if got := listedSockets(text); !slices.Equal(got, []string{real}) {
+		t.Errorf("listed = %q", got)
+	}
+	got := shownSockets([]string{"/var/lib/x/s", "/home/u/p/dev.sock", "/home/u/.cache/c/s", "/home/u/other.sock", "/home/u/tool/s", "/run/docker.sock", "/var/tmp/s", "/nix/var/nix/daemon-socket/socket"},
+		"/home/u", []string{"/home/u/p", "/home/u/.cache/c"}, []string{"/home/u/tool"})
+	if !slices.Equal(got, []string{"/var/lib/x/s", "/home/u/tool/s"}) {
+		t.Errorf("shown = %q", got)
+	}
+	covers := socketCovers([]string{real})
+	if len(covers) != 1 || !covers[0].dir || covers[0].args[0] != "--tmpfs" || slices.Contains(covers[0].args, real) {
+		t.Errorf("covers = %+v", covers)
 	}
 }
