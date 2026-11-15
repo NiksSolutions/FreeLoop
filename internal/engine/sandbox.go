@@ -185,13 +185,18 @@ func (e *Engine) sandboxEnv(ctx context.Context, ses session.Session, cfg config
 	for _, p := range cfg.Sandbox.Write {
 		c.Write = append(c.Write, expandHome(home, p))
 	}
+	quoted := regexp.QuoteMeta(root)
 	for _, p := range sandboxProtected {
+		// A name by its start, such as .huskyrc.*, is a pattern.
+		if strings.Contains(p, "*") {
+			c.ProtectedPatterns = append(c.ProtectedPatterns, "^"+quoted+"/"+strings.ReplaceAll(regexp.QuoteMeta(p), `\*`, "[^/]*")+"(/.*)?$")
+			continue
+		}
 		c.Protected = append(c.Protected, filepath.Join(root, p))
 	}
 	c.Protected = append(c.Protected, e.gitProtected(ctx, host, &c)...)
 	// At any depth: git runs what a nested repository's config names when it
 	// starts there, and a nested project's settings become active when opened.
-	quoted := regexp.QuoteMeta(root)
 	c.ProtectedPatterns = append(c.ProtectedPatterns, "^"+quoted+"/.+/\\.git(/.*)?$", "^"+quoted+"/.+/\\."+regexp.QuoteMeta(strings.TrimPrefix(ProjectDir, "."))+"(/.*)?$")
 	c.ProtectedPatterns = append(c.ProtectedPatterns, bareRepositoryPatterns(quoted)...)
 	sid := ses.ID

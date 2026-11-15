@@ -243,8 +243,10 @@ func shortNameOf(part, name string) bool {
 
 // ActedOnLater are the project files something outside a session later reads and
 // runs: editors, direnv, commit hooks and other agents. Writing one is not an
-// ordinary edit, so accept-edits mode asks, and a sandbox keeps them read-only.
-var ActedOnLater = []string{
+// ordinary edit, so accept-edits mode asks, and a sandbox keeps them read-only. Each
+// is a name or a few names with slashes, each name a glob, matched at any depth
+// (environment.PartsMatch).
+var ActedOnLater = append([]string{
 	".devcontainer", ".devcontainer.json", ".mcp.json", ".envrc", ".vscode", ".idea", ".husky", ".githooks",
 	".pre-commit-config.yaml", ".claude", ".gemini", ".codex", ".goose", ".opencode", "opencode.json", ".cursor",
 	".windsurf", ".continue", ".zed", ".mise.toml", ".tool-versions", ".nvim.lua", ".nvimrc", ".exrc", ".cargo",
@@ -254,7 +256,11 @@ var ActedOnLater = []string{
 	"AGENTS.md", "CLAUDE.md", "GEMINI.md", ".agents", ".github", ".gitlab", ".gitlab-ci.yml", ".circleci", ".travis.yml",
 	".gitattributes", ".gitmodules", ".lfsconfig", ".direnv", ".mise", "mise.toml", ".bundle", ".yarn", ".yarnrc",
 	".yarnrc.yml", ".pnpmfile.cjs", ".mvn", ".bazelrc", "gradle.properties", ".pylintrc", "pylintrc",
-}
+	// Mercurial's repository, whose hgrc names hooks; the other hook runners (lefthook's
+	// files are added below), and mise's other files.
+	".hg", ".lefthook", ".huskyrc", ".huskyrc.*", "husky.config.*", ".lintstagedrc", ".lintstagedrc.*", "lint-staged.config.*",
+	".rtx.toml", "mise.*.toml", ".mise.*.toml", "mise/config.toml", "mise/config.*.toml", ".config/mise", ".config/mise.*.toml",
+}, environment.LefthookFiles()...)
 
 // actedOn reports a path that is or is inside one of ActedOnLater.
 func (p *Policy) actedOn(root string, paths []string) bool {
@@ -265,9 +271,12 @@ func (p *Policy) actedOn(root string, paths []string) bool {
 			continue
 		}
 		// At any depth: opening a subfolder as a project makes its files active.
+		if environment.PartsMatch(parts, ActedOnLater) {
+			return true
+		}
 		for _, name := range ActedOnLater {
 			folded := environment.FoldPath(name)
-			if slices.ContainsFunc(parts, func(part string) bool { return part == folded || shortNameOf(part, folded) }) {
+			if slices.ContainsFunc(parts, func(part string) bool { return shortNameOf(part, folded) }) {
 				return true
 			}
 		}

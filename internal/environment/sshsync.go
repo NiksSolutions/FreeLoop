@@ -125,18 +125,24 @@ func validSyncPath(rel string) bool {
 // AGENTS.md would steer the next local session, and a .gitignore decides what is sent:
 // emptied over there, it would send every file the project ignores.
 var (
-	settingDirs = nameSet(".git", ".freeloop", ".agents", ".claude", ".codex", ".gemini", ".cursor", ".opencode", ".goose", ".windsurf", ".continue", ".zed",
+	settingDirs = nameSet(".git", ".hg", ".freeloop", ".agents", ".claude", ".codex", ".gemini", ".cursor", ".opencode", ".goose", ".windsurf", ".continue", ".zed",
 		".vscode", ".idea", ".direnv", ".cargo", ".bundle", ".yarn", ".mise",
 		"node_modules", ".venv", "venv", "__pycache__", "site-packages")
-	settingFiles = nameSet(".envrc", ".mcp.json", ".yarnrc", ".yarnrc.yml", ".pnpmfile.cjs", ".mise.toml", "mise.toml", ".tool-versions", "opencode.json", ".nvim.lua", ".nvimrc", ".exrc")
-	heldDirs     = nameSet(".devcontainer", ".husky", ".githooks", ".github", ".gitlab", ".circleci", ".mvn")
-	heldFiles    = nameSet("agents.md", "claude.md", "gemini.md",
+	settingFiles = nameSet(".envrc", ".mcp.json", ".yarnrc", ".yarnrc.yml", ".pnpmfile.cjs", ".mise.toml", "mise.toml", ".rtx.toml", ".tool-versions", "opencode.json", ".nvim.lua", ".nvimrc", ".exrc")
+	// mise's other files: by environment (mise.local.toml, .mise.production.toml) and in
+	// folders (mise/config.toml, .config/mise/conf.d/*.toml).
+	settingPatterns = []string{"mise.*.toml", ".mise.*.toml", "mise/config.toml", "mise/config.*.toml", ".config/mise", ".config/mise.*.toml"}
+	heldDirs        = nameSet(".devcontainer", ".husky", ".githooks", ".lefthook", ".github", ".gitlab", ".circleci", ".mvn")
+	heldFiles       = nameSet(append([]string{"agents.md", "claude.md", "gemini.md",
 		".gitignore", ".ignore", ".gitattributes", ".gitmodules", ".lfsconfig",
 		// With objects and refs beside it, a HEAD makes its folder a bare repository, and
 		// git run there obeys the config beside it, whose core.fsmonitor is a command.
 		"head",
-		".devcontainer.json", ".pre-commit-config.yaml", ".gitlab-ci.yml", ".travis.yml", ".bazelrc", "gradle.properties", ".pylintrc", "pylintrc")
-	secretDirs = nameSet(".ssh", ".gnupg", ".aws", ".azure", ".gcloud", ".kube", ".docker", ".terraform")
+		".devcontainer.json", ".pre-commit-config.yaml", ".gitlab-ci.yml", ".travis.yml", ".bazelrc", "gradle.properties", ".pylintrc", "pylintrc",
+		".huskyrc", ".lintstagedrc"}, LefthookFiles()...)...)
+	// Hook runners' configs by their name's start, whatever format they are in.
+	heldPatterns = []string{".huskyrc.*", "husky.config.*", ".lintstagedrc.*", "lint-staged.config.*"}
+	secretDirs   = nameSet(".ssh", ".gnupg", ".aws", ".azure", ".gcloud", ".kube", ".docker", ".terraform")
 	// Whole names, and how a name starts or ends.
 	secretFiles = nameSet(".netrc", ".npmrc", ".pypirc", ".git-credentials", ".pgpass", ".vault-token", ".s3cfg", ".htpasswd", "kubeconfig", "terraform.tfvars")
 )
@@ -160,21 +166,55 @@ func inAny(parts []string, dirs, files map[string]bool) bool {
 	return dirs[last] || files[last]
 }
 
-// settingPath reports a path that crosses neither way. A name of acted is one the
+// LefthookFiles are lefthook's config files: lefthook.yml and its other formats, with or
+// without a leading dot, and the -local ones beside them.
+func LefthookFiles() []string {
+	var out []string
+	for _, dot := range []string{"", "."} {
+		for _, name := range []string{"lefthook", "lefthook-local"} {
+			for _, ext := range []string{".yml", ".yaml", ".toml", ".json", ".jsonc"} {
+				out = append(out, dot+name+ext)
+			}
+		}
+	}
+	return out
+}
+
+// PartsMatch reports a path, given as its folded names, that is or is inside what a
+// pattern names, at any depth. A pattern is names separated by slashes, each a
+// path.Match glob: ".hg", ".huskyrc.*", "mise/config.toml".
+func PartsMatch(parts, patterns []string) bool {
+	for _, pattern := range patterns {
+		want := strings.Split(FoldPath(pattern), "/")
+		for i := 0; i+len(want) <= len(parts); i++ {
+			if slices.EqualFunc(want, parts[i:i+len(want)], func(w, p string) bool {
+				ok, _ := path.Match(w, p)
+				return ok
+			}) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// settingPath reports a path that crosses neither way. A pattern of acted is one the
 // permission policy knows something outside a session acts on.
-func settingPath(rel string, acted map[string]bool) bool {
+func settingPath(rel string, acted []string) bool {
 	parts := strings.Split(FoldPath(rel), "/")
-	return inAny(parts, settingDirs, settingFiles) || inAny(parts, acted, acted)
+	return inAny(parts, settingDirs, settingFiles) || PartsMatch(parts, settingPatterns) || PartsMatch(parts, acted)
 }
 
 // heldPath reports a path that does not come back.
 func heldPath(rel string) bool {
 	parts := strings.Split(FoldPath(rel), "/")
-	return inAny(parts, settingDirs, settingFiles) || inAny(parts, heldDirs, heldFiles)
+	return inAny(parts, settingDirs, settingFiles) || PartsMatch(parts, settingPatterns) ||
+		inAny(parts, heldDirs, heldFiles) || PartsMatch(parts, heldPatterns)
 }
 
-// SyncHeldNames lists the names of files and folders the sync keeps from crossing,
-// one way or both, for the permission policy to be checked against (SEC-005).
+// SyncHeldNames lists the names of files and folders, and the patterns, the sync keeps
+// from crossing, one way or both, for the permission policy to be checked against
+// (SEC-005).
 func SyncHeldNames() []string {
 	var out []string
 	for _, set := range []map[string]bool{settingDirs, settingFiles, heldDirs, heldFiles} {
@@ -182,6 +222,7 @@ func SyncHeldNames() []string {
 			out = append(out, name)
 		}
 	}
+	out = append(append(out, settingPatterns...), heldPatterns...)
 	slices.Sort(out)
 	return out
 }

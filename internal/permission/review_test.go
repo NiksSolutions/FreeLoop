@@ -54,7 +54,9 @@ func TestWritesThatPlantExecution(t *testing.T) {
 			t.Errorf("%s refused: %s", rel, why)
 		}
 	}
-	for _, rel := range []string{".envrc", "sub/.envrc", ".vscode/tasks.json", ".mcp.json", ".husky/pre-commit", ".claude/settings.json", ".gemini/settings.json", ".codex/config.toml", ".pre-commit-config.yaml", ".cursor/mcp.json"} {
+	for _, rel := range []string{".envrc", "sub/.envrc", ".vscode/tasks.json", ".mcp.json", ".husky/pre-commit", ".claude/settings.json", ".gemini/settings.json", ".codex/config.toml", ".pre-commit-config.yaml", ".cursor/mcp.json",
+		"lefthook.yml", ".lefthook/x.sh", ".huskyrc.json", "lint-staged.config.mjs", ".lintstagedrc", ".config/mise/conf.d/a.toml",
+		"mise/config.toml", ".mise.local.toml", ".rtx.toml", "sub/.hg/hgrc"} {
 		if !p.actedOn(root, []string{filepath.Join(root, rel)}) {
 			t.Errorf("%s is not treated as acted on later", rel)
 		}

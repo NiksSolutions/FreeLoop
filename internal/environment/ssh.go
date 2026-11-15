@@ -139,7 +139,7 @@ type SSH struct {
 	base      string                 // the session's folder over there, absolute
 	work      string
 	state     string
-	acted     map[string]bool
+	acted     []string // patterns, as PartsMatch reads them
 	synced
 
 	// master is the shared connection's process once seen, with when it started; Close
@@ -178,7 +178,7 @@ func NewSSH(opts SSHOptions) (*SSH, error) {
 			return nil, fmt.Errorf("environment: %q cannot be a variable here", name)
 		}
 	}
-	return &SSH{opts: opts, host: host, synced: newSynced(), acted: nameSet(opts.ActedOn...)}, nil
+	return &SSH{opts: opts, host: host, synced: newSynced(), acted: slices.Clone(opts.ActedOn)}, nil
 }
 
 func (s *SSH) ID() string     { return s.opts.ID }

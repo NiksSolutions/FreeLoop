@@ -503,6 +503,30 @@ func TestValidSyncPath(t *testing.T) {
 	}
 }
 
+// Hook runners' and tool managers' configs run here later, so a command over there must
+// not change them. Reproduced on 2026-11-13: each came back from the remote (SEC-005).
+func TestHookRunnersAndToolConfigsAreHeld(t *testing.T) {
+	s := &SSH{}
+	for _, p := range []string{
+		"lefthook.yml", ".lefthook.yml", "lefthook.yaml", ".lefthook.yaml", "lefthook.toml", "lefthook.json", "lefthook-local.yml",
+		".lefthook-local.yml", "lefthook-local.yaml", ".lefthook/pre-commit/x.sh", "sub/LEFTHOOK.YML",
+		".huskyrc", ".huskyrc.json", ".huskyrc.js", "husky.config.js", ".lintstagedrc", ".lintstagedrc.json", ".lintstagedrc.mjs",
+		"lint-staged.config.js", "lint-staged.config.cjs", "sub/.lintstagedrc.yaml",
+		".config/mise/config.toml", ".config/mise/conf.d/node.toml", ".config/mise.toml", "mise/config.toml", ".rtx.toml",
+		".mise.local.toml", "mise.local.toml", "mise.production.toml", "sub/.config/mise/config.toml",
+		".hg/hgrc", "sub/.hg/hgrc", ".HG/hgrc",
+	} {
+		if why := s.holdBack(p); why == "" {
+			t.Errorf("%q comes back", p)
+		}
+	}
+	for _, p := range []string{"src/lefthook.go", "docs/husky.md", "mise.md", ".config/other/config.toml", "hg/x", "src/config.toml", "lint-staged.md"} {
+		if why := s.holdBack(p); why != "" {
+			t.Errorf("%q held: %s", p, why)
+		}
+	}
+}
+
 func TestHeldAndSecretPaths(t *testing.T) {
 	for _, p := range []string{"sub/HEAD", "HEAD", "x/head", ".github/workflows/ci.yml", ".GITHUB/a", ".yarnrc.yml", "a/.pnpmfile.cjs", ".cargo/config.toml", ".git/config", ".GIT/hooks/x", "sub/.git/config", ".claude/settings.json", ".CLAUDE/x", ".vscode/tasks.json", ".envrc", "sub/.envrc", ".mcp.json", "AGENTS.md", "agents.MD", "sub/CLAUDE.md", ".Git/CONFIG", ".claude", "ſ/.git/x"} {
 		if !heldPath(p) {

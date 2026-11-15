@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"regexp"
 	goruntime "runtime"
-	"slices"
 	"strings"
 
 	"github.com/FinanceNik/Freeloop/internal/environment"
@@ -233,13 +232,11 @@ func mergeRisks(ctx context.Context, main environment.Environment, into, branch 
 // a name, so .freeloop./hooks.yaml is written as .freeloop\hooks.yaml there.
 func actedOnFile(name string) bool {
 	names := append([]string{ProjectDir, ".gitattributes", ".gitmodules", "HEAD"}, permission.ActedOnLater...)
+	var parts []string
 	for _, part := range strings.Split(strings.ReplaceAll(name, `\`, "/"), "/") {
-		f := environment.FoldPath(strings.TrimRight(part, ". "))
-		if slices.ContainsFunc(names, func(n string) bool { return environment.FoldPath(n) == f }) {
-			return true
-		}
+		parts = append(parts, environment.FoldPath(strings.TrimRight(part, ". ")))
 	}
-	return false
+	return environment.PartsMatch(parts, names)
 }
 
 // MergeWorktree merges a session's branch into the branch the project's
