@@ -175,9 +175,19 @@ func Within(p, dir string) bool {
 // The existing part of p is resolved, so a protected directory that does
 // not exist yet (a ~/.ssh created after the app started) is still covered
 // under its resolved spelling.
+//
+// A share on another computer or a device (farPath) is not looked at: the broker calls
+// this before anyone approved the call, and on Windows looking connects there as the
+// user. Its other spelling is only the one without the verbatim prefix.
 func Spellings(p string) []string {
 	p = filepath.Clean(p)
 	out := []string{p}
+	if farPaths && farPath(p) {
+		if u := Unaliased(p); u != p {
+			out = append(out, u)
+		}
+		return out
+	}
 	if real := realTarget(p); real != p {
 		out = append(out, real)
 	}

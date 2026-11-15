@@ -91,6 +91,15 @@ func (e *Engine) embedMentions(sid string, env environment.Environment, text str
 var errNotMentionable = errors.New(mentionNotFound)
 
 func readMention(env environment.Environment, rel string) (harness.Resource, error) {
+	// As spelled first, so a mention of a path elsewhere, such as a share on another
+	// computer, is not even looked at; then with its links resolved.
+	clean := rel
+	if !filepath.IsAbs(clean) {
+		clean = filepath.Join(env.Root(), clean)
+	}
+	if !environment.LexicallyWithin(env.Root(), clean) {
+		return harness.Resource{}, errNotMentionable
+	}
 	abs := env.Resolve(rel)
 	if !env.Contains(abs) {
 		return harness.Resource{}, errNotMentionable

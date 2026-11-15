@@ -2,6 +2,7 @@ package environment
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -140,5 +141,43 @@ func TestWindowsShell(t *testing.T) {
 	ver, sysroot, _ := strings.Cut(strings.TrimSpace(res.Output), "|")
 	if ver == "" || sysroot == "" {
 		t.Errorf("output %q: want bash's version and SYSTEMROOT", res.Output)
+	}
+}
+
+// Security review, 2026-11-13: a share on another computer named by a tool call is
+// not looked at while the call is judged, since looking opens an SMB connection that
+// sends the user's NTLM hash, and outside the project it is not read or written even
+// when allowed (TestFarPath has the spellings).
+func TestWindowsShareOutsideTheProjectIsNotTouched(t *testing.T) {
+	skipUnlessWindows(t)
+	root := Canonical(t.TempDir())
+	l, err := NewLocal(LocalOptions{Root: root, Guard: denyGuard{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for in, want := range map[string]string{
+		`\\attacker.invalid\s\x`:         `\\attacker.invalid\s\x`,
+		`//attacker.invalid/s/x`:         `\\attacker.invalid\s\x`,
+		`\\?\UNC\attacker.invalid\s\x`:   `\\attacker.invalid\s\x`,
+		`\\.\pipe\freeloop-test-nothing`: `\\.\pipe\freeloop-test-nothing`,
+	} {
+		if got := l.Resolve(in); got != want {
+			t.Errorf("Resolve(%q) = %q, want %q", in, got, want)
+		}
+		if l.Contains(in) {
+			t.Errorf("%s is in the project", in)
+		}
+		if got := Spellings(in); got[len(got)-1] != filepath.Clean(want) {
+			t.Errorf("Spellings(%q) = %q", in, got)
+		}
+		if _, err := l.FS().ReadFile(in); !errors.Is(err, ErrProtected) {
+			t.Errorf("ReadFile(%s) = %v", in, err)
+		}
+		if _, err := l.FS().Stat(in); !errors.Is(err, ErrProtected) {
+			t.Errorf("Stat(%s) = %v", in, err)
+		}
+		if err := l.FS().WriteFile(in, []byte("x")); !errors.Is(err, ErrProtected) {
+			t.Errorf("WriteFile(%s) = %v", in, err)
+		}
 	}
 }

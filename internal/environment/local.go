@@ -103,7 +103,14 @@ func (l *Local) Resolve(p string) string {
 	if !filepath.IsAbs(p) {
 		p = filepath.Join(l.root, p)
 	}
-	return realTarget(filepath.Clean(p))
+	p = filepath.Clean(p)
+	// A share on another computer is not looked at to judge a call: on Windows that
+	// connects, sending the user's NTLM hash, before anyone approved anything. It is
+	// outside the project, so the broker asks, and the file system refuses it.
+	if untouchable(l.root, p) {
+		return Unaliased(p)
+	}
+	return realTarget(p)
 }
 
 // Contains reports whether p resolves to a location inside Root. Like the
@@ -356,8 +363,21 @@ type localFS struct {
 	guard Guard
 }
 
+// far refuses a share on another computer or a device outside the project, whatever
+// was approved: reading or writing one would sign in there as the user, and nothing a
+// session does needs to. A project on a share is read and written as any other.
+func (f *localFS) far(abs string) error {
+	if untouchable(f.env.root, abs) {
+		return fmt.Errorf("%s is on another computer or a device, outside the project, which Freeloop does not open: %w", abs, ErrProtected)
+	}
+	return nil
+}
+
 func (f *localFS) read(p string) (string, error) {
 	abs := f.env.Resolve(p)
+	if err := f.far(abs); err != nil {
+		return "", err
+	}
 	if err := f.guard.CheckRead(abs); err != nil {
 		return "", err
 	}
@@ -412,6 +432,9 @@ func (f *localFS) openRead(abs string) (*os.File, error) {
 
 func (f *localFS) ReadFile(p string) ([]byte, error) {
 	abs := f.env.Resolve(p)
+	if err := f.far(abs); err != nil {
+		return nil, err
+	}
 	if err := f.guard.CheckRead(abs); err != nil {
 		return nil, err
 	}
@@ -464,6 +487,9 @@ func (l *Local) WritePrivate(p string, data []byte) error {
 // writeMode writes a file, new ones with mode; an existing one keeps its own.
 func (f *localFS) writeMode(p string, data []byte, newMode os.FileMode) error {
 	abs := f.env.Resolve(p)
+	if err := f.far(abs); err != nil {
+		return err
+	}
 	if err := f.guard.CheckWrite(abs); err != nil {
 		return err
 	}
