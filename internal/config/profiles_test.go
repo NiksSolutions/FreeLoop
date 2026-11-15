@@ -41,7 +41,9 @@ commands:
 	if len(list) != 1 || list[0].ID != "reviewer" || list[0].Harness != "builtin" || len(list[0].Commands) != 1 {
 		t.Fatalf("profiles = %+v", list)
 	}
-	if r := list[0].Rules[0]; r.Scope != permission.ScopeProfile || r.Source != "profiles/reviewer.yaml" {
+	// The source is spelled the way the engine names the file when the rule waits for
+	// approval (ruleFile), so the two fingerprints agree: with this system's separator.
+	if r := list[0].Rules[0]; r.Scope != permission.ScopeProfile || r.Source != filepath.Join("profiles", "reviewer.yaml") {
 		t.Errorf("rule = %+v", r)
 	}
 	got := map[string]Issue{}

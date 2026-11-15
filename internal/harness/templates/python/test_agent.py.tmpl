@@ -18,13 +18,14 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 
 def main():
     work = tempfile.mkdtemp()
-    with open(os.path.join(work, "notes.txt"), "w") as f:
+    with open(os.path.join(work, "notes.txt"), "w", encoding="utf-8") as f:
         f.write("first line\nsecond line\n")
+    # Bytes, as Freeloop sees them: UTF-8, unescaped, one message per line ending in \n.
     agent = subprocess.Popen([sys.executable, os.path.join(HERE, "agent.py")], cwd=work,
-                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE)
 
     def send(message):
-        agent.stdin.write(json.dumps(message) + "\n")
+        agent.stdin.write((json.dumps(message, ensure_ascii=False) + "\n").encode("utf-8"))
         agent.stdin.flush()
 
     def call(rid, method, params):
@@ -33,6 +34,7 @@ def main():
         send({"jsonrpc": "2.0", "id": rid, "method": method, "params": params})
         said = []
         for line in agent.stdout:
+            assert line.endswith(b"\n") and not line.endswith(b"\r\n"), line
             message = json.loads(line)
             if message.get("id") == rid and "method" not in message:
                 return message, "".join(said)
@@ -51,6 +53,8 @@ def main():
     session = new["result"]["sessionId"]
     reply, said = call(3, "session/prompt", {"sessionId": session, "prompt": [{"type": "text", "text": "hello"}]})
     assert reply["result"]["stopReason"] == "end_turn" and said == "You said: hello", (reply, said)
+    reply, said = call(5, "session/prompt", {"sessionId": session, "prompt": [{"type": "text", "text": "grüße ✓"}]})
+    assert said == "You said: grüße ✓", (reply, said)
     reply, said = call(4, "session/prompt", {"sessionId": session, "prompt": [{"type": "text", "text": "read notes.txt"}]})
     assert "first line" in said, said
     agent.stdin.close()

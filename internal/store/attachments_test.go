@@ -10,6 +10,7 @@ import (
 
 func TestAttachments(t *testing.T) {
 	s := openTest(t, t.TempDir(), nil)
+	defer s.Close()
 	ctx := context.Background()
 	a, _ := s.CreateSession(ctx, session.Session{Title: "a", ProjectRoot: t.TempDir()})
 	b, _ := s.CreateSession(ctx, session.Session{Title: "b", ProjectRoot: t.TempDir()})

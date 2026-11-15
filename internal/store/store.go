@@ -75,6 +75,9 @@ type Store struct {
 	done    chan struct{}
 	cancel  context.CancelFunc // stops the background indexing
 	indexed sync.WaitGroup
+
+	closeOnce sync.Once
+	closeErr  error
 }
 
 // Open opens or creates the store in opts.Dir.
@@ -136,8 +139,14 @@ func Open(opts Options) (*Store, error) {
 // store opened, or "".
 func (s *Store) Rebuilt() string { return s.rebuilt }
 
-// Close fsyncs and closes every open transcript and the database.
+// Close fsyncs and closes every open transcript and the database. Once closed, a
+// second Close returns what the first did.
 func (s *Store) Close() error {
+	s.closeOnce.Do(func() { s.closeErr = s.close() })
+	return s.closeErr
+}
+
+func (s *Store) close() error {
 	s.cancel()
 	s.indexed.Wait()
 	close(s.stop)

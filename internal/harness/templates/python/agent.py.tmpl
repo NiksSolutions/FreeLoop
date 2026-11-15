@@ -142,4 +142,8 @@ class Agent:
 
 
 if __name__ == "__main__":
+    # UTF-8 lines ending in a bare \n, as ACP has them, on Windows too, where Python
+    # would read and write the ANSI code page and end each line with \r\n.
+    sys.stdin.reconfigure(encoding="utf-8")
+    sys.stdout.reconfigure(encoding="utf-8", newline="\n")
     Agent().run()

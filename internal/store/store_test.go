@@ -21,6 +21,10 @@ func openTest(t *testing.T, dir string, onAppend func(event.Event)) *Store {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Closed before the test's folders are removed (cleanups run last first): an open
+	// database cannot be deleted on Windows, and the copy it makes in the background
+	// must not race the removal.
+	t.Cleanup(func() { s.Close() })
 	return s
 }
 

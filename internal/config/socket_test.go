@@ -25,6 +25,16 @@ func deepDir(t *testing.T) string {
 // in a name derived from the data folder in a shared temporary folder.
 func TestFallbackSocketIsInAPrivateFolder(t *testing.T) {
 	tmp := t.TempDir()
+	if runtime.GOOS == "windows" {
+		// A test's own folder on Windows (C:\Users\...\Temp\TestFallback...\001) is
+		// too deep for a socket path in it, and Windows has no /tmp to fall back to.
+		// A user's temporary folder is short, so the test's is too.
+		var err error
+		if tmp, err = os.MkdirTemp("", "fl"); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { os.RemoveAll(tmp) })
+	}
 	t.Setenv("TMPDIR", tmp)
 	t.Setenv("TEMP", tmp)
 	t.Setenv("TMP", tmp)

@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -32,7 +33,9 @@ func TestPythonTemplate(t *testing.T) {
 	}
 	dir := render(t, "python")
 	out, err := exec.Command(py, "-I", filepath.Join(dir, "test_agent.py")).CombinedOutput()
-	if err != nil || string(out) != "ok\n" {
+	// The test's own print ends its line with \r\n on Windows; the agent's messages,
+	// which the test checks, end with \n alone.
+	if err != nil || strings.ReplaceAll(string(out), "\r\n", "\n") != "ok\n" {
 		t.Fatalf("test_agent.py: %v\n%s", err, out)
 	}
 }
