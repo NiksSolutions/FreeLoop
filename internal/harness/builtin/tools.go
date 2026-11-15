@@ -601,7 +601,9 @@ func loadSkill() *tool {
 					}
 					text := c.Text
 					if in.File == "" {
-						text = fmt.Sprintf("<skill name=%q folder=%q>\n%s\n</skill>\n", in.Name, c.Dir, strings.TrimSpace(c.Text))
+						// The folder as it is spelled: %q would double each backslash of a
+						// Windows path, which the model would then type.
+						text = fmt.Sprintf("<skill name=%q folder=\"%s\">\n%s\n</skill>\n", in.Name, c.Dir, strings.TrimSpace(c.Text))
 						if len(c.Files) > 0 {
 							text += "\nFiles in the skill (read them with load_skill and file; run scripts with the shell tool from the folder above):\n- " + strings.Join(c.Files, "\n- ") + "\n"
 						}

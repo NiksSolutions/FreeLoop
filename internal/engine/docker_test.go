@@ -20,13 +20,7 @@ import (
 // deleting the session removes the container. Skipped without Docker.
 func TestDockerSession(t *testing.T) {
 	ctx := context.Background()
-	docker, err := environment.FindDocker()
-	if err != nil {
-		t.Skip(err)
-	}
-	if err := hostRun(docker, "info"); err != nil {
-		t.Skip("no Docker daemon is running")
-	}
+	docker := linuxDocker(t)
 	cache, _ := os.UserCacheDir()
 	root, err := os.MkdirTemp(cache, "freeloop-docker-session-")
 	if err != nil {
@@ -78,15 +72,39 @@ func TestDockerSession(t *testing.T) {
 
 // hostRun runs a host command for the test, through the environment layer.
 func hostRun(argv ...string) error {
+	_, err := hostOutput(argv...)
+	return err
+}
+
+// hostOutput is what a host command printed, run as hostRun runs it.
+func hostOutput(argv ...string) (string, error) {
 	l, err := environment.NewLocal(environment.LocalOptions{Root: os.TempDir(), Guard: allowAllGuard{}})
 	if err != nil {
-		return err
+		return "", err
 	}
 	res, err := l.Exec(context.Background(), environment.ExecSpec{Argv: argv, Timeout: 30 * time.Second})
 	if err == nil && res.ExitCode != 0 {
 		err = os.ErrNotExist
 	}
-	return err
+	return res.Output, err
+}
+
+// linuxDocker is the docker command, or skips when no daemon runs here or it runs
+// Windows containers, as on a Windows runner, which has no image of alpine.
+func linuxDocker(t *testing.T) string {
+	t.Helper()
+	docker, err := environment.FindDocker()
+	if err != nil {
+		t.Skip(err)
+	}
+	kind, err := hostOutput(docker, "info", "--format", "{{.OSType}}")
+	if err != nil {
+		t.Skip("no Docker daemon is running")
+	}
+	if kind = strings.TrimSpace(kind); kind != "linux" {
+		t.Skipf("the Docker daemon runs %s containers, not Linux ones", kind)
+	}
+	return docker
 }
 
 type allowAllGuard struct{}
@@ -101,13 +119,7 @@ func (allowAllGuard) CheckWrite(string) error { return nil }
 // Docker.
 func TestDockerWorktreeGit(t *testing.T) {
 	ctx := context.Background()
-	docker, err := environment.FindDocker()
-	if err != nil {
-		t.Skip(err)
-	}
-	if err := hostRun(docker, "info"); err != nil {
-		t.Skip("no Docker daemon is running")
-	}
+	linuxDocker(t)
 	cache, _ := os.UserCacheDir()
 	base, err := os.MkdirTemp(cache, "freeloop-docker-worktree-")
 	if err != nil {
@@ -165,13 +177,7 @@ func TestDockerWorktreeGit(t *testing.T) {
 // there when the session's own commands run. Skipped without Docker.
 func TestDockerWorktreeScripts(t *testing.T) {
 	ctx := context.Background()
-	docker, err := environment.FindDocker()
-	if err != nil {
-		t.Skip(err)
-	}
-	if err := hostRun(docker, "info"); err != nil {
-		t.Skip("no Docker daemon is running")
-	}
+	docker := linuxDocker(t)
 	cache, _ := os.UserCacheDir()
 	base, err := os.MkdirTemp(cache, "freeloop-docker-scripts-")
 	if err != nil {

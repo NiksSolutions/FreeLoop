@@ -114,6 +114,10 @@ func (t *conptyTerminal) start(program string, argv []string, dir string, env []
 	}
 	si := windows.StartupInfoEx{ProcThreadAttributeList: attrs.List()}
 	si.Cb = uint32(unsafe.Sizeof(si))
+	// A child given no standard handles takes the app's own when those are redirected,
+	// as under go test, CI or a terminal, and then reads and writes past the console:
+	// the shell gets no input and logs out. Null handles named here are the console's.
+	si.Flags |= windows.STARTF_USESTDHANDLES
 	cmdline, err := windows.UTF16PtrFromString(windows.ComposeCommandLine(append([]string{program}, argv[1:]...)))
 	if err != nil {
 		return err

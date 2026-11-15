@@ -50,6 +50,9 @@ func (e *Engine) watch(interval time.Duration) {
 func (e *Engine) reload(changed []string) {
 	envs, profiles, styles := false, false, false
 	for _, f := range changed {
+		// The files come in the system's spelling; the folders are named with /, and
+		// presets/harnesses is two of them, so on Windows they are compared with / too.
+		under := func(dir string) bool { return strings.HasPrefix(filepath.ToSlash(f), dir+"/") }
 		switch {
 		case f == config.FileName:
 			cfg, issues, err := config.Load(e.dataDir)
@@ -79,17 +82,17 @@ func (e *Engine) reload(changed []string) {
 			e.loadMCP()
 		case f == config.ColorsFileName:
 			e.loadColors()
-		case strings.HasPrefix(f, config.StylesDir+string(filepath.Separator)):
+		case under(config.StylesDir):
 			styles = true
-		case strings.HasPrefix(f, config.EnvironmentsDir+string(filepath.Separator)):
+		case under(config.EnvironmentsDir):
 			envs = true
-		case strings.HasPrefix(f, config.ProfilesDir+string(filepath.Separator)):
+		case under(config.ProfilesDir):
 			profiles = true
-		case strings.HasPrefix(f, config.OptimizersDir+string(filepath.Separator)):
+		case under(config.OptimizersDir):
 			e.loadOptimizers()
-		case strings.HasPrefix(f, config.WorkflowsDir+string(filepath.Separator)):
+		case under(config.WorkflowsDir):
 			e.loadWorkflows()
-		case strings.HasPrefix(f, config.PresetsDir+string(filepath.Separator)):
+		case under(config.PresetsDir):
 			e.loadPresets()
 			profiles = true
 		default:

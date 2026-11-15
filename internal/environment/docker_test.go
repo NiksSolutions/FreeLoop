@@ -23,8 +23,13 @@ func dockerOrSkip(t *testing.T) string {
 		t.Skip(err)
 	}
 	host, _ := NewLocal(LocalOptions{Root: t.TempDir(), Guard: denyGuard{}})
-	if res, err := host.Exec(context.Background(), ExecSpec{Argv: []string{docker, "info", "--format", "{{.ServerVersion}}"}, Timeout: 20 * time.Second}); err != nil || res.ExitCode != 0 {
+	res, err := host.Exec(context.Background(), ExecSpec{Argv: []string{docker, "info", "--format", "{{.OSType}}"}, Timeout: 20 * time.Second})
+	if err != nil || res.ExitCode != 0 {
 		t.Skip("no Docker daemon is running")
+	}
+	// A Windows runner's daemon runs Windows containers, which alpine has no image for.
+	if kind := strings.TrimSpace(res.Output); kind != "linux" {
+		t.Skipf("the Docker daemon runs %s containers, not Linux ones", kind)
 	}
 	// Colima and Docker Desktop share the home folder by default, not
 	// the system temp folder.

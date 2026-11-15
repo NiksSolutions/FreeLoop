@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -142,6 +143,9 @@ esac
 // container wrote into the worktree; it stops again when no session uses it.
 // The copy still comes from the main checkout, on the host.
 func TestScriptsRunInTheContainer(t *testing.T) {
+	if goruntime.GOOS == "windows" {
+		t.Skip("the stand-in docker is a shell script, and Windows runs one only through a shell; the app runs docker directly")
+	}
 	ctx := context.Background()
 	calls := standInDocker(t)
 	repo := gitRepo(t)

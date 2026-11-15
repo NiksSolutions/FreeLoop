@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/FinanceNik/Freeloop/internal/config"
-	"github.com/FinanceNik/Freeloop/internal/environment"
 	"github.com/FinanceNik/Freeloop/internal/event"
 	"github.com/FinanceNik/Freeloop/internal/provider/scripted"
 )
@@ -146,13 +145,7 @@ func TestSessionTerminal(t *testing.T) {
 // container, at the session's folder.
 func TestDockerTerminal(t *testing.T) {
 	ctx := context.Background()
-	docker, err := environment.FindDocker()
-	if err != nil {
-		t.Skip(err)
-	}
-	if err := hostRun(docker, "info"); err != nil {
-		t.Skip("no Docker daemon is running")
-	}
+	linuxDocker(t)
 	cache, _ := os.UserCacheDir()
 	root, err := os.MkdirTemp(cache, "freeloop-docker-terminal-")
 	if err != nil {
