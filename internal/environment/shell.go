@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
+	"path"
 	"runtime"
 	"strconv"
 	"strings"
@@ -112,8 +112,11 @@ func startHint(err error) error {
 	return err
 }
 
-func isPOSIXShell(path string) bool {
-	return filepath.IsAbs(path) && contains(posixShells, filepath.Base(path))
+// isPOSIXShell reports an absolute path to a POSIX shell, read as a Unix path, which
+// it is wherever it is asked: ShellFor asks it only for Linux and the like, and its
+// answer does not depend on the system the test runs on.
+func isPOSIXShell(p string) bool {
+	return path.IsAbs(p) && contains(posixShells, path.Base(p))
 }
 
 func contains(list []string, s string) bool {
