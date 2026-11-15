@@ -65,8 +65,9 @@ type Options struct {
 	// SystemInfo describes this computer for a problem report (macOS version, model,
 	// chip, memory). Without it the report says the system is unknown.
 	SystemInfo func() string
-	// Home is the user's home directory, for the protected-path policy.
-	// Default os.UserHomeDir().
+	// Home is the user's home directory, for the protected-path policy and the
+	// app's caches (on Windows in its AppData\Local, not %LOCALAPPDATA%, when
+	// set). Default os.UserHomeDir().
 	Home string
 	// Dev offers the scripted demo provider.
 	Dev bool
@@ -142,12 +143,16 @@ type Engine struct {
 	afkMu   sync.Mutex
 	afkStep sync.Mutex
 	// afkSave saves the runs when set (a test's way to make a save fail); under afkMu.
-	afkSave  func(dir string, r config.AFKRuns) error
-	afkKick  chan struct{}
-	dataDir  string
-	home     string
-	confiner environment.Confiner
-	dev      bool
+	afkSave func(dir string, r config.AFKRuns) error
+	afkKick chan struct{}
+	dataDir string
+	home    string
+	// localAppData is %LOCALAPPDATA%, where the app's caches go on Windows: the
+	// user's own when the home folder is theirs, "" (AppData\Local in home) when
+	// Options named another home, so caches follow the home they belong to.
+	localAppData string
+	confiner     environment.Confiner
+	dev          bool
 	// gh is the GitHub CLI pull requests are opened with (SES-011); tests
 	// point it at a fake.
 	gh      string
@@ -263,10 +268,12 @@ func Open(opts Options) (*Engine, error) {
 	// on (NFR-OFF-003).
 	netguard.Install()
 	netguard.SetLocalOnly(cfg.Network.LocalOnly)
+	localAppData := ""
 	if opts.Home == "" {
 		if opts.Home, err = os.UserHomeDir(); err != nil {
 			return nil, err
 		}
+		localAppData = os.Getenv("LOCALAPPDATA")
 	}
 	e := &Engine{
 		voice:         newVoice(opts.ScriptedVoice),
@@ -275,6 +282,7 @@ func Open(opts Options) (*Engine, error) {
 		sshConfig:     opts.SSHConfig,
 		dataDir:       opts.DataDir,
 		home:          opts.Home,
+		localAppData:  localAppData,
 		dev:           opts.Dev,
 		bus:           newBus(),
 		secrets:       opts.Secrets,

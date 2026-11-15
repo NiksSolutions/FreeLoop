@@ -3,9 +3,12 @@ package engine
 import (
 	"archive/zip"
 	"bytes"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/FinanceNik/Freeloop/internal/environment"
 )
 
 // NFR-XPLAT-003: what differs on Windows, tested on any system through the system's
@@ -86,8 +89,10 @@ func TestProgramNamesAndFolders(t *testing.T) {
 		{"windows", "/home/a", "/somewhere/Local", "/somewhere/Local/freeloop"},
 		{"windows", "/home/a", "", "/home/a/AppData/Local/freeloop"},
 	} {
-		if got := appCacheBase(c.goos, c.home, c.local); got != c.want {
-			t.Errorf("appCacheBase(%s) = %q, want %q", c.goos, got, c.want)
+		// The folder is joined with this system's separator, as the only real
+		// call, for this system, needs.
+		if got, want := appCacheBase(c.goos, c.home, c.local), filepath.FromSlash(c.want); got != want {
+			t.Errorf("appCacheBase(%s) = %q, want %q", c.goos, got, want)
 		}
 	}
 }
@@ -179,5 +184,18 @@ func TestProgramFromZip(t *testing.T) {
 	}
 	if _, err := programFromArchive(buf.Bytes(), "rtk"); err == nil {
 		t.Error("a zip without the program was accepted")
+	}
+}
+
+// An engine opened on another home folder keeps its caches in that home, on
+// Windows too, where %LOCALAPPDATA% is the real user's: tests and their downloads
+// must not share the user's caches, or each other's.
+func TestCachesFollowTheHome(t *testing.T) {
+	t.Setenv("LOCALAPPDATA", t.TempDir())
+	e := openTest(t, t.TempDir())
+	defer e.Close()
+	home := environment.Canonical(e.home)
+	if got := e.appCache("updates"); !strings.HasPrefix(got, home+string(filepath.Separator)) {
+		t.Errorf("appCache = %q, not in the home folder %q", got, home)
 	}
 }

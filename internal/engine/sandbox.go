@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"os"
 	"path/filepath"
 	"regexp"
 	goruntime "runtime"
@@ -52,7 +51,7 @@ var sandboxTools = []string{
 // appCache is the app's folder in the user's caches, or a folder in it: where a
 // sandboxed command, a downloaded optimizer and SSH's sockets go.
 func (e *Engine) appCache(parts ...string) string {
-	base := appCacheBase(goruntime.GOOS, environment.Canonical(e.home), os.Getenv("LOCALAPPDATA"))
+	base := appCacheBase(goruntime.GOOS, environment.Canonical(e.home), e.localAppData)
 	return filepath.Join(append([]string{base}, parts...)...)
 }
 
