@@ -654,7 +654,7 @@ A review of the permission path, the engine and the window on 2026-11-11 found h
 5. **What runs is let go, and what is spent is counted (049 to 053; NFR-PERF-004, WFL-005, PRV-008, GUI-051).** Idle agents stopped after 30 minutes (OQ-053) (built 2026-11-12: `internal/engine/idle.go`, `Store.Release`, `sessions.idleStop`), an AFK step saved before it is acted on, usage for stopped calls and the app's own calls, a commit's cost from its own work. *All five issues built 2026-11-12.*
 6. **The documents say what is, and the repository goes public (054 to 056).** *054 done 2026-11-13; the repository went public the same day; 055 (Windows and Linux run once) is open, and 056 waits for CI's first green run.* VISION.md leads with the policy and the bill over every agent (OQ-054); Windows and Linux are run once or the README says they are not; then the steps in DEVELOPING.md and the first CI runs.
 
-*Not in:* splitting `Engine`, `App.tsx` and `SessionView.tsx`; one usage fold in place of four; the app check's fixed waits; a second security reading of what this one did not reach (Docker, bubblewrap, Windows, redaction, MCP sign-ins). After going public.
+*Not in:* splitting `Engine`, `App.tsx` and `SessionView.tsx`; one usage fold in place of four; the app check's fixed waits; a second security reading of what this one did not reach (Docker, bubblewrap, Windows, redaction, MCP sign-ins). After going public. *(The second reading was done on 2026-11-15, with the pull side of the SSH sync: 14 holes fixed, two small ones in the SSH sync left open; SECURITY.md, "Review, 2026-11-15".)*
 
 ## Later (unscheduled)
 
