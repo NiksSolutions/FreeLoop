@@ -173,3 +173,30 @@ func TestCheckPolicyHoldsThroughTheDataVolume(t *testing.T) {
 		}
 	}
 }
+
+// Security review, 2026-11-13: where no sandbox can run (Windows, OQ-044), a sandboxed
+// environment's command is not said to be held by it, since the session would not
+// start there; the check and the overview judged by the file alone.
+func TestCheckPolicyWithoutAConfiner(t *testing.T) {
+	ctx := context.Background()
+	e := openTest(t, t.TempDir())
+	defer e.Close()
+	if e.confiner != nil {
+		t.Fatal("the test engine has a sandbox")
+	}
+	root := gitRepo(t)
+	got, err := e.CheckPolicy(ctx, PolicyQuery{ProjectRoot: root, EnvironmentID: SandboxedEnvironmentID, Tool: "shell", Command: "ls", Mode: "plan"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Actor == permission.ActorSandbox || got.Outcome == "allowed" {
+		t.Errorf("with no sandbox: %s by %s (%s)", got.Outcome, got.Actor, got.Reason)
+	}
+	o, err := e.PolicyOverview(ctx, PolicyQuery{ProjectRoot: root, EnvironmentID: SandboxedEnvironmentID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.Sandboxed {
+		t.Error("the overview says the session is sandboxed")
+	}
+}

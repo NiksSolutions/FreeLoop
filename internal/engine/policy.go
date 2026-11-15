@@ -207,6 +207,14 @@ var toolKinds = map[string]struct {
 	"fetch": {"fetch", permission.KindFetch}, "web_fetch": {"web_fetch", permission.KindFetch},
 }
 
+// confines reports whether a session in c would run its commands in the sandbox, as
+// the runtime decides: a local environment that asks for it, on a system with one.
+// Where there is none (Windows, OQ-044) such a session does not start, so nothing is
+// said to be held by it.
+func (e *Engine) confines(c config.Environment) bool {
+	return c.SandboxOn() && e.confiner != nil && c.Kind != string(environment.KindDocker) && !isSSH(c)
+}
+
 // CheckPolicy says what the broker would do with a call, through the broker's own
 // judgment, without making the call, asking anyone or running a hook (SEC-018).
 func (e *Engine) CheckPolicy(ctx context.Context, q PolicyQuery) (PolicyCheck, error) {
@@ -238,7 +246,7 @@ func (e *Engine) CheckPolicy(ctx context.Context, q PolicyQuery) (PolicyCheck, e
 	}
 	// Only a command Freeloop runs itself can be held in the sandbox; an external
 	// agent runs the commands it asked about in its own process (ENV-009).
-	if req.Kind == permission.KindExecute && sc.harness == builtin.ID && sc.env.SandboxOn() {
+	if req.Kind == permission.KindExecute && sc.harness == builtin.ID && e.confines(sc.env) {
 		req.Contained = permission.ContainedProject
 		if sc.mode == permission.ModePlan {
 			req.Contained = permission.ContainedReadOnly
@@ -310,7 +318,7 @@ func (e *Engine) PolicyOverview(ctx context.Context, q PolicyQuery) (PolicyOverv
 	}
 	out := PolicyOverview{
 		Root: sc.root, Trusted: sc.project.Trusted, Mode: string(sc.mode), Harness: sc.harness, HarnessName: "Built-in",
-		Sandboxed: sc.env.SandboxOn(), Protected: e.broker.Policy().Protected(),
+		Sandboxed: e.confines(sc.env), Protected: e.broker.Policy().Protected(),
 		NeverWritten: []string{".git", permission.ProjectSettingsDir}, ActedOnLater: slices.Clone(permission.ActedOnLater),
 		Hooks: e.policyHooks(sc), Agent: sc.agentNotes(""),
 	}
