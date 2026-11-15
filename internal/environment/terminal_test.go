@@ -41,10 +41,11 @@ func (s *screen) String() string {
 	return s.buf.String()
 }
 
-// waitFor waits until the screen shows want.
+// waitFor waits until the screen shows want. Git Bash on a Windows pseudo console
+// can take more than ten seconds to start on a busy CI runner.
 func (s *screen) waitFor(t *testing.T, want string) {
 	t.Helper()
-	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
 		if strings.Contains(s.String(), want) {
 			return
 		}
@@ -73,6 +74,8 @@ func TestLocalTerminal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Even when a check fails: on Windows a shell left running holds the folder.
+	t.Cleanup(func() { term.Close() })
 	out := watch(term)
 	// Two short lines: a pseudo console redraws a line wider than the screen.
 	io.WriteString(term, "echo \"[$(pwd)]\"; echo \"vars: $FREELOOP_TERM_TEST $(stty size) $TERM $TERM_PROGRAM $COLORTERM\"\n")
@@ -107,6 +110,7 @@ func TestTerminalClose(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { term.Close() })
 	watch(term).waitFor(t, "ready")
 	start := time.Now()
 	term.Close()
