@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -179,7 +180,11 @@ func TestThreeSessionsThreeReposConcurrently(t *testing.T) {
 				out = string(ev.Data)
 			}
 		}
-		if !strings.Contains(out, r.root) || !strings.Contains(out, "name="+r.name) {
+		// Git Bash's pwd spells C:\Users\a as /c/Users/a (OQ-043); the JSON
+		// output doubles a backslash, so the native spelling is quoted too.
+		quoted, _ := json.Marshal(r.root)
+		native := strings.Trim(string(quoted), `"`)
+		if !strings.Contains(out, native) && !strings.Contains(out, bashPath(goruntime.GOOS, r.root)) || !strings.Contains(out, "name="+r.name) {
 			t.Errorf("%s: output %s lacks its own cwd or variable", r.name, out)
 		}
 		for _, other := range runs {
@@ -286,7 +291,7 @@ func TestEnvironmentScopeRules(t *testing.T) {
 			deny = &rules[i]
 		}
 	}
-	if deny == nil || deny.Source != "environments/ci.yaml" {
+	if deny == nil || deny.Source != filepath.Join(config.EnvironmentsDir, "ci.yaml") {
 		t.Fatalf("rules = %+v", rules)
 	}
 	d := e.broker.Request(ctx, permission.Context{Mode: permission.ModeAsk, Root: ses.ProjectRoot}, permission.Request{SessionID: ses.ID, Tool: "shell", Kind: permission.KindExecute, Command: "git push origin"})

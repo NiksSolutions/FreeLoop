@@ -157,7 +157,9 @@ func TestDiffPanelRefusesCommandConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	marker := filepath.Join(t.TempDir(), "ran")
+	// Slashes, so the filter's shell (Git Bash on Windows) does not read the
+	// backslashes as escapes and touch somewhere the check does not look.
+	marker := filepath.ToSlash(filepath.Join(t.TempDir(), "ran"))
 	gitIn(t, repo, "config", "filter.evil.clean", "touch "+marker)
 	os.WriteFile(filepath.Join(repo, ".gitattributes"), []byte("* filter=evil\n"), 0o644)
 	os.WriteFile(filepath.Join(repo, "a.txt"), []byte("changed"), 0o644)
@@ -190,7 +192,10 @@ func TestWorktreeConfigFilterIsRefused(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	marker := filepath.Join(t.TempDir(), "ran")
+	// Slashes: in a config file a backslash starts an escape, and C:\Users is a
+	// line git refuses, so on Windows no git command would run at all; and the
+	// filter's shell, Git Bash there, reads C:/Users as the folder it is.
+	marker := filepath.ToSlash(filepath.Join(t.TempDir(), "ran"))
 	gitIn(t, repo, "config", "core.repositoryformatversion", "1")
 	gitIn(t, repo, "config", "extensions.worktreeConfig", "true")
 	os.WriteFile(filepath.Join(repo, ".git", "config.worktree"), []byte("[filter \"evil\"]\n\tclean = touch "+marker+"\n"), 0o644)
