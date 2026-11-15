@@ -31,8 +31,8 @@ import (
 // Either way the namespace is private, so the host's abstract sockets, D-Bus's
 // among them, stay out of reach. So it is for all of the network, the setup, run
 // and archive commands': pasta's namespace with its interface configured
-// (pastaArgs), or without pasta, or offline, the sandbox's own loopback and
-// nothing else.
+// (pastaArgs); without pasta such a command is refused and told to install it, and
+// offline it has the sandbox's own loopback and nothing else.
 
 // pastaPaths are where pasta is looked for: absolute, like bwrap's.
 var pastaPaths = []string{"/usr/bin/pasta", "/bin/pasta", "/usr/local/bin/pasta"}
@@ -59,13 +59,17 @@ func (b Bubblewrap) network(c environment.Confinement) (netPlan, error) {
 	switch c.Network {
 	case environment.NetworkAll:
 		// The host's own namespace would open its abstract sockets, X11's among
-		// them, so all of the network is pasta's too. Without pasta, or offline,
-		// the command keeps a loopback of its own, as localhost does: it fails
-		// closed, and installing passt gives it the network.
+		// them, so all of the network is pasta's too. Without pasta the command is
+		// refused with what to install, rather than run without the network it
+		// asked for (OQ-058); offline it keeps a loopback of its own, as there is
+		// nothing to reach.
 		if !b.noPasta {
 			if p := pastaArgs(true); p != nil {
 				return netPlan{pasta: p, mounts: resolverMounts(p)}, nil
 			}
+		}
+		if why := b.noPastaReason(); why != "" {
+			return netPlan{}, errors.New(why)
 		}
 		return netPlan{}, nil
 	case environment.NetworkLocalhost:
@@ -104,6 +108,18 @@ func bridgeMounts(self, appDir string) ([]string, string) {
 		return []string{"--ro-bind", appDir, appDir}, self
 	}
 	return []string{"--ro-bind", self, bridgeExe}, bridgeExe
+}
+
+// noPastaReason says why pasta cannot give a command all of the network, or ""
+// when it could but the computer is offline.
+func (b Bubblewrap) noPastaReason() string {
+	if b.noPasta || firstFile(pastaPaths) == "" {
+		return "this command needs the network, which Freeloop's sandbox on Linux gives only through pasta, and pasta is not installed: install the passt package (Debian, Fedora, Arch, and Ubuntu 24.04 or later have it; elsewhere see passt.top), or turn the sandbox off for this environment"
+	}
+	if fi, err := os.Stat("/dev/net/tun"); err != nil || fi.Mode()&os.ModeCharDevice == 0 {
+		return "this command needs the network, which Freeloop's sandbox on Linux gives only through pasta, and pasta cannot start without /dev/net/tun, which this computer does not have; turn the sandbox off for this environment"
+	}
+	return ""
 }
 
 // pastaArgs runs a command in a namespace whose loopback has the host's listening

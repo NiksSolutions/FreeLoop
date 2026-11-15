@@ -162,7 +162,6 @@ func TestTheSandboxKeepsOtherProgramsSocketsOut(t *testing.T) {
 		{"localhost", Bubblewrap{}, environment.NetworkLocalhost},
 		{"localhost without pasta", Bubblewrap{noPasta: true}, environment.NetworkLocalhost},
 		{"all", Bubblewrap{}, environment.NetworkAll},
-		{"all without pasta", Bubblewrap{noPasta: true}, environment.NetworkAll},
 	} {
 		c, self := withSelf(t, base(home, project))
 		c.Network = mode.n
@@ -625,13 +624,11 @@ func TestTheSandboxsNetworkPlan(t *testing.T) {
 	if n, _ := (Bubblewrap{}).network(c); n.pasta != nil || n.bridge != nil {
 		t.Errorf("none: %+v", n)
 	}
-	// All of the network is never the host's namespace: pasta's, or without it a
-	// namespace of its own.
+	// All of the network is never the host's namespace: pasta's, or without pasta
+	// the command is refused and told what to install (OQ-058).
 	c.Network = environment.NetworkAll
-	if n, _ := (Bubblewrap{noPasta: true}).network(c); n.pasta != nil || n.bridge != nil {
-		t.Errorf("all without pasta: %+v", n)
-	} else if args, _ := bubblewrapArgs(c, n); !slices.Contains(args, "--unshare-net") {
-		t.Errorf("all without pasta shares the host's network: %v", args)
+	if n, err := (Bubblewrap{noPasta: true}).network(c); err == nil || !strings.Contains(err.Error(), "install the passt package") {
+		t.Errorf("all without pasta: %+v, %v", n, err)
 	}
 	if n, _ := (Bubblewrap{}).network(c); n.pasta != nil {
 		if !slices.Contains(n.pasta, "--config-net") || n.bridge != nil {
