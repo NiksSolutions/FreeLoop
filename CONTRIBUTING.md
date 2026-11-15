@@ -1,6 +1,6 @@
 # Contributing
 
-Thank you for your interest in Freeloop.
+Thank you for your interest in Freeloop. Everyone taking part follows the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 **External code contributions open after v1 scoping.** Until then the design is still moving quickly and pull requests from outside are not reviewed or merged. What helps now:
 
@@ -8,7 +8,12 @@ Thank you for your interest in Freeloop.
 - **Security reports.** Do not open a public issue; follow [docs/SECURITY.md](docs/SECURITY.md).
 - **Presets and skills.** An ACP agent preset or an Agent Skill that works for you can be shared as a file in an issue; adding either needs no change to the app.
 
-When contributions open, the policy (a Developer Certificate of Origin sign-off is the current recommendation, see OQ-017 in [docs/OPEN_QUESTIONS.md](docs/OPEN_QUESTIONS.md)) and a code of conduct will be added here.
+## When contributions open
+
+The rules are set now (OQ-017 in [docs/OPEN_QUESTIONS.md](docs/OPEN_QUESTIONS.md)), so nothing changes for a contributor when they open:
+
+- **Developer Certificate of Origin.** Every commit carries a sign-off by its author, `Signed-off-by: Your Name <you@example.com>`, which `git commit -s` adds. It states that you may contribute the change under the project's license, Apache-2.0, as the [Developer Certificate of Origin 1.1](https://developercertificate.org/) says. There is no contributor license agreement. CI refuses a pull request with a commit whose sign-off is missing or names someone other than its author.
+- **Code of conduct.** Everyone in the project's issues, pull requests and discussions follows the [Code of Conduct](CODE_OF_CONDUCT.md), the Contributor Covenant 2.1. A violation is reported privately, through GitHub's private reporting on this repository, as it says.
 
 ## For the record: how the code is worked on
 

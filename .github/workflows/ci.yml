@@ -30,6 +30,30 @@ permissions:
 # Windows and Linux packages are built too (NFR-XPLAT-003), and the real agents weekly
 # and on tags (docs/ROADMAP.md, "From here to 0.1.0").
 jobs:
+  # Every commit of a pull request carries a Developer Certificate of Origin sign-off
+  # by its author, as CONTRIBUTING.md asks (OQ-017).
+  dco:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - name: Every commit is signed off by its author
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          missing=0
+          for c in $(git rev-list --no-merges "$BASE..$HEAD"); do
+            want="Signed-off-by: $(git log -1 --format='%an <%ae>' "$c")"
+            if ! git log -1 --format=%B "$c" | grep -qxF "$want"; then
+              echo "::error::$(git log -1 --format='%h %s' "$c") has no line \"$want\" (git commit -s)"
+              missing=1
+            fi
+          done
+          exit $missing
+
   test:
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
