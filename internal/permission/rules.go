@@ -641,7 +641,7 @@ func (r Rule) matchCommand(cmd string) bool {
 func (r Rule) matchPath(root, p string) bool {
 	// Both spelled without macOS's data volume name, which is another spelling of the
 	// same place (SEC-005).
-	p = environment.Unaliased(p)
+	p = environment.Unaliased(filepath.Clean(p))
 	pattern := environment.Unaliased(rulePath(goruntime.GOOS, r.Path, r.Literal))
 	if r.Literal {
 		if filepath.IsAbs(pattern) {

@@ -77,6 +77,10 @@ jobs:
       - name: zsh
         run: sudo apt-get install -y --no-install-recommends zsh
 
+      # Tests commit as the user would; a runner has no name of its own for git.
+      - name: A git identity
+        run: git config --global user.name "Freeloop CI" && git config --global user.email ci@freeloop.invalid
+
       - name: Formatted and vetted
         run: |
           test -z "$(gofmt -l cmd internal frontend/embed.go)" || { gofmt -l cmd internal frontend/embed.go; exit 1; }
@@ -104,7 +108,11 @@ jobs:
     steps:
       - name: Checkout keeps LF line endings
         shell: pwsh
-        run: git config --global core.autocrlf false
+        run: |
+          git config --global core.autocrlf false
+          # Tests commit as the user would; a runner has no name of its own for git.
+          git config --global user.name "Freeloop CI"
+          git config --global user.email ci@freeloop.invalid
 
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
