@@ -50,8 +50,8 @@ func TestHooks(t *testing.T) {
 	c.Hooks = []config.Hook{
 		{Event: config.HookPreToolUse, Match: "shell", Command: `grep -q curl && { echo "no network from hooks test" >&2; exit 2; }; exit 0`},
 		{Event: config.HookPreToolUse, Match: "write_*", Command: "echo looked; exit 0"},
-		{Event: config.HookPostToolUse, Match: "write_file", Command: "cat > " + seen},
-		{Event: config.HookPostToolUse, Match: "shell", Command: "touch " + deniedRan},
+		{Event: config.HookPostToolUse, Match: "write_file", Command: "cat > " + shPath(seen)},
+		{Event: config.HookPostToolUse, Match: "shell", Command: "touch " + shPath(deniedRan)},
 	}
 	if _, err := e.SaveSettings(c); err != nil {
 		t.Fatal(err)
@@ -175,7 +175,7 @@ func TestSessionStartsOnce(t *testing.T) {
 	defer e.Close()
 	runs := filepath.Join(t.TempDir(), "runs")
 	c := e.Config()
-	c.Hooks = []config.Hook{{Event: config.HookSessionStart, Command: "sleep 0.2; echo run >> " + runs}}
+	c.Hooks = []config.Hook{{Event: config.HookSessionStart, Command: "sleep 0.2; echo run >> " + shPath(runs)}}
 	if _, err := e.SaveSettings(c); err != nil {
 		t.Fatal(err)
 	}
@@ -292,7 +292,7 @@ func TestProjectHooksRunAsApproved(t *testing.T) {
 	setHooks := func(name string) {
 		t.Helper()
 		os.MkdirAll(filepath.Join(root, ".freeloop"), 0o755)
-		if err := os.WriteFile(filepath.Join(root, ".freeloop", "hooks.yaml"), []byte("version: 1\nhooks:\n  - event: session_start\n    command: echo "+name+" >> "+marker+"\n"), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(root, ".freeloop", "hooks.yaml"), []byte("version: 1\nhooks:\n  - event: session_start\n    command: echo "+name+" >> "+shPath(marker)+"\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		e.projects.mu.Lock()
@@ -333,7 +333,7 @@ func TestProjectHooksRunAsApproved(t *testing.T) {
 		t.Errorf("changed hooks ran unapproved: %q", got)
 	}
 	list := waiting()
-	if len(list) != 1 || !strings.Contains(list[0].Runs, "echo B") || !strings.Contains(list[0].Source, root) {
+	if len(list) != 1 || !strings.Contains(list[0].Runs, "echo B") || !strings.Contains(list[0].Source, environment.Canonical(root)) {
 		t.Fatalf("waiting = %+v", list)
 	}
 	evs, _ := e.Events(ctx, sid, 0, 0)

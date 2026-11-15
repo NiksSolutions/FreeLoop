@@ -40,6 +40,15 @@ func approveFiles(t *testing.T, e *Engine) {
 	}
 }
 
+// shPath spells a path for a command line: commands run through Git Bash on
+// Windows (OQ-043), where a backslash is an escape and C:/Users/... names the same
+// file as C:\Users\..., and the quotes keep a space or a tilde in a folder name.
+// The forward slashes also keep a path in a double-quoted YAML string from reading
+// as escapes.
+func shPath(path string) string {
+	return shellQuote(filepath.ToSlash(path))
+}
+
 func exists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
@@ -74,9 +83,9 @@ func TestRestoredCommandsDoNotRun(t *testing.T) {
 	marks := t.TempDir()
 	global, profile, agent := filepath.Join(marks, "global"), filepath.Join(marks, "profile"), filepath.Join(marks, "agent")
 	backup := craftedBundle(t, map[string]string{
-		config.FileName:                           "version: 1\nhooks:\n  - event: session_start\n    command: touch " + global + "\n",
-		config.ProfilesDir + "/planted.yaml":      "name: Planted\nhooks:\n  - event: session_start\n    command: touch " + profile + "\n",
-		config.PresetsDir + "/planted-agent.yaml": "name: Planted agent\ncommand: /bin/sh\nargs: [\"-c\", \"touch " + agent + "\"]\n",
+		config.FileName:                           "version: 1\nhooks:\n  - event: session_start\n    command: touch " + shPath(global) + "\n",
+		config.ProfilesDir + "/planted.yaml":      "name: Planted\nhooks:\n  - event: session_start\n    command: touch " + shPath(profile) + "\n",
+		config.PresetsDir + "/planted-agent.yaml": "name: Planted agent\ncommand: /bin/sh\nargs: [\"-c\", \"touch " + shPath(agent) + "\"]\n",
 	})
 	e := openTest(t, t.TempDir())
 	defer e.Close()
@@ -104,14 +113,14 @@ func TestRestoredPresetAndMarksAreNotTrusted(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "ran")
 	other := openTest(t, t.TempDir())
 	defer other.Close()
-	hook := config.Hook{Event: config.HookSessionStart, Command: "touch " + marker}
+	hook := config.Hook{Event: config.HookSessionStart, Command: "touch " + shPath(marker)}
 	foreign, err := other.approvalMark(hook.Fingerprint())
 	if err != nil {
 		t.Fatal(err)
 	}
 	backup := craftedBundle(t, map[string]string{
-		config.FileName: "version: 1\ncommandApprovals: [" + foreign + "]\nhooks:\n  - event: session_start\n    command: touch " + marker + "\n",
-		config.PresetsDir + "/" + config.ClaudeCodePresetID + ".yaml": "name: Claude Code\ncommand: /bin/sh\nargs: [\"-c\", \"touch " + marker + "\"]\n",
+		config.FileName: "version: 1\ncommandApprovals: [" + foreign + "]\nhooks:\n  - event: session_start\n    command: " + hook.Command + "\n",
+		config.PresetsDir + "/" + config.ClaudeCodePresetID + ".yaml": "name: Claude Code\ncommand: /bin/sh\nargs: [\"-c\", \"touch " + shPath(marker) + "\"]\n",
 	})
 	e := openTest(t, t.TempDir())
 	defer e.Close()
@@ -139,8 +148,8 @@ func TestApprovingACommand(t *testing.T) {
 	marks := t.TempDir()
 	hookRan, agentRan := filepath.Join(marks, "hook"), filepath.Join(marks, "agent")
 	backup := craftedBundle(t, map[string]string{
-		config.FileName: "version: 1\nhooks:\n  - event: session_start\n    command: touch " + hookRan + "\n",
-		config.PresetsDir + "/planted-agent.yaml": "name: Planted agent\ncommand: /bin/sh\nargs: [\"-c\", \"touch " + agentRan + "\"]\n",
+		config.FileName: "version: 1\nhooks:\n  - event: session_start\n    command: touch " + shPath(hookRan) + "\n",
+		config.PresetsDir + "/planted-agent.yaml": "name: Planted agent\ncommand: /bin/sh\nargs: [\"-c\", \"touch " + shPath(agentRan) + "\"]\n",
 	})
 	e := openTest(t, t.TempDir())
 	defer e.Close()
@@ -152,7 +161,7 @@ func TestApprovingACommand(t *testing.T) {
 		t.Fatalf("pending = %+v, issues = %+v", pending, e.ConfigIssues())
 	}
 	sid := startedSession(t, e, "")
-	if !slices.ContainsFunc(noticesOf(t, e, sid), func(m string) bool { return strings.Contains(m, "touch "+hookRan) }) {
+	if !slices.ContainsFunc(noticesOf(t, e, sid), func(m string) bool { return strings.Contains(m, "touch "+shPath(hookRan)) }) {
 		t.Errorf("no notice of the hook that did not run: %q", noticesOf(t, e, sid))
 	}
 	if _, err := e.ApproveCommand("not what the file says"); err == nil {
@@ -179,7 +188,7 @@ func TestApprovingACommand(t *testing.T) {
 	os.Remove(hookRan)
 	changed := filepath.Join(marks, "changed")
 	c := e.Config()
-	text := "version: 1\ncommandApprovals: [" + strings.Join(c.CommandApprovals, ", ") + "]\nhooks:\n  - event: session_start\n    command: touch " + changed + "\n"
+	text := "version: 1\ncommandApprovals: [" + strings.Join(c.CommandApprovals, ", ") + "]\nhooks:\n  - event: session_start\n    command: touch " + shPath(changed) + "\n"
 	if err := os.WriteFile(filepath.Join(e.dataDir, config.FileName), []byte(text), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -200,14 +209,14 @@ func TestHooksWrittenInTheApp(t *testing.T) {
 	defer e.Close()
 
 	c := e.Config()
-	c.Hooks = []config.Hook{{Event: config.HookSessionStart, Command: "touch " + typed}}
+	c.Hooks = []config.Hook{{Event: config.HookSessionStart, Command: "touch " + shPath(typed)}}
 	if _, err := e.SaveSettings(c); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.SaveProfile(config.Profile{ID: "mine", Name: "Mine", Hooks: []config.Hook{{Event: config.HookSessionStart, Command: "touch " + inProfile}}}); err != nil {
+	if _, err := e.SaveProfile(config.Profile{ID: "mine", Name: "Mine", Hooks: []config.Hook{{Event: config.HookSessionStart, Command: "touch " + shPath(inProfile)}}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.SaveProfileYAML("typed", "name: Typed\nhooks:\n  - event: session_start\n    command: touch "+inYAML+"\n"); err != nil {
+	if err := e.SaveProfileYAML("typed", "name: Typed\nhooks:\n  - event: session_start\n    command: touch "+shPath(inYAML)+"\n"); err != nil {
 		t.Fatal(err)
 	}
 	if got := e.PendingCommands(); len(got) != 0 {
@@ -223,8 +232,8 @@ func TestHooksWrittenInTheApp(t *testing.T) {
 
 	// A form holding a hook a backup brought sends it back.
 	backup := craftedBundle(t, map[string]string{
-		config.FileName:                      "version: 1\nhooks:\n  - event: session_start\n    command: touch " + planted + "\n",
-		config.ProfilesDir + "/planted.yaml": "name: Planted\nhooks:\n  - event: session_start\n    command: touch " + planted + "2\n",
+		config.FileName:                      "version: 1\nhooks:\n  - event: session_start\n    command: touch " + shPath(planted) + "\n",
+		config.ProfilesDir + "/planted.yaml": "name: Planted\nhooks:\n  - event: session_start\n    command: touch " + shPath(planted+"2") + "\n",
 	})
 	if _, err := e.ImportConfig(ctx, backup); err != nil {
 		t.Fatal(err)
@@ -271,11 +280,11 @@ func TestExistingCommandsAreAdoptedOnce(t *testing.T) {
 	dir := t.TempDir()
 	marks := t.TempDir()
 	old, agent, planted := filepath.Join(marks, "old"), filepath.Join(marks, "agent"), filepath.Join(marks, "planted")
-	text := "version: 1\nhooks:\n  - event: session_start\n    command: touch " + old + "\n"
+	text := "version: 1\nhooks:\n  - event: session_start\n    command: touch " + shPath(old) + "\n"
 	if err := os.WriteFile(filepath.Join(dir, config.FileName), []byte(text), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := config.SavePreset(dir, config.HarnessPreset{ID: "mine", Name: "Mine", Command: "/bin/sh", Args: []string{"-c", "touch " + agent}}); err != nil {
+	if err := config.SavePreset(dir, config.HarnessPreset{ID: "mine", Name: "Mine", Command: "/bin/sh", Args: []string{"-c", "touch " + shPath(agent)}}); err != nil {
 		t.Fatal(err)
 	}
 	store := secrets.NewMemory()
@@ -299,7 +308,7 @@ func TestExistingCommandsAreAdoptedOnce(t *testing.T) {
 		t.Error("an existing preset stopped running")
 	}
 	backup := craftedBundle(t, map[string]string{
-		config.ProfilesDir + "/planted.yaml": "name: Planted\nhooks:\n  - event: session_start\n    command: touch " + planted + "\n",
+		config.ProfilesDir + "/planted.yaml": "name: Planted\nhooks:\n  - event: session_start\n    command: touch " + shPath(planted) + "\n",
 	})
 	if _, err := e.ImportConfig(ctx, backup); err != nil {
 		t.Fatal(err)
@@ -348,7 +357,7 @@ func TestTrustedProjectHooksNeedNoApproval(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, ProjectDir), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	text := "hooks:\n  - event: session_start\n    command: touch " + marker + "\n"
+	text := "hooks:\n  - event: session_start\n    command: touch " + shPath(marker) + "\n"
 	if err := os.WriteFile(filepath.Join(root, ProjectDir, config.HooksFileName), []byte(text), 0o600); err != nil {
 		t.Fatal(err)
 	}

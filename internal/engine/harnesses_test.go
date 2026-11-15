@@ -75,8 +75,10 @@ func TestExternalHarnessSession(t *testing.T) {
 	evs, _ := e.Events(ctx, ses.ID, 0, 0)
 	var said strings.Builder
 	for _, ev := range evs {
-		if ev.Type == event.AgentMessageChunk {
-			said.Write(ev.Data)
+		// The text as said, not as JSON, where a Windows path's backslashes are doubled.
+		var mc event.MessageChunk
+		if ev.Type == event.AgentMessageChunk && json.Unmarshal(ev.Data, &mc) == nil {
+			said.WriteString(mc.Content.Text + "\n")
 		}
 	}
 	if !strings.Contains(said.String(), "mcp: echo="+exe) {
