@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"testing"
 	"time"
@@ -72,7 +73,8 @@ func TestSessionTerminal(t *testing.T) {
 	}
 	e.WriteTerminal(info.ID, []byte("echo \"[$(pwd)] $GREETING $(stty size) $TERM_PROGRAM/$TERM_PROGRAM_VERSION\"\n"))
 	got, _ := screenFor(t, out, info.ID, "hi-from-env 20 90 Freeloop/"+AppVersion)
-	if real, _ := filepath.EvalSymlinks(project); !strings.Contains(got, "["+real+"]") {
+	// Git Bash prints the folder as /c/Users/..., in its long names.
+	if real, _ := filepath.EvalSymlinks(project); !strings.Contains(got, "["+bashPath(goruntime.GOOS, real)+"]") {
 		t.Errorf("not in the project:\n%s", got)
 	}
 	if err := e.ResizeTerminal(info.ID, 0, 0); err == nil {

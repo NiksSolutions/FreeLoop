@@ -98,7 +98,10 @@ func TestSkills(t *testing.T) {
 	if !slices.ContainsFunc(reqs[0].Tools, func(s provider.ToolSpec) bool { return s.Name == "load_skill" }) {
 		t.Error("load_skill not offered")
 	}
-	if got := lastToolResult(reqs[1]); !strings.Contains(got, "Run scripts/fill.py") || !strings.Contains(got, "scripts/fill.py") || !strings.Contains(got, filepath.Join(dir, SkillsDir, "pdf-tools")) {
+	// The folder as the skill was found, links resolved: on Windows in its long names,
+	// where the temp folder may be given as C:\Users\RUNNER~1.
+	real, _ := filepath.EvalSymlinks(filepath.Join(dir, SkillsDir, "pdf-tools"))
+	if got := lastToolResult(reqs[1]); !strings.Contains(got, "Run scripts/fill.py") || !strings.Contains(got, "scripts/fill.py") || !strings.Contains(got, `folder="`+real+`"`) {
 		t.Errorf("load_skill result = %q", got)
 	}
 	if got := lastToolResult(reqs[2]); got != "The form spec." {
