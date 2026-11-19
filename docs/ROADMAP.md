@@ -399,7 +399,7 @@ What follows, in order, before anything else in v1:
 1. **What the policy held (SEC-014).** *Built 2026-11-03. The `git push` case ran through the real Claude Code adapter (0.99.1) with a real model and a scratch repository whose `.claude/settings.json` allows `Bash(*)`: Freeloop was asked, the denial held and the remote stayed empty. The views are covered by tests and were not checked in the running app.* Make the policy visible: what it stopped, in the session and across sessions. `heldStats` in `frontend/src/activity.ts` and `held` in `frontend/src/transcript.ts` read what the transcript already had, so past sessions count too; a `mode_refused` event replaces the notice for an agent's own switch, so refusals before this build do not count.
 2. **A cost summary to share (GUI-029).** Make the cost view the one people show each other. *Built 2026-11-04: "Share summary" on the usage page, as Markdown tables and a PNG (`frontend/src/costsummary.ts`, `CostSummary.tsx`). The text is unit-tested; the picture has not been looked at in the app.*
 3. **An SSH environment (ENV-008).** *Built 2026-11-04, at the user's choice and ahead of the release, for its boundary: an agent's commands on a machine that is not this Mac.* The project stays here and a session has a working copy there (OQ-034). Run with a real sshd and a real session of the built-in agent. Real networks, Linux machines and the form in the running app are not checked. `internal/environment/ssh.go`, `sshsync.go`, `internal/engine/ssh.go`. External agents over SSH, a terminal there and Run scripts there are not in yet: an external agent is refused, not run here instead.
-4. The release: the definition of done above, with signing as OQ-009 has it (since 2026-11-12 as OQ-056 and OQ-057 have it). *Not made: no tag exists.*
+4. The release: the definition of done above, with signing as OQ-009 has it (since 2026-11-12 as OQ-056 and OQ-057 have it). *`v0.1.0-beta.1` tagged 2026-11-19, without Apple's or Microsoft's signature (OQ-057).*
 
 **Plan to 0.1.0 (2026-11-05).** Goals: the claims true for every agent (G1), proven by `make verify-agents` in CI weekly (G2), visible to a new user within five minutes (G3), every agent's usage priced when its model is known (G4), the definition of done above met (G5), no code commit skipping CI (G6). In order:
 
@@ -459,7 +459,7 @@ Claude, meanwhile: fix what these find, first; then stage 3.
 ### Stage 4: beta 1 (the user decides, Claude prepares)
 
 1. **Decide which Macs.** *Decided 2026-11-08: Apple Silicon only, macOS 14 or later (NFR-XPLAT-001). The build is `arm64` alone, `make package` checks it, and `Info.plist` says so, so an Intel Mac refuses it with the system's own message.*
-2. **Tag `v0.1.0-beta.1`**, read the draft release, publish it.
+2. **Tag `v0.1.0-beta.1`**, read the draft release, publish it. *Tagged 2026-11-19, before the user's runs of stage 2, at the user's request.*
 3. **Ask three to five testers**, now that the repository is public, with the release notes and a short note on what to try and how to report.
 4. **A weekly beta**: fixes go out as `0.1.0-beta.2` and on, each through the same tag and draft.
 
@@ -468,7 +468,7 @@ Claude, meanwhile: fix what these find, first; then stage 3.
 *Done when:* every checklist row is automated or has its run recorded; two weeks of daily use without loss (B-G4); five testers for a week with their blocking issues fixed (B-G5); and CI green.
 
 Decisions before 0.1.0, each the user's:
-1. **Signing (OQ-009, reopened).** With an Apple Developer account (99 USD a year), releases are signed and notarized: no "Open Anyway", and the Keychain stops asking after each update. Without it, both stay, as the README says. *2026-11-12: the question is now OQ-057 and still open; the project's own signature on releases, which needs no account, is built (OQ-056, SEC-021).*
+1. **Signing (OQ-009, reopened).** With an Apple Developer account (99 USD a year), releases are signed and notarized: no "Open Anyway", and the Keychain stops asking after each update. Without it, both stay, as the README says. *2026-11-12: the question is now OQ-057 and still open; the project's own signature on releases, which needs no account, is built (OQ-056, SEC-021). Decided 2026-11-19: no signature from Apple or Microsoft (OQ-057 closed).*
 2. **Going public.** *Done 2026-11-13: the user made the repository public.* A scan of all of history that day found neither the release key nor any real key or token, only made-up ones in tests; `main` is its only branch. Four commits of 2026-11-13 carry an address other than the `noreply` one the rest were rewritten to, and private vulnerability reporting is off; DEVELOPING.md, "A public repository", says what each needs. Actions minutes are now free, and the update check and updating in place reach the releases without a sign-in.
 3. **Contributions (OQ-017):** the DCO and a code of conduct when they open after v1 scoping.
 
@@ -481,7 +481,7 @@ The feature freeze stands: only fixes, the stages above and what the testers' bl
 - **CI minutes run out again.** Stage 1 cut the cost about tenfold; since the repository went public (2026-11-13) its standard runners cost nothing.
 - **Real accounts behave unlike the stand-ins.** Stage 2 comes before testers for that reason.
 - **The stall seen on CI is real.** Stage 1's timing in the log will show it if a tester meets it. *2026-11-08: the app check's driver now holds off App Nap, the likeliest cause; not reproduced in four runs under load here. The accepted low risks in SECURITY.md are all fixed ("Closing the accepted risks").*
-- **An unsigned app puts testers off.** Signing is the first decision before 0.1.0. *Still open as OQ-057 (2026-11-12).*
+- **An unsigned app puts testers off.** Signing is the first decision before 0.1.0. *Accepted 2026-11-19: the user chose not to sign (OQ-057); the README and the release notes say how to open the app on each system.*
 
 ## After 0.1.0: the bill measured by what it bought (planned 2026-11-06)
 
