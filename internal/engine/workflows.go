@@ -362,8 +362,12 @@ func (e *Engine) runStage(ctx context.Context, sid, command, input string, onCur
 	if err := e.skillsReady(ctx, ses, w, stage.Skill); err != nil {
 		return res, err
 	}
+	// Its model and mode are for its own prompt, not for the rest of a turn running now.
+	if stage.Mode != "" && stage.Mode != ses.Mode && e.turnRunning(sid) {
+		return res, errDuringTurn(stage.Command)
+	}
 	if !onCurrent {
-		if why, err := e.planningModel(ctx, ses, w); err != nil || why != "" {
+		if why, err := e.planningModel(ctx, ses, w, stage.Command); err != nil || why != "" {
 			res.Blocked = why
 			return res, err
 		}
@@ -383,10 +387,28 @@ func (e *Engine) runStage(ctx context.Context, sid, command, input string, onCur
 	return res, err
 }
 
+// errDuringTurn refuses a stage that would change the model or mode under a running turn.
+func errDuringTurn(command string) error {
+	return fmt.Errorf("a turn is running, and /%s would change this session's model or mode under it: send it when the turn ends, or stop the turn", command)
+}
+
+// turnRunning says whether a turn is running in the session.
+func (e *Engine) turnRunning(sid string) bool {
+	e.mu.Lock()
+	r := e.runtimes[sid]
+	e.mu.Unlock()
+	if r == nil {
+		return false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.busy
+}
+
 // planningModel switches a session to its workflow's planning model and effort, from
 // the workflow's model set, before a planning stage (WFL-014), and says so in the
 // session. It says why when the session cannot have that model; nothing then changes.
-func (e *Engine) planningModel(ctx context.Context, ses session.Session, w config.Workflow) (string, error) {
+func (e *Engine) planningModel(ctx context.Context, ses session.Session, w config.Workflow, command string) (string, error) {
 	set, ok := e.workflowModelSet(w.ID)
 	if !ok || !set.Planning.Fixed() {
 		return "", nil
@@ -421,6 +443,11 @@ func (e *Engine) planningModel(ctx context.Context, ses session.Session, w confi
 	}
 	if why := e.modelUnavailable(row); why != "" {
 		return cannot(why), nil
+	}
+	eff, hasEffort := option(harness.OptionEffort)
+	effortTaken := hasEffort && row.Effort != "" && slices.ContainsFunc(eff.Choices, func(c harness.OptionChoice) bool { return c.Value == row.Effort })
+	if (model.Current != want || effortTaken && eff.Current != row.Effort) && e.turnRunning(ses.ID) {
+		return "", errDuringTurn(command)
 	}
 	changed := false
 	if model.Current != want {

@@ -249,6 +249,74 @@ func TestWorkflowSessionStartsOnThePlanningModel(t *testing.T) {
 	}
 }
 
+// WFL-014: a planning stage typed while a turn runs is refused, rather than switch
+// the model and mode under the turn; it changes nothing, and goes once the turn ends.
+func TestAPlanningStageWaitsForTheTurn(t *testing.T) {
+	ctx := context.Background()
+	e, root := afkEngine(t)
+	twoProviders(t, e)
+	if _, err := e.InstallWorkflowSkills(ctx, config.BuiltinWorkflowID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.SaveModelSet(ctx, config.ModelSet{Name: "Split", Planning: config.ModelChoice{Provider: "small", Model: "tiny"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.SetWorkflowModelSet(ctx, config.BuiltinWorkflowID, "split"); err != nil {
+		t.Fatal(err)
+	}
+	ses, err := e.CreateSession(ctx, CreateSessionRequest{ProjectRoot: root, ProfileID: "big", Mode: "plan"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.SetWorkflow(ctx, ses.ID, config.BuiltinWorkflowID); err != nil {
+		t.Fatal(err)
+	}
+	r, err := e.runtimeFor(ctx, ses.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.mu.Lock()
+	r.busy = true
+	r.mu.Unlock()
+	for _, onCurrent := range []bool{false, true} {
+		run := e.RunStage
+		if onCurrent {
+			run = e.RunStageOnCurrent
+		}
+		if _, err := run(ctx, ses.ID, "grill", "the store"); err == nil || !strings.Contains(err.Error(), "turn") {
+			t.Errorf("on current %v: %v", onCurrent, err)
+		}
+	}
+	if got, _ := e.store.GetSession(ctx, ses.ID); got.ProviderID != "big" || got.Model != "b" || got.Mode != "plan" {
+		t.Errorf("the refused stage changed the session: %s/%s in %s", got.ProviderID, got.Model, got.Mode)
+	}
+	// On the planning model and in the stage's mode already, a stage changes nothing,
+	// and waits for the turn like any message.
+	r.mu.Lock()
+	r.busy = false
+	r.mu.Unlock()
+	w, err := e.usableWorkflow(config.BuiltinWorkflowID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := e.store.GetSession(ctx, ses.ID)
+	if why, err := e.planningModel(ctx, got, w, "prd"); err != nil || why != "" {
+		t.Fatal(why, err)
+	}
+	if err := e.SetMode(ctx, ses.ID, "ask"); err != nil {
+		t.Fatal(err)
+	}
+	r.mu.Lock()
+	r.busy = true
+	r.mu.Unlock()
+	if _, err := e.RunStage(ctx, ses.ID, "prd", ""); err != nil {
+		t.Errorf("a stage that changes nothing: %v", err)
+	}
+	r.mu.Lock()
+	r.busy, r.queue = false, nil
+	r.mu.Unlock()
+}
+
 // agentProfile gives the engine a profile "agent" on the reference ACP agent.
 func agentProfile(t *testing.T, e *Engine) {
 	t.Helper()
