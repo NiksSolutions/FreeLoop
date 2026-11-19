@@ -21,7 +21,12 @@ import (
 // of two AFK issues, the second blocked by the first.
 func afkEngine(t *testing.T) (*Engine, string) {
 	t.Helper()
-	e := openBinding(t, t.TempDir(), secrets.NewMemory())
+	return afkProject(t, openBinding(t, t.TempDir(), secrets.NewMemory()))
+}
+
+// afkProject gives e afkEngine's profile and project.
+func afkProject(t *testing.T, e *Engine) (*Engine, string) {
+	t.Helper()
 	withScript(e, "s")
 	if err := e.SaveProfileYAML("main", "name: Main\nprovider: s\nmodel: m\n"); err != nil {
 		t.Fatal(err)
@@ -326,6 +331,46 @@ func TestAFKRunStop(t *testing.T) {
 		t.Errorf("step = %+v", run.Steps[0])
 	}
 	_ = permission.Allow
+}
+
+// WFL-005: an issue a session was working on, or reviewing, when the run was stopped
+// is open again, with why, rather than left in Working or In review with nothing
+// to move it on.
+func TestAFKRunStopMidIssue(t *testing.T) {
+	ctx := context.Background()
+	for _, state := range []string{config.StepWorking, config.StepReviewing} {
+		// No schedule loop, which would follow the step's made-up sessions first.
+		e, err := Open(Options{DataDir: t.TempDir(), Secrets: secrets.NewMemory(), Home: t.TempDir(), WatchInterval: -1, ScheduleInterval: -1})
+		if err != nil {
+			t.Fatal(err)
+		}
+		e, root := afkProject(t, e)
+		if _, err := e.SetQueue(true, 0); err != nil {
+			t.Fatal(err)
+		}
+		run, err := e.StartAFK(ctx, AFKStart{ProjectRoot: root})
+		if err != nil {
+			t.Fatal(err)
+		}
+		// As if its session had started, and for a review, finished.
+		if _, err := e.changeRun(run.ID, func(r *config.AFKRun) error {
+			r.Steps = []config.AFKStep{{Issue: "001-store", Title: "Store", State: state, SessionID: "ses_issue", StartedAt: time.Now().UTC()}}
+			if state == config.StepReviewing {
+				r.Steps[0].ReviewID = "ses_review"
+			}
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+		run, err = e.StopAFK(ctx, run.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if s := run.Steps[0]; s.State != config.StepFailed || s.Note == "" || s.EndedAt.IsZero() || s.SessionID != "ses_issue" {
+			t.Errorf("%s: step = %+v", state, s)
+		}
+		e.Close()
+	}
 }
 
 func indent(s string) string {

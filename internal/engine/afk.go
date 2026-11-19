@@ -518,7 +518,8 @@ func (e *Engine) PauseAFK(ctx context.Context, id string, paused bool) (config.A
 }
 
 // StopAFK ends a run: a queued issue that has not started is taken off the queue,
-// and a session already working goes on until its turn ends, unfollowed.
+// and a session already working goes on until its turn ends, unfollowed. Either way
+// the issue is open again, with why, since nothing follows it any more.
 func (e *Engine) StopAFK(ctx context.Context, id string) (config.AFKRun, error) {
 	// Not between a tick's two saves of a step: a task made after this would stay.
 	e.afkStep.Lock()
@@ -528,12 +529,20 @@ func (e *Engine) StopAFK(ctx context.Context, id string) (config.AFKRun, error) 
 		if !r.Active() {
 			return errors.New("the run has ended")
 		}
-		if s := r.Current(); s != nil && s.SessionID == "" {
-			task = s.TaskID
-			if s.Starting {
-				starting = "AFK " + s.Issue + ": "
+		if s := r.Current(); s != nil {
+			note := "the run was stopped before it started"
+			switch {
+			case s.State == config.StepReviewing:
+				note = "the run was stopped during its review"
+			case s.SessionID != "":
+				note = "the run was stopped while a session worked on it"
+			default:
+				task = s.TaskID
+				if s.Starting {
+					starting = "AFK " + s.Issue + ": "
+				}
 			}
-			s.State, s.Note, s.EndedAt = config.StepFailed, "the run was stopped before it started", time.Now().UTC()
+			s.State, s.Note, s.EndedAt = config.StepFailed, note, time.Now().UTC()
 		}
 		endRun(r, config.RunStopped, "You stopped it.")
 		return nil
