@@ -808,12 +808,13 @@ func TestExistingAddressesAreAdopted(t *testing.T) {
 	}
 }
 
-// treeOf hashes a folder's files, to show it did not change.
+// treeOf hashes a folder's files, to show it did not change. The database is left
+// out, with its daily copy, which the store writes in the background after it opens.
 func treeOf(t *testing.T, dir string) map[string]string {
 	t.Helper()
 	out := map[string]string{}
 	err := filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() || strings.HasSuffix(p, "freeloop.db") || strings.Contains(p, "freeloop.db-") {
+		if err != nil || d.IsDir() || strings.HasPrefix(filepath.Base(p), "freeloop.db") {
 			return err
 		}
 		b, err := os.ReadFile(p)
@@ -863,7 +864,18 @@ func TestRestorePreview(t *testing.T) {
 		t.Fatal(err)
 	}
 	if after := treeOf(t, dir); !maps.Equal(before, after) {
-		t.Error("a preview changed the data folder")
+		var changed []string
+		for p, b := range before {
+			if a, ok := after[p]; !ok || a != b {
+				changed = append(changed, p)
+			}
+		}
+		for p := range after {
+			if _, ok := before[p]; !ok {
+				changed = append(changed, p)
+			}
+		}
+		t.Errorf("a preview changed the data folder: %v", changed)
 	}
 	if len(e.ListRules("")) != 2 || len(e.PendingCommands()) != 0 {
 		t.Errorf("a preview changed what is in force: %+v", e.PendingCommands())
