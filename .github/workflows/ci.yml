@@ -283,9 +283,11 @@ jobs:
       - name: Install wails3
         run: make tools
 
-      # The container builds as uid 1000 into bin/, which is the runner's uid too.
+      # The container builds as uid 1000 into bin/; the runner's user may have another.
       - name: Build the Linux release files
-        run: make frontend/node_modules release RELEASE_PLATFORMS=linux LINUX_ARCHS=${{ matrix.arch }}
+        run: |
+          mkdir -p bin && chmod a+w bin
+          make frontend/node_modules release RELEASE_PLATFORMS=linux LINUX_ARCHS=${{ matrix.arch }}
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
