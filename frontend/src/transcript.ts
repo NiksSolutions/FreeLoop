@@ -1,5 +1,5 @@
 import { contextResent } from "./contextMeter.ts";
-import type { ModelCall } from "./cost.ts";
+import { localDay, type ModelCall } from "./cost.ts";
 import type { ModelContext } from "./modelContext.ts";
 import { locale, t, type PlainKey } from "./i18n.ts";
 
@@ -653,6 +653,7 @@ function newFold(): Fold {
           cacheWrite1hTokens: d.cacheWrite1hTokens ?? 0,
           adjustment: d.adjustment === true,
           turn: d.measured === "turn",
+          day: ev.ts ? localDay(ev.ts) : undefined,
         };
         // An agent's report of its context spends nothing and is no call.
         const spent = c.inputTokens + c.outputTokens + c.cacheReadTokens + c.cacheWriteTokens > 0;

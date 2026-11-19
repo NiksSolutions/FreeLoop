@@ -41,6 +41,16 @@ test("findPrice reads an agent's names for a model, as the engine does", () => {
   assert.equal(findPrice(prices, "ollama", "someone/gpt-x"), null);
 });
 
+test("a price holds from its day, and a call pays the price of its own day", () => {
+  // As config.FindPriceOn: the first row whose day has come.
+  const prices = [{ ...price("", "m", 4), from: "2026-12-01" }, price("", "m", 2)];
+  assert.equal(findPrice(prices, "", "m", "2026-11-30")?.input, 2);
+  assert.equal(findPrice(prices, "", "m", "2026-12-01")?.input, 4);
+  const million = (day: string): ModelCall => ({ ...call("", "m", 1_000_000), day });
+  const e = estimate(prices, [million("2026-11-30"), million("2026-12-01"), million("2026-12-02")], { providerId: "", model: "m" });
+  assert.deepEqual(e, { cost: 10, unpriced: 0 });
+});
+
 test("estimate prices calls and counts the unpriced", () => {
   const prices = [price("", "big-*", 3, 15)];
   const calls = [call("p", "big-1", 1_000_000, 100_000), call("p", "small", 5), call("", "", 1_000_000)];

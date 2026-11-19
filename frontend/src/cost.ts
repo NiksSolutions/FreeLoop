@@ -15,6 +15,8 @@ export interface PriceEntry {
   cacheWrite1h?: number;
   // The prompt size above which a call pays the row named with LONG_PROMPT.
   longPromptOver?: number;
+  // The first day (YYYY-MM-DD, local) the row holds; none, always.
+  from?: string;
 }
 
 // config.LongPromptSuffix.
@@ -34,6 +36,14 @@ export interface ModelCall {
   // A turn's total as an external agent counted it: several calls, so its size says
   // nothing about one prompt's.
   turn?: boolean;
+  // The local day it was made (YYYY-MM-DD), whose price it pays; none, today.
+  day?: string;
+}
+
+// localDay is the local date of a moment, as the engine counts usage by day.
+export function localDay(at: string | Date = new Date()): string {
+  const d = new Date(at);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 // globMatch matches like Go's path.Match: * is any run of characters but
@@ -65,19 +75,21 @@ function escape(c: string): string {
   return c.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
 }
 
-export function findPrice(prices: readonly PriceEntry[], providerId: string, model: string): PriceEntry | null {
-  const whole = matchPrice(prices, providerId, model);
+export function findPrice(prices: readonly PriceEntry[], providerId: string, model: string, day: string = localDay()): PriceEntry | null {
+  const whole = matchPrice(prices, providerId, model, day);
   if (whole) return whole;
   // An agent may name a model with its provider, openai/gpt-5.5, or with its effort,
   // gpt-5.5/high, as config.FindPrice allows (PRV-008).
   // Only for an agent's usage, which names no provider (config.FindPrice does the same).
   const slash = model.indexOf("/");
   if (slash < 0 || providerId) return null;
-  return matchPrice(prices, providerId, model.slice(slash + 1)) ?? matchPrice(prices, providerId, model.slice(0, slash));
+  return matchPrice(prices, providerId, model.slice(slash + 1), day) ?? matchPrice(prices, providerId, model.slice(0, slash), day);
 }
 
-function matchPrice(prices: readonly PriceEntry[], providerId: string, model: string): PriceEntry | null {
+// matchPrice is the first row for the model that holds on day, as config.FindPriceOn.
+function matchPrice(prices: readonly PriceEntry[], providerId: string, model: string, day: string): PriceEntry | null {
   for (const p of prices) {
+    if (p.from && p.from > day) continue;
     if (p.providerId && p.providerId !== providerId) continue;
     if (p.model === model || globMatch(p.model, model)) return p;
   }
@@ -95,10 +107,12 @@ export interface Estimate {
 export function estimate(prices: readonly PriceEntry[], calls: readonly ModelCall[], session: { providerId: string; model: string }): Estimate {
   let cost = 0;
   let unpriced = 0;
+  const today = localDay();
   for (const c of calls) {
     const providerId = c.model ? c.providerId : session.providerId;
     const model = c.model || session.model;
-    const base = findPrice(prices, providerId, model);
+    const day = c.day ?? today;
+    const base = findPrice(prices, providerId, model, day);
     if (!base) {
       unpriced += 1;
       continue;
@@ -106,7 +120,7 @@ export function estimate(prices: readonly PriceEntry[], calls: readonly ModelCal
     const prompt = c.inputTokens + c.cacheReadTokens + c.cacheWriteTokens;
     // Long-prompt prices go by one call's prompt, which a sum of calls is not.
     const long = !c.adjustment && !c.turn && base.longPromptOver && prompt > base.longPromptOver;
-    const p = (long && findPrice(prices, providerId, model + LONG_PROMPT)) || base;
+    const p = (long && findPrice(prices, providerId, model + LONG_PROMPT, day)) || base;
     const hour = c.cacheWrite1hTokens ?? 0;
     const write = p.cacheWrite ?? 0;
     const perMillion = c.inputTokens * p.input + c.outputTokens * p.output + c.cacheReadTokens * (p.cacheRead ?? 0) + (c.cacheWriteTokens - hour) * write + hour * (p.cacheWrite1h || write);
