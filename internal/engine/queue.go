@@ -297,7 +297,8 @@ func (e *Engine) limitNote(ctx context.Context, root, profileID string) string {
 
 // startTask starts a task's session and sends its prompt.
 func (e *Engine) startTask(ctx context.Context, t config.Task) (string, error) {
-	req := CreateSessionRequest{Title: t.Title, ProjectRoot: t.ProjectRoot, ProfileID: t.ProfileID, Worktree: t.Worktree, Mode: t.Mode, EnvironmentID: t.EnvironmentID, Workflow: t.Workflow}
+	req := CreateSessionRequest{Title: t.Title, ProjectRoot: t.ProjectRoot, ProfileID: t.ProfileID, Worktree: t.Worktree, Mode: t.Mode, EnvironmentID: t.EnvironmentID, Workflow: t.Workflow,
+		doing: t.RunID != ""}
 	if t.ShareWorktreeOf != "" {
 		anchor, err := e.store.GetSession(ctx, t.ShareWorktreeOf)
 		if err != nil || anchor.Worktree == "" || !environment.IsDir(anchor.Worktree) {

@@ -309,6 +309,35 @@ func TestAFKRunStartsFromTheSet(t *testing.T) {
 	}
 }
 
+// WFL-014: the planning model is for planning: a run's issues and reviews that name no
+// model run on their profile's, as the AFK dialog says, not on the set's planning model.
+func TestAFKRunIsNotOnThePlanningModel(t *testing.T) {
+	ctx := context.Background()
+	e, root := afkEngine(t)
+	twoProviders(t, e)
+	if _, err := e.SaveModelSet(ctx, config.ModelSet{Name: "Split", Planning: config.ModelChoice{Provider: "small", Model: "tiny", Effort: "low"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.SetWorkflowModelSet(ctx, config.BuiltinWorkflowID, "split"); err != nil {
+		t.Fatal(err)
+	}
+	run, err := e.StartAFK(ctx, AFKStart{ProjectRoot: root, ProfileID: "big", ReviewProfileID: "big", Allow: []string{"git add *", "git commit *"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run = waitRun(t, e, run.ID)
+	if run.State != config.RunFinished {
+		t.Fatalf("run = %+v", run)
+	}
+	for _, s := range run.Steps {
+		for _, sid := range []string{s.SessionID, s.ReviewID} {
+			if ses, _ := e.store.GetSession(ctx, sid); ses.ProviderID != "big" || ses.Model != "b" {
+				t.Errorf("%s: %s ran on %s/%s", s.Issue, sid, ses.ProviderID, ses.Model)
+			}
+		}
+	}
+}
+
 // WFL-015: a run's cost splits into Planning (its starting session before the run
 // began), Issues and Reviews by model, each issue's into its session and review with
 // its commit; unpriced usage is said, never counted as nothing.

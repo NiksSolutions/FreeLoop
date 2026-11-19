@@ -908,6 +908,9 @@ type CreateSessionRequest struct {
 	// Workflow is the session's workflow, or off for none; empty takes the
 	// profile's, then the default (WFL-002).
 	Workflow string `json:"workflow"`
+	// doing says the session does a run's work, an issue, rather than plan it, so
+	// it does not start on the workflow's planning model (WFL-014).
+	doing bool
 }
 
 // CreateSession creates an idle session and records its initial status as
