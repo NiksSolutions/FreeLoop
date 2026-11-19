@@ -363,13 +363,18 @@ func defaultOption(pending []permission.Request, id string, deny bool) string {
 // tool calls and requests waiting for the user as they come, until the
 // turn ends.
 func prompt(c *rpc.Client, sid, text string, out io.Writer) error {
-	var before []event.Event
-	if err := c.Call("sessions.events", map[string]any{"id": sid, "after": 0}, &before); err != nil {
-		return err
-	}
+	// The reply starts after the session's last event, which may be pages away: the
+	// app gives at most engine.MaxEventsPage at a time.
 	var after int64
-	if len(before) > 0 {
-		after = before[len(before)-1].Seq
+	for {
+		var page []event.Event
+		if err := c.Call("sessions.events", map[string]any{"id": sid, "after": after}, &page); err != nil {
+			return err
+		}
+		if len(page) == 0 {
+			break
+		}
+		after = page[len(page)-1].Seq
 	}
 	if err := c.Call("sessions.prompt", map[string]any{"id": sid, "text": text}, nil); err != nil {
 		return err

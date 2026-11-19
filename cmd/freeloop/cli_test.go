@@ -10,7 +10,9 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/FinanceNik/Freeloop/internal/event"
 	"github.com/FinanceNik/Freeloop/internal/permission"
+	"github.com/FinanceNik/Freeloop/internal/rpc"
 )
 
 // What the command line prints comes from the model.
@@ -106,5 +108,77 @@ func TestDefaultOption(t *testing.T) {
 	}
 	if got := defaultOption(nil, "gone", false); got != "allow_once" {
 		t.Errorf("no such request = %q", got)
+	}
+}
+
+// A session can hold more events than the app gives in one page: what prompt prints
+// starts after the last of them, not after the first page.
+func TestPromptPrintsOnlyTheNewReply(t *testing.T) {
+	dir, err := os.MkdirTemp("", "prompt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	sock := filepath.Join(dir, "s")
+	l, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	chunk := func(seq int64, text string) event.Event {
+		data, _ := json.Marshal(event.MessageChunk{Content: event.ContentBlock{Type: "text", Text: text}})
+		return event.Event{V: 1, Seq: seq, SID: "ses", Type: event.AgentMessageChunk, Data: data}
+	}
+	var log []event.Event
+	for seq := int64(1); seq <= 7; seq++ {
+		log = append(log, chunk(seq, fmt.Sprintf("old %d ", seq)))
+	}
+	const page = 3
+	go func() {
+		c, err := l.Accept()
+		if err != nil {
+			return
+		}
+		defer c.Close()
+		dec := json.NewDecoder(c)
+		for {
+			var req struct {
+				ID     int    `json:"id"`
+				Method string `json:"method"`
+				Params struct {
+					After int64 `json:"after"`
+				} `json:"params"`
+			}
+			if dec.Decode(&req) != nil {
+				return
+			}
+			var result any = struct{}{}
+			switch req.Method {
+			case "sessions.events", "sessions.wait":
+				evs := []event.Event{}
+				for _, ev := range log {
+					if ev.Seq > req.Params.After && len(evs) < page {
+						evs = append(evs, ev)
+					}
+				}
+				result = evs
+			case "sessions.prompt":
+				log = append(log, chunk(8, "new reply"), event.Event{V: 1, Seq: 9, SID: "ses", Type: event.TurnEnded, Data: []byte(`{"stopReason":"end_turn"}`)})
+			}
+			b, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": result})
+			c.Write(append(b, '\n'))
+		}
+	}()
+	client, err := rpc.Dial(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	var out strings.Builder
+	if err := prompt(client, "ses", "hello", &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.String() != "new reply\n" {
+		t.Errorf("printed %q", out.String())
 	}
 }
