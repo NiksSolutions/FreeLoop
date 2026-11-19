@@ -16,7 +16,7 @@ import (
 )
 
 // What a workflow run cost (WFL-015): from the usage each of its sessions recorded,
-// priced with the current table as the Usage page prices it. Planning is the session
+// priced as the Usage page prices it, each call at the price of its day. Planning is the session
 // the run was started from, up to the moment it began; Issues and Reviews are the
 // run's sessions. An unpriced model, or an agent that gave no tokens, is said, never
 // counted as nothing.
@@ -94,11 +94,8 @@ func (e *Engine) issueCost(ctx context.Context, s config.AFKStep) IssueCost {
 // sessionCost prices what the sessions' model calls used, before a moment when one
 // is given, by model.
 func (e *Engine) sessionCost(ctx context.Context, prices []config.Price, before time.Time, sids ...string) CostPart {
-	type key struct{ provider, model string }
-	type tokens struct{ in, out, cr, cw, cw1h int64 }
-	used := map[key]*tokens{}
-	var order []key
-	part := CostPart{Models: []CostByModel{}}
+	var calls []usedOn
+	unreported := false
 	for _, sid := range sids {
 		if sid == "" {
 			continue
@@ -120,32 +117,64 @@ func (e *Engine) sessionCost(ctx context.Context, prices []config.Price, before 
 				continue
 			}
 			if d.Measured == event.MeasuredNone {
-				part.Unpriced = true
+				unreported = true
 				continue
 			}
-			k := key{cmp.Or(d.ProviderID, ses.ProviderID), cmp.Or(d.Model, ses.Model)}
-			if d.OnePrompt() {
-				k.model = config.PricedModel(k.model, d.InputTokens+d.CacheReadTokens+d.CacheWriteTokens)
-			}
-			t := used[k]
-			if t == nil {
-				t = &tokens{}
-				used[k] = t
-				order = append(order, k)
-			}
-			t.in, t.out, t.cr, t.cw, t.cw1h = t.in+d.InputTokens, t.out+d.OutputTokens, t.cr+d.CacheReadTokens, t.cw+d.CacheWriteTokens, t.cw1h+d.CacheWrite1hTokens
+			// The day as the store counts usage by day.
+			calls = append(calls, usedOn{provider: cmp.Or(d.ProviderID, ses.ProviderID), model: cmp.Or(d.Model, ses.Model),
+				day: ev.TS.In(time.Local).Format(time.DateOnly), d: d})
 		}
 	}
-	for _, k := range order {
+	part := priceCalls(prices, calls)
+	part.Unpriced = part.Unpriced || unreported
+	return part
+}
+
+// usedOn is what a model call used, and on which day (YYYY-MM-DD).
+type usedOn struct {
+	provider, model, day string
+	d                    event.UsageData
+}
+
+// priceCalls sums calls by model, each at the price that held on its day, as the
+// Usage page prices them (config.FindPriceOn).
+func priceCalls(prices []config.Price, calls []usedOn) CostPart {
+	type key struct{ provider, model, day string }
+	type tokens struct{ in, out, cr, cw, cw1h int64 }
+	used := map[key]*tokens{}
+	var order []key
+	for _, c := range calls {
+		k := key{c.provider, c.model, c.day}
+		if c.d.OnePrompt() {
+			k.model = config.PricedModel(k.model, c.d.InputTokens+c.d.CacheReadTokens+c.d.CacheWriteTokens)
+		}
 		t := used[k]
-		m := CostByModel{ProviderID: k.provider, Model: k.model}
-		if p, ok := config.FindPrice(prices, k.provider, k.model); ok {
-			m.Cost, m.Priced = p.Cost(t.in, t.out, t.cr, t.cw, t.cw1h), true
-			part.Cost += m.Cost
+		if t == nil {
+			t = &tokens{}
+			used[k] = t
+			order = append(order, k)
+		}
+		t.in, t.out, t.cr, t.cw, t.cw1h = t.in+c.d.InputTokens, t.out+c.d.OutputTokens, t.cr+c.d.CacheReadTokens, t.cw+c.d.CacheWriteTokens, t.cw1h+c.d.CacheWrite1hTokens
+	}
+	part := CostPart{Models: []CostByModel{}}
+	index := map[[2]string]int{}
+	for _, k := range order {
+		i, seen := index[[2]string{k.provider, k.model}]
+		if !seen {
+			i = len(part.Models)
+			index[[2]string{k.provider, k.model}] = i
+			part.Models = append(part.Models, CostByModel{ProviderID: k.provider, Model: k.model, Priced: true})
+		}
+		m := &part.Models[i]
+		if p, ok := config.FindPriceOn(prices, k.provider, k.model, k.day); ok {
+			t := used[k]
+			c := p.Cost(t.in, t.out, t.cr, t.cw, t.cw1h)
+			m.Cost += c
+			part.Cost += c
 		} else {
+			m.Priced = false
 			part.Unpriced = true
 		}
-		part.Models = append(part.Models, m)
 	}
 	return part
 }
