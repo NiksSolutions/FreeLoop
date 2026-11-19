@@ -50,7 +50,6 @@ export default function Board({
 }) {
   const total = backlogs.reduce((n, b) => n + (b.issues ?? []).length, 0);
   const placed = backlogs.map((b) => placeIssues(b.issues, b.run, waiting));
-  const waitingNow = placed.reduce((n, cols) => n + waitingIssues(cols), 0);
   const page = useRef<HTMLDivElement>(null);
   // The issue whose panel is open, and what had the focus before, to give it back.
   const [detail, setDetail] = useState<{ root: string; workflowId: string; id: string; column: Lane } | null>(null);
@@ -76,6 +75,8 @@ export default function Board({
       return next;
     });
   const shownRows = rowsFor(backlogs.map((b, i) => ({ projectId: b.projectId, b, cols: placed[i] })), filter);
+  // Only what the filter shows: the count's link goes to the first of them.
+  const waitingNow = shownRows.reduce((n, r) => n + waitingIssues(r.cols), 0);
   return (
     <div className="board-page" ref={page}>
       <div className="board-main">
