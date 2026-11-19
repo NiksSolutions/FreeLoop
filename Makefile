@@ -5,10 +5,14 @@ GOBIN := $(shell go env GOPATH)/bin
 # Exported so the wails3 child processes (Taskfile, dev mode) find wails3 too.
 export PATH := $(GOBIN):$(PATH)
 WAILS := $(GOBIN)/wails3
-# OQ-021: macOS 14 minimum, for cgo code built outside the Taskfile (tests).
+# OQ-021: macOS 14 minimum, for cgo code built outside the Taskfile (tests). On a
+# Mac only: Linux's gcc refuses the flag, and the release's Windows and Linux
+# files are built on Linux.
+ifeq ($(shell uname -s),Darwin)
 export MACOSX_DEPLOYMENT_TARGET := 14.0
 export CGO_CFLAGS := -O2 -g -mmacosx-version-min=14.0
 export CGO_LDFLAGS := -mmacosx-version-min=14.0
+endif
 # The app's version, as build/config.yml has it.
 VERSION := $(shell sed -n 's/^ *version: "\(.*\)"/\1/p' build/config.yml)
 # shasum on macOS; sha256sum where Perl's shasum is missing (Git for Windows). Same output.
@@ -19,8 +23,10 @@ SHA256 := $(shell command -v shasum >/dev/null 2>&1 && echo "shasum -a 256" || e
 help: ## List targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-19s %s\n", $$1, $$2}'
 
+# On Linux without cgo: with it, the CLI wants GTK 4's headers, and here it only makes
+# the bindings and runs the build tasks (the Linux app builds in its own image).
 tools: ## Install the pinned wails3 CLI into GOPATH/bin
-	go install github.com/wailsapp/wails/v3/cmd/wails3@$(WAILS_VERSION)
+	$(if $(filter Linux,$(shell uname -s)),CGO_ENABLED=0 )go install github.com/wailsapp/wails/v3/cmd/wails3@$(WAILS_VERSION)
 
 dev: ## Run the app in development mode with live reload (offers the scripted demo provider)
 	FREELOOP_DEV=1 $(WAILS) dev -config ./build/config.yml
