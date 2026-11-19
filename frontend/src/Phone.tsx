@@ -125,7 +125,7 @@ export default function Phone({ config, onSaved, onError }: Props) {
             </p>
             <p className="muted">{t("phone.tailscale.undo", { command: tail.undo })}</p>
             {os === "linux" && <p className="muted">{t("phone.tailscale.linux")}</p>}
-            {tail.serving && <p className="muted">{t("phone.tailscale.serving", { port: HTTPS_PORT })}</p>}
+            {tail.serving && <p className="muted">{t("phone.tailscale.serving", { port: String(HTTPS_PORT) })}</p>}
             <p className="muted">{t("phone.tailscale.certificates")}</p>
             {tail.name && tail.name !== host && (
               <p className="row">

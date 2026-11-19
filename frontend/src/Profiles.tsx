@@ -149,7 +149,7 @@ export default function Profiles({ profiles, harnesses, providers, onChanged, on
           <ul className="error-text">
             {yamlIssues.map((i, n) => (
               <li key={n}>
-                {i.line ? t("profiles.yamlLine", { line: i.line, issue: i.field ? `${i.field}: ${i.message}` : i.message }) : i.field ? `${i.field}: ${i.message}` : i.message}
+                {i.line ? t("profiles.yamlLine", { line: String(i.line), issue: i.field ? `${i.field}: ${i.message}` : i.message }) : i.field ? `${i.field}: ${i.message}` : i.message}
               </li>
             ))}
           </ul>
