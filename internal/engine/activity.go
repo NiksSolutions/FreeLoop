@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -264,8 +265,9 @@ func (e *Engine) foldStale(ctx context.Context) int {
 
 // foldStaleUntil is foldStale until deadline. It folds at least one session, so a
 // report that starts with its budget spent, as one that waited for another does,
-// still moves on. One that cannot be read is logged once, stepped over and not
-// counted as left; the next report tries it again.
+// still moves on. One that cannot be read is logged once and stepped over, and the
+// next report tries it again; a report that gets to the end with only such sessions
+// left says none is, so the page stops asking.
 func (e *Engine) foldStaleUntil(ctx context.Context, deadline time.Time) int {
 	activityMu.Lock()
 	defer activityMu.Unlock()
@@ -273,6 +275,13 @@ func (e *Engine) foldStaleUntil(ctx context.Context, deadline time.Time) int {
 	if err != nil {
 		log.Printf("engine: activity: %v", err)
 		return 0
+	}
+	// What could not be read is remembered only while it is behind: one deleted, or
+	// folded since, is forgotten.
+	for id := range activityUnread {
+		if !slices.ContainsFunc(stale, func(st store.StaleSession) bool { return st.ID == id }) {
+			delete(activityUnread, id)
+		}
 	}
 	folded := false
 	for i, st := range stale {

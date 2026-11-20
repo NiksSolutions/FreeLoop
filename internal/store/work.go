@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"regexp"
+	"slices"
 	"sort"
 	"time"
 
@@ -131,8 +132,9 @@ type bucketKey struct {
 
 // FoldWork folds the sessions that moved on until deadline, and returns how many it
 // left for the next call. Each call folds at least one, so a call that starts with its
-// budget spent, as one that waited for the database does, still moves on; a session
-// that cannot be read is logged once, stepped over and not counted as left.
+// budget spent, as one that waited for the database does, still moves on. A session
+// that cannot be read is logged once and stepped over; a call that gets to the end with
+// only such sessions left says none is, so the page stops asking.
 func (s *Store) FoldWork(ctx context.Context, deadline time.Time, resolve CommitResolver) (int, error) {
 	s.workMu.Lock()
 	defer s.workMu.Unlock()
@@ -175,6 +177,13 @@ func (s *Store) FoldWork(ctx context.Context, deadline time.Time, resolve Commit
 		stale = append(stale, w)
 	}
 	rows.Close()
+	// What could not be read is remembered only while it is behind: one deleted, or
+	// folded since, is forgotten.
+	for id := range s.workUnread {
+		if !slices.ContainsFunc(stale, func(w workSession) bool { return w.id == id }) {
+			delete(s.workUnread, id)
+		}
+	}
 	folded := false
 	for i, w := range stale {
 		if folded && !time.Now().Before(deadline) {

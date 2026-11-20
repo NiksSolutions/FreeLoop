@@ -249,4 +249,12 @@ func TestWorkFoldAlwaysMovesOn(t *testing.T) {
 	if lines := strings.Split(strings.TrimSpace(logged.String()), "\n"); len(lines) != 1 || !strings.Contains(lines[0], ids[2]) {
 		t.Errorf("the unreadable session was said %d times: %q", len(lines), logged.String())
 	}
+	// Deleted, it is no longer remembered.
+	if err := s.DeleteSession(ctx, ids[2]); err != nil {
+		t.Fatal(err)
+	}
+	s.FoldWork(ctx, spent, nil)
+	if _, ok := s.workUnread[ids[2]]; ok {
+		t.Error("a deleted session is still remembered as unreadable")
+	}
 }
