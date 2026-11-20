@@ -190,9 +190,9 @@ export const de = translationOf<typeof en>()({
   "settings.build.unknown": "Diese Version gibt nicht an, aus welchem Commit sie gebaut wurde.",
   "settings.report.title": "Problem melden",
   "settings.report.introNamed":
-    "Kopiert die Version von Freeloop, Modell und Systemversion dieses Computers, Agent und Anbieter von „{title}“ und die letzten 200 Zeilen des Protokolls, für einen Fehlerbericht.",
+    "Kopiert die Version von Freeloop, Modell und Systemversion dieses Computers, Agent und Anbieter von „{title}“, wo die App mit ihrer eigenen Arbeit steht, und die letzten 200 Zeilen des Protokolls, für einen Fehlerbericht.",
   "settings.report.introLast":
-    "Kopiert die Version von Freeloop, Modell und Systemversion dieses Computers, Agent und Anbieter der zuletzt geöffneten Sitzung und die letzten 200 Zeilen des Protokolls, für einen Fehlerbericht.",
+    "Kopiert die Version von Freeloop, Modell und Systemversion dieses Computers, Agent und Anbieter der zuletzt geöffneten Sitzung, wo die App mit ihrer eigenen Arbeit steht, und die letzten 200 Zeilen des Protokolls, für einen Fehlerbericht.",
   "settings.report.privacy":
     "Geheimnisse, die die App kennt, und der Pfad des Benutzerordners werden entfernt, und nichts wird irgendwohin gesendet. Vor dem Weitergeben durchlesen.",
   "settings.report.copy": "Bericht kopieren",

@@ -72,7 +72,7 @@ Das Protokoll der App liegt unter {{`~/Library/Application Support/freeloop/logs
 
 Unter Einstellungen → Daten legt **Bericht kopieren** im Abschnitt **Problem melden** eine kurze Diagnose in die Zwischenablage. **Zeigen, was kopiert wird** zeigt sie vorher an.
 
-Der Bericht enthält die Version von Freeloop, Systemversion, Modell, Chip und Arbeitsspeicher dieses Computers, Agent, Anbieter, Modell, Modus und Status der offenen Sitzung (oder der zuletzt offenen) und die letzten 200 Zeilen des Protokolls. Gespräche, Dateien, Sitzungstitel und Schlüssel bleiben draußen. Geheimnisse, die die App kennt, werden entfernt, und der Pfad des Benutzerordners wird als `~` geschrieben.
+Der Bericht enthält die Version von Freeloop, Systemversion, Modell, Chip und Arbeitsspeicher dieses Computers, Agent, Anbieter, Modell, Modus und Status der offenen Sitzung (oder der zuletzt offenen), wo die App mit ihrer eigenen Arbeit steht (ihre Goroutinen, nach den Aufrufen, in denen sie stehen, ohne Werte) und die letzten 200 Zeilen des Protokolls. Gespräche, Dateien, Sitzungstitel und Schlüssel bleiben draußen. Geheimnisse, die die App kennt, werden entfernt, und der Pfad des Benutzerordners wird als `~` geschrieben.
 
 > Protokollzeilen können trotzdem Projekte nennen, deshalb den Bericht vor dem Weitergeben durchlesen.
 

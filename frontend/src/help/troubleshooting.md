@@ -72,7 +72,7 @@ The app's log is {{`~/Library/Application Support/freeloop/logs/freeloop.log`|`%
 
 In Settings → Data, under **Report a problem**, **Copy a report** puts a short diagnostic on your clipboard. **Show what is copied** displays it first.
 
-The report holds Freeloop's version, this computer's system version, model, chip and memory, the agent, provider, model, mode and status of the open session (or the session last open), and the log's last 200 lines. It leaves out your conversation, your files, session titles and your keys. Secrets the app knows are removed, and your home folder's path is written as `~`.
+The report holds Freeloop's version, this computer's system version, model, chip and memory, the agent, provider, model, mode and status of the open session (or the session last open), where the app's own work stands (its goroutines, by the calls they are in, without any values), and the log's last 200 lines. It leaves out your conversation, your files, session titles and your keys. Secrets the app knows are removed, and your home folder's path is written as `~`.
 
 > Log lines can still name your projects, so read the report before you share it.
 

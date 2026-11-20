@@ -72,7 +72,7 @@ Het logboek van de app staat in {{`~/Library/Application Support/freeloop/logs/f
 
 In Instellingen → Gegevens, onder **Probleem melden**, zet **Rapport kopiëren** een korte diagnose op het klembord. **Tonen wat wordt gekopieerd** laat die eerst zien.
 
-Het rapport bevat de versie van Freeloop, de systeemversie, het model, de chip en het geheugen van deze computer, de agent, aanbieder, het model, de modus en de status van de open sessie (of de laatst geopende sessie), en de laatste 200 regels van het logboek. Gesprekken, bestanden, sessietitels en sleutels blijven erbuiten. Geheimen die de app kent, worden verwijderd, en het pad van de thuismap wordt geschreven als `~`.
+Het rapport bevat de versie van Freeloop, de systeemversie, het model, de chip en het geheugen van deze computer, de agent, aanbieder, het model, de modus en de status van de open sessie (of de laatst geopende sessie), waar de app met haar eigen werk staat (haar goroutines, naar de aanroepen waarin ze staan, zonder waarden), en de laatste 200 regels van het logboek. Gesprekken, bestanden, sessietitels en sleutels blijven erbuiten. Geheimen die de app kent, worden verwijderd, en het pad van de thuismap wordt geschreven als `~`.
 
 > Logregels kunnen nog steeds projecten noemen, dus het rapport eerst doorlezen en dan pas delen.
 

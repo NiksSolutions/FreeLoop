@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"testing"
 
@@ -70,4 +71,42 @@ func TestProblemReportCarriesWhatAnIssueNeedsAndNoSecrets(t *testing.T) {
 	if err != nil || strings.Contains(got, "Session:") || !strings.Contains(got, "The log's last 0 lines") {
 		t.Errorf("no session and no log = %q, %v", got, err)
 	}
+}
+
+// GUI-046: a report says what the app's own goroutines are doing, by where they
+// stand, so an app that seems stuck can be seen from its report; without addresses
+// or values, and within a bound.
+func TestProblemReportSaysWhatTheAppIsDoing(t *testing.T) {
+	e := openTest(t, t.TempDir())
+	defer e.Close()
+	started, release := make(chan struct{}), make(chan struct{})
+	defer close(release)
+	go parkedForTheReport(started, release)
+	<-started
+	got, err := e.ProblemReport(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, doing, ok := strings.Cut(got, "What the app is doing")
+	if !ok {
+		t.Fatalf("no goroutines in the report:\n%s", got)
+	}
+	doing, _, _ = strings.Cut(doing, "The log's last")
+	// With its file whole, whatever the folders on the way are called (a space in
+	// "Application Support", say).
+	_, file, _, _ := goruntime.Caller(0)
+	if !strings.Contains(doing, "engine.parkedForTheReport ("+e.anonymize(file)+":") {
+		t.Errorf("the parked goroutine is missing, or its file is cut short:\n%s", doing)
+	}
+	if strings.Contains(doing, "0x") {
+		t.Errorf("addresses in the report:\n%s", doing)
+	}
+	if n := strings.Count(doing, "\n"); n > reportGoroutineLines+5 {
+		t.Errorf("%d lines", n)
+	}
+}
+
+func parkedForTheReport(started, release chan struct{}) {
+	close(started)
+	<-release
 }

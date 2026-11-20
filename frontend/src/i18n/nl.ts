@@ -189,9 +189,9 @@ export const nl = translationOf<typeof en>()({
   "settings.build.unknown": "Deze versie geeft niet aan uit welke commit ze is gebouwd.",
   "settings.report.title": "Probleem melden",
   "settings.report.introNamed":
-    "Kopieert de versie van Freeloop, het model en de systeemversie van deze computer, de agent en aanbieder van ‘{title}’ en de laatste 200 regels van het logboek, voor een probleemmelding.",
+    "Kopieert de versie van Freeloop, het model en de systeemversie van deze computer, de agent en aanbieder van ‘{title}’, waar de app met haar eigen werk staat en de laatste 200 regels van het logboek, voor een probleemmelding.",
   "settings.report.introLast":
-    "Kopieert de versie van Freeloop, het model en de systeemversie van deze computer, de agent en aanbieder van de laatst geopende sessie en de laatste 200 regels van het logboek, voor een probleemmelding.",
+    "Kopieert de versie van Freeloop, het model en de systeemversie van deze computer, de agent en aanbieder van de laatst geopende sessie, waar de app met haar eigen werk staat en de laatste 200 regels van het logboek, voor een probleemmelding.",
   "settings.report.privacy":
     "Geheimen die de app kent en het pad van de thuismap worden eruit gehaald, en er wordt nergens iets naartoe gestuurd. Eerst doorlezen, dan pas delen.",
   "settings.report.copy": "Rapport kopiëren",

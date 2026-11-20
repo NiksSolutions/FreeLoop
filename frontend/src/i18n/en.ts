@@ -189,9 +189,9 @@ export const en = {
   "settings.build.unknown": "This build does not say which commit it was made from.",
   "settings.report.title": "Report a problem",
   "settings.report.introNamed":
-    "Copies Freeloop's version, this computer's model and system version, the agent and provider of “{title}”, and the log's last 200 lines, for an issue.",
+    "Copies Freeloop's version, this computer's model and system version, the agent and provider of “{title}”, where the app's own work stands, and the log's last 200 lines, for an issue.",
   "settings.report.introLast":
-    "Copies Freeloop's version, this computer's model and system version, the agent and provider of the session last open, and the log's last 200 lines, for an issue.",
+    "Copies Freeloop's version, this computer's model and system version, the agent and provider of the session last open, where the app's own work stands, and the log's last 200 lines, for an issue.",
   "settings.report.privacy": "Secrets the app knows and your home folder's path are taken out, and nothing is sent anywhere. Read it before you share it.",
   "settings.report.copy": "Copy a report",
   "settings.report.show": "Show what is copied",
