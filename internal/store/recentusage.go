@@ -3,7 +3,10 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log"
+	"slices"
 	"time"
 
 	"github.com/FinanceNik/Freeloop/internal/event"
@@ -93,11 +96,29 @@ func (s *Store) foldRecent(ctx context.Context) error {
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("store: recent usage: %w", err)
 	}
+	// What could not be read is remembered only while it is behind.
+	for id := range s.recentUnread {
+		if !slices.ContainsFunc(list, func(st stale) bool { return st.id == id }) {
+			delete(s.recentUnread, id)
+		}
+	}
 	for _, st := range list {
 		events, err := s.Events(ctx, st.id, st.from)
-		if err != nil {
+		if errors.Is(err, ErrNotFound) {
 			continue // deleted meanwhile
 		}
+		if err != nil {
+			// Said once, not on every fold; the others are counted all the same.
+			if s.recentUnread == nil {
+				s.recentUnread = map[string]string{}
+			}
+			if s.recentUnread[st.id] != err.Error() {
+				s.recentUnread[st.id] = err.Error()
+				log.Printf("store: recent usage: session %s cannot be read, so its tokens are left out: %v", st.id, err)
+			}
+			continue
+		}
+		delete(s.recentUnread, st.id)
 		if len(events) == 0 {
 			continue
 		}

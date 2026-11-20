@@ -52,6 +52,9 @@ type Options struct {
 type Store struct {
 	// recentMu keeps two folds of recent usage from counting an event twice.
 	recentMu sync.Mutex
+	// recentUnread is, by session, the last reason its transcript could not be counted
+	// for recent usage, so the log says it once. recentMu guards it.
+	recentUnread map[string]string
 	// workMu does the same for the folds of commits and their usage (GUI-051).
 	workMu sync.Mutex
 	// workUnread is, by session, the last reason its transcript could not be folded,

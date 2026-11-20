@@ -1,8 +1,13 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"log"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -149,5 +154,48 @@ func TestAddedColumnsLeaveTheSchemaVersionAlone(t *testing.T) {
 			t.Errorf("reading usage: %v", err)
 		}
 		s.Close()
+	}
+}
+
+// GUI-023: a session whose transcript cannot be read is said once, not skipped without
+// a word on every fold, and the others are still counted.
+func TestRecentUsageSaysASessionItCannotRead(t *testing.T) {
+	ctx := context.Background()
+	s := openTest(t, t.TempDir(), nil)
+	var ids []string
+	for _, title := range []string{"a", "b"} {
+		ses, err := s.CreateSession(ctx, session.Session{Title: title, HarnessID: "builtin", ProviderID: "p", Model: "m"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := json.Marshal(event.UsageData{InputTokens: 10, OutputTokens: 1})
+		if _, err := s.Append(ctx, ses.ID, event.UsageUpdate, b); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, ses.ID)
+	}
+	var logged bytes.Buffer
+	log.SetOutput(&logged)
+	defer log.SetOutput(os.Stderr)
+	s.Release(ids[0])
+	path := filepath.Join(s.sessionDir(ids[0]), "events.jsonl")
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if _, err := s.RecentUsage(ctx, time.Now().Add(-time.Hour)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if lines := strings.Split(strings.TrimSpace(logged.String()), "\n"); len(lines) != 1 || !strings.Contains(lines[0], ids[0]) {
+		t.Errorf("the unreadable session was said %d times: %q", len(lines), logged.String())
+	}
+	var counted int64
+	s.db.QueryRowContext(ctx, `SELECT recent_seq FROM sessions WHERE id = ?`, ids[1]).Scan(&counted)
+	if counted == 0 {
+		t.Error("the readable session was not counted")
 	}
 }
