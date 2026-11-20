@@ -43,6 +43,10 @@ type stuckState struct {
 	said     map[string]bool // reasons already said this turn
 	// onLimit is the profile to continue on when this turn ends.
 	onLimit string
+	// turn counts the turns started, and over says the last one has ended: the profile
+	// for a reached limit is looked up after its event, and its turn may be over by then.
+	turn int
+	over bool
 	// now is what the session is stuck on, for the attention view.
 	now *event.StuckData
 }
@@ -87,6 +91,7 @@ func (e *Engine) observe(ev event.Event) {
 	switch ev.Type {
 	case event.TurnStarted:
 		s.rewinds, s.said, s.now = 0, map[string]bool{}, nil
+		s.turn, s.over = s.turn+1, false
 	case event.ToolCall:
 		s.tools[str("toolCallId")] = cmpOr(str("tool"), str("kind"), str("title"))
 	case event.PermissionDecided:
@@ -134,21 +139,26 @@ func (e *Engine) observe(ev event.Event) {
 		} else {
 			s.errored = 0
 		}
-		auto, s.onLimit = s.onLimit, ""
+		auto, s.onLimit, s.over = s.onLimit, "", true
 	case event.HandedOff:
 		s.now, s.onLimit = nil, ""
 	}
+	turn := s.turn
 	w.mu.Unlock()
 	if reason != "" {
-		e.bg.Go(func() { e.sayStuck(ev.SID, reason, detail) })
+		e.bg.Go(func() { e.sayStuck(ev.SID, reason, detail, turn) })
 	}
 	if auto != "" {
-		e.bg.Go(func() {
-			if _, err := e.HandOff(context.Background(), ev.SID, auto, stuckLimit, true); err != nil {
-				log.Printf("engine: continue %s on %s: %v", ev.SID, auto, err)
-				e.emit(ev.SID, event.Notice, event.NoticeData{Message: "Could not continue on the profile set for a reached limit: " + err.Error()})
-			}
-		})
+		e.bg.Go(func() { e.continueOnLimit(ev.SID, auto) })
+	}
+}
+
+// continueOnLimit hands a session that reached a limit off to the profile its own
+// profile names for that (HRN-020), and says so when it cannot.
+func (e *Engine) continueOnLimit(sid, profile string) {
+	if _, err := e.HandOff(context.Background(), sid, profile, stuckLimit, true); err != nil {
+		log.Printf("engine: continue %s on %s: %v", sid, profile, err)
+		e.emit(sid, event.Notice, event.NoticeData{Message: "Could not continue on the profile set for a reached limit: " + err.Error()})
 	}
 }
 
@@ -161,8 +171,11 @@ func cmpOr(vals ...string) string {
 	return ""
 }
 
-// sayStuck records why a session is stuck and the profile it could continue on.
-func (e *Engine) sayStuck(sid, reason, detail string) {
+// sayStuck records why a session is stuck and the profile it could continue on. For a
+// limit reached in turn, with a profile to continue on by itself, that happens when the
+// turn ends: now, if it ended while the profile was looked up, as it does when an agent
+// reports the limit and ends its turn at once; never, if another turn has started.
+func (e *Engine) sayStuck(sid, reason, detail string, turn int) {
 	ctx := context.Background()
 	ses, err := e.store.GetSession(ctx, sid)
 	if err != nil {
@@ -185,11 +198,19 @@ func (e *Engine) sayStuck(sid, reason, detail string) {
 	e.stuck.mu.Lock()
 	s := e.stuck.state(sid)
 	s.now = &d
-	if d.Auto {
-		s.onLimit = d.ProfileID
+	now := ""
+	if d.Auto && s.turn == turn {
+		if s.over {
+			now = d.ProfileID
+		} else {
+			s.onLimit = d.ProfileID
+		}
 	}
 	e.stuck.mu.Unlock()
 	e.emit(sid, event.Stuck, d)
+	if now != "" {
+		e.continueOnLimit(sid, now)
+	}
 }
 
 // stuckOn is what a session is stuck on now, or nil.

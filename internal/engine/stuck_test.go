@@ -178,6 +178,30 @@ func TestOnLimitContinuesByItself(t *testing.T) {
 	}
 }
 
+// HRN-020: a limit reached and the turn's end right after it, as Claude Code sends
+// them, still continue by themselves: the profile to continue on is looked up after
+// the turn has ended. And the next turn the user starts does not hand off.
+func TestOnLimitContinuesWhenTheTurnEndsAtOnce(t *testing.T) {
+	ctx := context.Background()
+	e, ses := stuckSession(t, "onLimit: fallback\n")
+	ch, cancel := e.Subscribe()
+	defer cancel()
+	e.Prompt(ctx, ses.ID, "fix the login page")
+	waitIdle(t, ch, ses.ID)
+	e.emit(ses.ID, event.TurnStarted, struct{}{})
+	e.emit(ses.ID, event.LimitUpdate, event.LimitData{Source: "Claude Code", Windows: []event.LimitWindow{{ID: "five_hour", Label: "Session limit (5 hours)", UsedPercent: 100, ResetsAt: time.Now().Add(time.Hour).Unix(), Status: "rejected"}}})
+	e.emit(ses.ID, event.TurnEnded, map[string]any{"stopReason": "end_turn"})
+	if waitEvent(t, e, ses.ID, event.HandedOff) == nil {
+		t.Fatal("it did not continue")
+	}
+	e.stuck.mu.Lock()
+	left := e.stuck.state(ses.ID).onLimit
+	e.stuck.mu.Unlock()
+	if left != "" {
+		t.Errorf("a hand-off is still set for the next turn: %q", left)
+	}
+}
+
 func eventsText(evs []event.Event) string {
 	var b strings.Builder
 	for _, ev := range evs {
