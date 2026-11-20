@@ -72,15 +72,37 @@ await step("the palette stays short with many skills and sessions", async () => 
 
 await step("the demo runs the tour, not the default profile's agent", async () => {
   await openPalette("Try the demo");
+  // Calls to the engine slower than a second while it waits, for a miss to name.
+  const slow = [];
+  const realFetch = window.fetch;
+  window.fetch = async (u, o) => {
+    const at = performance.now();
+    try {
+      return await realFetch(u, o);
+    } finally {
+      const ms = performance.now() - at;
+      if (ms > 1000) slow.push(`${Math.round(ms)} ms: ${String(o?.body ?? u).slice(0, 80)}`);
+    }
+  };
   (await until("the palette entry", () => withText(".palette-item", "Try the demo"), 4000)).click();
   // Within a second on a Mac; CI's runner, ten times slower at the long session above,
   // took more than 20 seconds. The time is printed, and a miss says what was there.
   const t0 = performance.now();
-  const banner = await until("the demo banner", () => withText(".demo-banner", "This is the demo"), 90000).catch((e) => {
-    const shown = activePane().querySelector?.(".session-titleline h2")?.textContent ?? "no session";
-    const errors = all(".banner.error").map((b) => b.textContent.trim()).join(" | ");
-    throw new Error(`${e.message}; the pane shows ${shown}, the demo is ${all(".session-row").some((r) => r.textContent.includes("Demo: your policy at work")) ? "" : "not "}listed${errors ? `, errors: ${errors}` : ""}`);
-  });
+  const banner = await until("the demo banner", () => withText(".demo-banner", "This is the demo"), 90000)
+    .catch((e) => {
+      const ws = document.querySelector(".workspace");
+      const row = all(".session-row").find((r) => r.textContent.includes("Demo: your policy at work"));
+      throw new Error(
+        `${e.message}; title "${document.title}", ` +
+          `workspace ${ws ? `"${ws.textContent.replace(/\s+/g, " ").slice(0, 60)}"` : "not drawn"}, ` +
+          `empty panes ${all(".pane-empty").length}, sessions shown "${all(".session-titleline h2").map((h) => h.textContent).join("|")}", ` +
+          `the demo ${row ? `listed, ${row.getAttribute("aria-current") === "true" ? "open" : "not open"}, ${row.hasAttribute("data-shown") ? "in a pane" : "in no pane"}` : "not listed"}, ` +
+          `errors "${all(".banner.error").map((b) => b.textContent.trim()).join(" | ")}", slow calls [${slow.join("; ")}]`,
+      );
+    })
+    .finally(() => {
+      window.fetch = realFetch;
+    });
   check(`the demo has its banner, after ${Math.round(performance.now() - t0)} ms`, !!banner);
   const pane = activePane();
   const header = pane.querySelector(".session-header")?.textContent ?? "";
