@@ -660,7 +660,7 @@ func (e *Engine) storageFailed(sid string, err error) {
 	e.mu.Unlock()
 	e.storageFailing.Store(true)
 	if first {
-		e.bg.Go(func() {
+		e.goSafely("stopping a session when storage failed", func() {
 			e.Cancel(sid)
 			if e.onChange != nil {
 				e.onChange(ConfigChange{})
@@ -680,7 +680,7 @@ func (e *Engine) storageRecovered(sid string) {
 	e.mu.Unlock()
 	if done {
 		e.storageFailing.Store(false)
-		e.bg.Go(func() {
+		e.goSafely("saying storage works again", func() {
 			if e.onChange != nil {
 				e.onChange(ConfigChange{})
 			}

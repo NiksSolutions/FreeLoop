@@ -102,9 +102,11 @@ func truncate(s string, n int) string {
 func (e *Engine) notify(events <-chan event.Event, send func(Notice)) {
 	defer e.notifying.Done()
 	for ev := range events {
-		if n, ok := e.noticeFor(context.Background(), ev); ok {
-			send(n)
-		}
+		e.safely("a notification", func() {
+			if n, ok := e.noticeFor(context.Background(), ev); ok {
+				send(n)
+			}
+		})
 	}
 }
 

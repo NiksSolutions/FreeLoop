@@ -203,7 +203,7 @@ func (e *Engine) startSetup(ses session.Session) {
 	}
 	e.setups.runs[ses.ID] = run
 	e.setups.mu.Unlock()
-	e.bg.Go(func() {
+	e.goSafely("a worktree's setup", func() {
 		ctx, cancel := context.WithTimeout(e.scheduleCtx, dockerStartTimeout+environment.MaxTimeout+time.Minute)
 		defer cancel()
 		err := e.runSetup(ctx, ses, scripts)

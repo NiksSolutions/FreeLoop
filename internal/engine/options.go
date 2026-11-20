@@ -243,10 +243,10 @@ func (e *Engine) modelOptions(ctx context.Context, ses session.Session, every bo
 	for i, p := range providers {
 		if p.ID == ses.ProviderID || every {
 			wg.Add(1)
-			go func() {
+			go e.safely("listing a provider's models", func() {
 				defer wg.Done()
 				listed[i] = e.listedModels(ctx, p.ID)
-			}()
+			})
 		}
 	}
 	wg.Wait()

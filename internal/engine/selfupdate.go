@@ -119,7 +119,7 @@ func (e *Engine) DownloadUpdate() error {
 	ctx, cancel := context.WithTimeout(context.Background(), updateDownloadFor)
 	u.step, u.received, u.total, u.err, u.file, u.version, u.cancel = "downloading", 0, 0, "", "", "", cancel
 	u.mu.Unlock()
-	e.bg.Go(func() {
+	e.goSafely("downloading an update", func() {
 		defer cancel()
 		file, version, err := e.fetchUpdate(ctx, kind)
 		u.mu.Lock()

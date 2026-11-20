@@ -426,7 +426,7 @@ func (e *Engine) gitChanged(sid string) {
 		e.refreshGitLater(r)
 		return
 	}
-	e.bg.Go(func() {
+	e.goSafely("a git refresh", func() {
 		ctx := context.Background()
 		env, ses, err := e.sessionGit(ctx, sid)
 		if err != nil {

@@ -421,7 +421,7 @@ func changesFiles(typ event.Type, data any) bool {
 // the runtime's jobs.
 func (e *Engine) refreshGitLater(r *runtime) {
 	r.jobs.Add(1)
-	e.bg.Go(func() {
+	e.goSafely("a git refresh", func() {
 		defer r.jobs.Done()
 		e.refreshGit(r)
 	})
@@ -580,7 +580,7 @@ func (e *Engine) run(r *runtime, q queued, ctx context.Context) {
 				msg = fmt.Sprintf("The agent stopped, so %d queued messages were not sent. Your next message starts it again.", dropped)
 			}
 			e.emit(r.sid, event.Notice, event.NoticeData{Message: msg})
-			e.bg.Go(func() { e.stopRuntime(r.sid) })
+			e.goSafely("stopping a session's agent", func() { e.stopRuntime(r.sid) })
 			return
 		}
 		// Queued prompts would fail the same way until the user signs in. The notice
@@ -859,11 +859,11 @@ func (e *Engine) forwardPlanFeedback(asked *permission.Request, req DecideReques
 		return
 	}
 	sid := asked.SessionID
-	go func() {
+	go e.safely("sending feedback on a plan", func() {
 		if _, err := e.Prompt(context.Background(), sid, "My feedback on the plan:\n\n"+note); err != nil {
 			log.Printf("engine: plan feedback for %s: %s", sid, e.redactText(err.Error()))
 		}
-	}()
+	})
 }
 
 // PendingPermissions returns every request waiting for the user, across

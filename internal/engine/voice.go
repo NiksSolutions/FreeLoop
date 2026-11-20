@@ -190,7 +190,7 @@ func (e *Engine) InstallVoice() error {
 	}
 	v.fetching, v.received, v.total, v.failed = cancel, 0, st.Download, ""
 	v.mu.Unlock()
-	go func() {
+	go e.safely("downloading the speech model", func() {
 		defer cancel()
 		err := e.fetchSpeech(ctx)
 		v.mu.Lock()
@@ -203,7 +203,7 @@ func (e *Engine) InstallVoice() error {
 		default:
 			v.failed = err.Error()
 		}
-	}()
+	})
 	return nil
 }
 

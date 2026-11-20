@@ -197,10 +197,11 @@ func (e *Engine) scheduleLoop(interval time.Duration) {
 	t := time.NewTicker(interval)
 	defer t.Stop()
 	for {
-		// A first check right away runs what was missed while closed.
-		e.runDue(e.scheduleCtx, time.Now())
-		e.moveQueue()
-		e.checkBudgets(e.scheduleCtx, time.Now())
+		// A first check right away runs what was missed while closed. Each step on its
+		// own (NFR-REL-007): one that keeps failing leaves the others, and the loop.
+		e.safely("running due schedules", func() { e.runDue(e.scheduleCtx, time.Now()) })
+		e.safely("moving the queue", e.moveQueue)
+		e.safely("checking budgets", func() { e.checkBudgets(e.scheduleCtx, time.Now()) })
 		for kicked := true; kicked; {
 			select {
 			case <-e.stopSchedules:
@@ -209,7 +210,7 @@ func (e *Engine) scheduleLoop(interval time.Duration) {
 				kicked = false
 			case <-e.afkKick:
 				// A session of the queue's ended: move the queue and the runs on now.
-				e.moveQueue()
+				e.safely("moving the queue", e.moveQueue)
 			}
 		}
 	}

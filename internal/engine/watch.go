@@ -28,19 +28,26 @@ func (e *Engine) watch(interval time.Duration) {
 			return
 		case <-t.C:
 		}
-		e.watchAgents()
-		e.stopIdle(time.Now())
-		now := config.Fingerprint(e.dataDir)
-		changed := config.Changed(last, now)
-		last = now
-		if len(changed) == 0 {
-			continue
-		}
-		slices.Sort(changed)
-		e.reload(changed)
-		if e.onChange != nil {
-			e.onChange(ConfigChange{Files: changed})
-		}
+		// Each step on its own (NFR-REL-007): one that keeps failing leaves the others.
+		e.safely("watching agent files", e.watchAgents)
+		e.safely("the idle stop", func() { e.stopIdle(time.Now()) })
+		e.safely("reloading config files", func() { e.reloadChanged(&last) })
+	}
+}
+
+// reloadChanged rereads the config files that changed since the fingerprint last, and
+// moves it on first, so a file whose reload fails is not read again every round.
+func (e *Engine) reloadChanged(last *map[string]string) {
+	now := config.Fingerprint(e.dataDir)
+	changed := config.Changed(*last, now)
+	*last = now
+	if len(changed) == 0 {
+		return
+	}
+	slices.Sort(changed)
+	e.reload(changed)
+	if e.onChange != nil {
+		e.onChange(ConfigChange{Files: changed})
 	}
 }
 

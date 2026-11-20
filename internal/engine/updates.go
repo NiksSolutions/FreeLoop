@@ -66,7 +66,7 @@ func (e *Engine) UpdateStatus() UpdateInfo {
 	info := e.updateInfo()
 	if info.Enabled && time.Since(info.Checked) > updateInterval && !netguard.LocalOnly() {
 		e.updates.Do(func() {
-			e.bg.Go(func() {
+			e.goSafely("the update check", func() {
 				defer e.updates.Reset()
 				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 				defer cancel()

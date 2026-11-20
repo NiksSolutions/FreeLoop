@@ -327,7 +327,7 @@ func (e *Engine) startSessionServers(prof config.Profile) {
 			continue
 		}
 		wg.Add(1)
-		e.bg.Go(func() {
+		e.goSafely("starting an MCP server", func() {
 			defer wg.Done()
 			if err := e.StartMCPServer(context.Background(), s.ID); err != nil {
 				log.Printf("engine: MCP server %s: %s", s.ID, e.redactText(err.Error()))

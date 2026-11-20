@@ -146,10 +146,10 @@ func (e *Engine) observe(ev event.Event) {
 	turn := s.turn
 	w.mu.Unlock()
 	if reason != "" {
-		e.bg.Go(func() { e.sayStuck(ev.SID, reason, detail, turn) })
+		e.goSafely("the stuck watch", func() { e.sayStuck(ev.SID, reason, detail, turn) })
 	}
 	if auto != "" {
-		e.bg.Go(func() { e.continueOnLimit(ev.SID, auto) })
+		e.goSafely("continuing on another profile", func() { e.continueOnLimit(ev.SID, auto) })
 	}
 }
 
