@@ -25,7 +25,7 @@ import {
   type SessionHits,
   type Style,
 } from "./api.ts";
-import { bySession, createBatcher, foldSessions } from "./eventBatch.ts";
+import { bySession, createBatcher, foldSessions, mergeList } from "./eventBatch.ts";
 import { heldSessions, ingestHeld, letGo, LET_GO_MS } from "./heldTranscripts.ts";
 import { emptyTranscript, type Transcript, type TranscriptEvent } from "./transcript.ts";
 import { hitLabel, snippetParts } from "./search.ts";
@@ -407,14 +407,16 @@ export default function App() {
   const report = (err: unknown, sessionTitle?: string) => setErrors((list) => addError(list, { detail: errorText(err), session: sessionTitle }));
 
   // A list can arrive after events that changed a session since it was
-  // read, or after a list asked for later; neither replaces newer state.
+  // read, after a session was started, or after a list asked for later; none
+  // of it replaces newer state.
   const refreshCount = useRef(0);
   const refreshSessions = () => {
     const n = ++refreshCount.current;
+    const asked = Date.now();
     return EngineService.ListSessions()
       .then((list) => {
         if (n !== refreshCount.current) return;
-        setSessions((old) => (list ?? []).map((s) => old.find((o) => o.id === s.id && o.lastSeq > s.lastSeq) ?? s));
+        setSessions((old) => mergeList(old, list ?? [], asked));
         setSessionsLoaded(true);
       })
       .catch(report);

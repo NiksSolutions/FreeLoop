@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { bySession, createBatcher, foldSessions, FRAME_MS, type Clock } from "./eventBatch.ts";
+import { bySession, createBatcher, foldSessions, FRAME_MS, mergeList, type Clock } from "./eventBatch.ts";
 import type { Session } from "./api.ts";
 import type { TranscriptEvent } from "./transcript.ts";
 
@@ -99,4 +99,24 @@ test("foldSessions moves touched sessions to the front, applies changes and name
   assert.deepEqual(r.unknown, ["zzz"]);
   assert.equal(list[0].id, "a");
   assert.equal(list[1].title, "b");
+});
+
+test("a read session list keeps what the window learned after asking for it", () => {
+  const asked = Date.parse("2026-11-20T10:00:00Z");
+  const at = (id: string, createdAt: string, lastSeq = 0): Session => ({ ...session(id), createdAt, lastSeq }) as unknown as Session;
+  const old = [
+    // Started while the read was on its way, as the demo is: the read cannot know it.
+    at("demo", "2026-11-20T10:00:01Z", 3),
+    // Moved on by events since the read was made.
+    at("a", "2026-11-19T09:00:00Z", 9),
+    // Deleted before the read: the read is right to leave it out.
+    at("gone", "2026-11-19T09:00:00Z"),
+  ];
+  const read = [at("a", "2026-11-19T09:00:00Z", 4), at("b", "2026-11-18T09:00:00Z")];
+  const got = mergeList(old, read, asked);
+  assert.deepEqual(
+    got.map((s) => s.id),
+    ["demo", "a", "b"],
+  );
+  assert.equal(got[1].lastSeq, 9);
 });

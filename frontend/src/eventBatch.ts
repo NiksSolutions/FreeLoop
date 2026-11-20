@@ -111,3 +111,14 @@ export function foldSessions(list: readonly Session[], batch: readonly Transcrip
   }
   return { sessions, unknown };
 }
+
+// mergeList is the session list after a read from the engine: the read's sessions, each
+// unless the window holds a newer state of it (events since), and the sessions created
+// after the read was asked for, which it cannot know, as the demo or a session started
+// meanwhile. A list without them empties a pane showing one, as if it had been deleted:
+// on a slow computer a read asked for before the demo started came back after it.
+export function mergeList(old: readonly Session[], read: readonly Session[], askedAt: number): Session[] {
+  const fresh = read.map((s) => old.find((o) => o.id === s.id && o.lastSeq > s.lastSeq) ?? s);
+  const since = old.filter((o) => !read.some((s) => s.id === o.id) && Date.parse(o.createdAt) >= askedAt);
+  return [...since, ...fresh];
+}
