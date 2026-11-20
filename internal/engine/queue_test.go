@@ -14,9 +14,15 @@ import (
 	"github.com/FinanceNik/Freeloop/internal/secrets"
 )
 
+// queueEngine is an engine whose queue moves only when the test runs it: the schedule
+// loop, which a queued session's end kicks, would move it on between the test's steps.
 func queueEngine(t *testing.T) (*Engine, string) {
 	t.Helper()
-	e := openBinding(t, t.TempDir(), secrets.NewMemory())
+	e, err := Open(Options{DataDir: t.TempDir(), Secrets: secrets.NewMemory(), Home: t.TempDir(), WatchInterval: -1, ScheduleInterval: -1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { e.Close() })
 	steps := make([]scripted.Step, 10)
 	for i := range steps {
 		steps[i] = scripted.Step{Text: "done"}
