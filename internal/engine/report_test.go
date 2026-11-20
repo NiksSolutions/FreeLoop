@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/FinanceNik/Freeloop/internal/config"
+	"github.com/FinanceNik/Freeloop/internal/event"
 	"github.com/FinanceNik/Freeloop/internal/secrets"
 )
 
@@ -109,4 +110,25 @@ func TestProblemReportSaysWhatTheAppIsDoing(t *testing.T) {
 func parkedForTheReport(started, release chan struct{}) {
 	close(started)
 	<-release
+}
+
+// GUI-046: a report says how far behind the transcripts each count is, so one that
+// stopped moving can be seen from the report.
+func TestProblemReportSaysHowFarTheCountsAreBehind(t *testing.T) {
+	e := openTest(t, t.TempDir())
+	defer e.Close()
+	ses, _ := demoSession(t, e, "behind", "ask")
+	e.emit(ses.ID, event.TurnStarted, struct{}{})
+	got, err := e.ProblemReport(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, counts, ok := strings.Cut(got, "Counts kept from the transcripts")
+	if !ok {
+		t.Fatalf("no counts in the report:\n%s", got)
+	}
+	counts, _, _ = strings.Cut(counts, "\n\n")
+	if !strings.Contains(counts, "commits and their usage: 1 session, ") || !strings.Contains(counts, "brought up to date when the Usage page asks") {
+		t.Errorf("counts:\n%s", counts)
+	}
 }

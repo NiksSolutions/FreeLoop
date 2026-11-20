@@ -25,7 +25,8 @@ const appModule = "github.com/FinanceNik/Freeloop/"
 
 // ProblemReport is the text "Copy a report" puts on the clipboard, for an issue: the
 // app's version, this computer, the session's agent, provider and model when a session is
-// given, what the app's goroutines are doing, and the end of the log. It goes nowhere by itself (NFR-PRIV-001), and
+// given, how far behind the transcripts the counts kept from them are, what the app's
+// goroutines are doing, and the end of the log. It goes nowhere by itself (NFR-PRIV-001), and
 // the user reads it before pasting it. The log is redacted again here, since a
 // crash trace reaches the log file without passing the redaction the app's own lines
 // do, and the home folder's path, which holds the user's name, reads ~.
@@ -53,6 +54,25 @@ func (e *Engine) ProblemReport(ctx context.Context, sessionID string) (string, e
 				fmt.Fprintf(&b, ", model %s", ses.Model)
 			}
 			fmt.Fprintf(&b, ", %s mode, %s\n", ses.Mode, ses.Status)
+		}
+	}
+	// A count kept from the transcripts that stopped moving shows here.
+	if behind, err := e.store.Behind(ctx); err == nil {
+		b.WriteString("\nCounts kept from the transcripts:\n")
+		for _, l := range behind {
+			fmt.Fprintf(&b, "- %s: ", l.Name)
+			switch {
+			case l.Sessions == 0:
+				b.WriteString("up to date")
+			case l.Sessions == 1:
+				fmt.Fprintf(&b, "1 session, %d events to read", l.Events)
+			default:
+				fmt.Fprintf(&b, "%d sessions, %d events to read", l.Sessions, l.Events)
+			}
+			if l.Sessions > 0 && l.OnRequest {
+				b.WriteString(" (brought up to date when the Usage page asks)")
+			}
+			b.WriteByte('\n')
 		}
 	}
 	// An app that seems stuck, a count that no longer moves, say, shows where here.

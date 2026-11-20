@@ -258,3 +258,43 @@ func TestWorkFoldAlwaysMovesOn(t *testing.T) {
 		t.Error("a deleted session is still remembered as unreadable")
 	}
 }
+
+// GUI-046: the store says how far each count it keeps from the transcripts is behind
+// them, for a problem report: a count that stopped moving, as the Usage page's did,
+// shows there.
+func TestBehindSaysWhatEachCountHasNotRead(t *testing.T) {
+	ctx := context.Background()
+	clock := &workClock{now: time.Now()}
+	s := workStore(t, clock)
+	for _, title := range []string{"a", "b"} {
+		ses, err := s.CreateSession(ctx, session.Session{Title: title, HarnessID: "builtin", ProviderID: "p", Model: "m"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for range 3 {
+			put(t, s, clock, ses.ID, event.UsageUpdate, event.UsageData{InputTokens: 10, OutputTokens: 1})
+		}
+	}
+	lag := func(name string) Lag {
+		behind, err := s.Behind(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, l := range behind {
+			if l.Name == name {
+				return l
+			}
+		}
+		t.Fatalf("no %q in %+v", name, behind)
+		return Lag{}
+	}
+	if l := lag("commits and their usage"); l.Sessions != 2 || l.Events != 6 {
+		t.Errorf("before a fold: %+v", l)
+	}
+	if _, err := s.FoldWork(ctx, time.Now().Add(time.Minute), nil); err != nil {
+		t.Fatal(err)
+	}
+	if l := lag("commits and their usage"); l.Sessions != 0 || l.Events != 0 {
+		t.Errorf("after a fold: %+v", l)
+	}
+}
