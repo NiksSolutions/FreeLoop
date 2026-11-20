@@ -2,6 +2,7 @@ package permission
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/FinanceNik/Freeloop/internal/environment"
@@ -226,5 +227,62 @@ func TestShellDenyRulesSeeOtherSpellingsOfTheProgram(t *testing.T) {
 		if d, decided := b.evaluate(Context{Mode: ModeAsk, Root: root}, shellReq(line)); decided {
 			t.Errorf("%q was decided by allow git *: %+v", line, d)
 		}
+	}
+}
+
+// A backslash before a line break joins the lines before the shell reads them, so a
+// deny rule sees the command they make together. Found by FuzzDenyRuleHoldsThroughWrappers
+// on 2026-11-20: with deny git push * and allow shell, `git \⏎ push origin` was allowed
+// in bypass mode, at the top of a line and inside zsh -c (SEC-003).
+func TestDenyRulesSeeThroughLineContinuations(t *testing.T) {
+	home := environment.Canonical(t.TempDir())
+	root := filepath.Join(home, "repo")
+	b := NewBroker(NewPolicy(home, filepath.Join(home, "data")), nil)
+	b.SetRules(fixedRules{{Effect: Deny, Tool: "shell", Command: "git push *", Scope: ScopeGlobal}, {Effect: Allow, Tool: "shell", Scope: ScopeGlobal}}, nil)
+	for _, line := range []string{
+		"git \\\n push origin", "git \\\r\n push origin", "/usr/bin/git \\\n push origin", "gi\\\nt push origin",
+		"zsh -c 'git \\\n push origin'", "bash -c \"git \\\n push\"", "env \\\n git push",
+		// An escaped backslash ends with it: the line break is a real one, and git push
+		// a command of its own.
+		"echo \\\\\ngit push origin",
+	} {
+		if d, decided := b.evaluate(Context{Mode: ModeBypass, Root: root}, shellReq(line)); decided && d.Outcome == Allowed {
+			t.Errorf("%q was allowed in bypass mode", line)
+		}
+	}
+	// A subshell or a group after a keyword or a launcher, found by the same fuzzing.
+	for _, line := range []string{
+		"! (git push origin main)", "time (git push)", "! { git push; }", "if (git push); then :; fi",
+		"while (git push); do :; done", "env (git push)", "nice ( git push )",
+	} {
+		if d, decided := b.evaluate(Context{Mode: ModeBypass, Root: root}, shellReq(line)); decided && d.Outcome == Allowed {
+			t.Errorf("%q was allowed in bypass mode", line)
+		}
+	}
+	// Deeper than the rules follow, a line is one they cannot see, so bypass refuses it:
+	// four shells or evals deep got past the rule (found by the same fuzzing).
+	sq := func(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
+	for _, wrap := range []string{"bash -c ", "eval ", "sh -c "} {
+		line := "git push origin main"
+		for range 6 {
+			line = wrap + sq(line)
+			if d, decided := b.evaluate(Context{Mode: ModeBypass, Root: root}, shellReq(line)); decided && d.Outcome == Allowed {
+				t.Errorf("%q was allowed in bypass mode", line)
+			}
+		}
+	}
+	// A shell's line quoted inside another's, with an operator in it.
+	for _, line := range []string{
+		`bash -c 'bash -c '\''(true && git -C . push)'\'''`,
+		`sh -c "sh -c 'true; git push origin'"`,
+		`bash -c 'eval '\''true || git push'\'''`,
+	} {
+		if d, decided := b.evaluate(Context{Mode: ModeBypass, Root: root}, shellReq(line)); decided && d.Outcome == Allowed {
+			t.Errorf("%q was allowed in bypass mode", line)
+		}
+	}
+	// A continuation in a command a rule does not cover changes nothing.
+	if d, decided := b.evaluate(Context{Mode: ModeBypass, Root: root}, shellReq("git log \\\n --oneline")); !decided || d.Outcome != Allowed {
+		t.Errorf("git log over two lines: %+v, %v", d, decided)
 	}
 }

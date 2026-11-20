@@ -364,16 +364,33 @@ func simpleCommands(cmd string, depth int) []string {
 // is. A deny rule cannot be compared with those, so nothing that only a rule allows
 // may go ahead while one could apply (SEC-003).
 func commandsOf(cmd string, depth int) (out, unseen []string) {
-	if depth < 3 {
-		for _, m := range substitution.FindAllStringSubmatch(cmd, -1) {
-			inner, in := commandsOf(m[1]+m[2], depth+1)
-			out, unseen = append(out, inner...), append(unseen, in...)
+	cmd = joinLines(cmd)
+	// What runs a line of its own (a substitution, sh -c, eval, cmd /c, -Command) is
+	// followed maxDepth deep; deeper, the line is one the rules cannot see, which only
+	// the user may run: four nested shells got past a deny rule (fuzzing, 2026-11-20).
+	follow := func(line string) {
+		if depth >= maxDepth {
+			unseen = append(unseen, "")
+			return
 		}
+		inner, in := commandsOf(line, depth+1)
+		out, unseen = append(out, inner...), append(unseen, in...)
+	}
+	for _, m := range substitution.FindAllStringSubmatch(cmd, -1) {
+		follow(m[1] + m[2])
 	}
 	for _, seg := range segments(cmd) {
 		seg = strings.Trim(seg, "(){} \t'\"")
 		fields := strings.Fields(seg)
 		for len(fields) > 0 {
+			// A subshell or a group after a keyword or a launcher: ! (git push),
+			// time { git push; }, if (git push); then (found by fuzzing on 2026-11-20).
+			if g := strings.TrimLeft(fields[0], "({"); g != fields[0] {
+				if fields = fields[1:]; g != "" {
+					fields = append([]string{g}, fields...)
+				}
+				continue
+			}
 			f := unquoted(fields[0])
 			name := ""
 			for _, n := range programNames(fields[0]) {
@@ -445,16 +462,13 @@ func commandsOf(cmd string, depth int) (out, unseen []string) {
 		if g := withoutGitOptions(fields); g != "" {
 			out = append(out, g)
 		}
-		if m := shellC.FindStringSubmatch(simple); m != nil && depth < 3 {
-			inner, in := commandsOf(strings.Trim(m[1], "'\""), depth+1)
-			out, unseen = append(out, inner...), append(unseen, in...)
+		if m := shellC.FindStringSubmatch(simple); m != nil {
+			follow(strings.Trim(m[1], "'\""))
 		}
 		// eval runs its words as a line.
-		if fields[0] == "eval" && len(fields) > 1 && depth < 3 {
-			inner, in := commandsOf(strings.Join(raw[1:], " "), depth+1)
-			out, unseen = append(out, inner...), append(unseen, in...)
-			inner, in = commandsOf(strings.Join(fields[1:], " "), depth+1)
-			out, unseen = append(out, inner...), append(unseen, in...)
+		if fields[0] == "eval" && len(fields) > 1 {
+			follow(strings.Join(raw[1:], " "))
+			follow(strings.Join(fields[1:], " "))
 		}
 		// Windows' interpreters run their line too: cmd /c and PowerShell's -Command
 		// are read as sh -c is, and what they hide from the rules is unseen.
@@ -471,9 +485,8 @@ func commandsOf(cmd string, depth int) (out, unseen []string) {
 		if hidden || (inner != "" && quotedOperator(cmd)) {
 			unseen = append(unseen, "")
 		}
-		if inner != "" && depth < 3 {
-			in, un := commandsOf(inner, depth+1)
-			out, unseen = append(out, in...), append(unseen, un...)
+		if inner != "" {
+			follow(inner)
 		}
 	}
 	return out, unseen
@@ -520,6 +533,50 @@ func withoutGitOptions(fields []string) string {
 		rest = rest[1:]
 	}
 	return strings.Join(append([]string{"git"}, rest...), " ")
+}
+
+// unquotedLine is a line with its lines joined and every quote and backslash taken out.
+// A shell's line quoted inside another's, its quotes closed and reopened around an
+// escaped one at each level, is not undone by trimming quotes, and its operators and
+// words stay hidden in it; with the quotes gone they are in the clear. A deny rule is
+// compared with it as well as with the line, which can only make the rules see more, as
+// splitting at a quoted operator already does (found by fuzzing on 2026-11-20).
+func unquotedLine(cmd string) string {
+	return strings.NewReplacer("'", "", `"`, "", `\`, "").Replace(joinLines(cmd))
+}
+
+// maxDepth is how deep commandsOf follows lines that run lines of their own.
+const maxDepth = 3
+
+// joinLines removes each backslash before a line break, as a shell does before it
+// reads the line: `git \⏎ push origin` runs git push, and a deny rule compared with its
+// two lines apart saw neither (SEC-003; found by fuzzing on 2026-11-20). A backslash
+// that is itself escaped is left, with its line break: there the line does end. Inside
+// single quotes a shell keeps the pair, but a quoted line that reaches a shell through
+// -c is read by that shell the same way, and joining it anywhere else only makes the
+// rules see more.
+func joinLines(cmd string) string {
+	if !strings.Contains(cmd, "\\\n") && !strings.Contains(cmd, "\\\r\n") {
+		return cmd
+	}
+	var b strings.Builder
+	for i := 0; i < len(cmd); i++ {
+		if cmd[i] != '\\' || i+1 == len(cmd) {
+			b.WriteByte(cmd[i])
+			continue
+		}
+		switch {
+		case cmd[i+1] == '\n':
+			i++
+		case cmd[i+1] == '\r' && i+2 < len(cmd) && cmd[i+2] == '\n':
+			i += 2
+		default:
+			b.WriteByte(cmd[i])
+			b.WriteByte(cmd[i+1])
+			i++
+		}
+	}
+	return b.String()
 }
 
 // segments splits a command line at shell operators.
@@ -623,7 +680,11 @@ func (r Rule) matchCommand(cmd string) bool {
 			return exactForm(cmd) == exactForm(r.Command)
 		}
 		pattern := denyPattern(r.Command)
-		return slices.ContainsFunc(simpleCommands(cmd, 0), func(s string) bool {
+		commands := simpleCommands(cmd, 0)
+		if u := unquotedLine(cmd); u != cmd {
+			commands = append(commands, simpleCommands(u, 0)...)
+		}
+		return slices.ContainsFunc(commands, func(s string) bool {
 			return commandMatches(pattern, s) || flagSetMatches(pattern, s)
 		})
 	}
