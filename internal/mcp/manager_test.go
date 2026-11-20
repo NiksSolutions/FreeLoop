@@ -238,3 +238,56 @@ func TestErrorsDoNotRepeatAKeyInTheAddress(t *testing.T) {
 		t.Errorf("start with a password = %v", err)
 	}
 }
+
+// MCP-001: stopping a server does not wait for a tool call it never answers, and the
+// call ends with it: Stop runs from the config watch, which would stop with it.
+func TestStopDoesNotWaitForAHungCall(t *testing.T) {
+	hung, called := make(chan struct{}), make(chan struct{}, 1)
+	srv := httptest.NewServer(sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server {
+		s := sdk.NewServer(&sdk.Implementation{Name: "slow", Version: "1"}, nil)
+		sdk.AddTool(s, &sdk.Tool{Name: "wait", Description: "Never answers."},
+			func(ctx context.Context, req *sdk.CallToolRequest, in echoIn) (*sdk.CallToolResult, echoOut, error) {
+				called <- struct{}{}
+				select {
+				case <-hung:
+				case <-ctx.Done():
+				}
+				return nil, echoOut{}, ctx.Err()
+			})
+		return s
+	}, nil))
+	// The handler goes before the server, which waits for it.
+	defer func() {
+		close(hung)
+		srv.Close()
+	}()
+	m := New(nil)
+	defer m.StopAll()
+	if err := m.Start(context.Background(), Launch{Config: config.MCPServer{ID: "slow", Transport: "http", URL: srv.URL}}); err != nil {
+		t.Fatal(err)
+	}
+	ended := make(chan error, 1)
+	go func() {
+		_, err := m.Call(context.Background(), "slow", "wait", []byte(`{"text":"x"}`))
+		ended <- err
+	}()
+	<-called
+	stopped := make(chan struct{})
+	go func() {
+		m.Stop("slow")
+		close(stopped)
+	}()
+	select {
+	case <-stopped:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Stop waited for the call")
+	}
+	select {
+	case err := <-ended:
+		if err == nil {
+			t.Error("the call to a stopped server succeeded")
+		}
+	case <-time.After(10 * time.Second):
+		t.Error("the call to a stopped server went on")
+	}
+}

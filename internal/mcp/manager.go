@@ -86,7 +86,9 @@ type server struct {
 	status  Status
 	session *sdk.ClientSession
 	proc    environment.Process
-	cancel  context.CancelFunc
+	// ctx ends when the server is stopped, and every call to it with it.
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 // Manager is safe for concurrent use.
@@ -116,7 +118,7 @@ func (m *Manager) Start(ctx context.Context, l Launch) error {
 	m.Stop(id)
 
 	runCtx, cancel := context.WithCancel(context.Background())
-	s := &server{fingerprint: fp, address: l.Config.URL, cancel: cancel, status: Status{ID: id, State: Starting, Tools: []Tool{}}}
+	s := &server{fingerprint: fp, address: l.Config.URL, ctx: runCtx, cancel: cancel, status: Status{ID: id, State: Starting, Tools: []Tool{}}}
 	m.mu.Lock()
 	m.servers[id] = s
 	m.mu.Unlock()
@@ -238,7 +240,13 @@ func listTools(ctx context.Context, cs *sdk.ClientSession) ([]Tool, error) {
 	return out, nil
 }
 
-// Stop ends a server.
+// stopWait is how long Stop waits for a server's session to close by itself.
+const stopWait = 3 * time.Second
+
+// Stop ends a server. The calls still waiting on it end first, a tool that never
+// answers or a form the user has not filled in, since closing the session waits for
+// them and Stop runs from the config watch and the MCP page; a session that still does
+// not close within stopWait is left to finish alone, and the process is killed.
 func (m *Manager) Stop(id string) {
 	m.mu.Lock()
 	s, ok := m.servers[id]
@@ -247,12 +255,30 @@ func (m *Manager) Stop(id string) {
 	if !ok {
 		return
 	}
-	if s.session != nil {
-		s.session.Close()
-	}
 	s.cancel()
+	if s.session != nil {
+		closed := make(chan struct{})
+		go func() {
+			s.session.Close()
+			close(closed)
+		}()
+		select {
+		case <-closed:
+		case <-time.After(stopWait):
+		}
+	}
 	if s.proc != nil {
 		s.proc.Kill()
+	}
+}
+
+// untilStopped is ctx, ended too when the server whose context is server is stopped.
+func untilStopped(ctx, server context.Context) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(ctx)
+	unhook := context.AfterFunc(server, cancel)
+	return ctx, func() {
+		unhook()
+		cancel()
 	}
 }
 
@@ -299,6 +325,8 @@ func (m *Manager) Call(ctx context.Context, id, tool string, args json.RawMessag
 	if cs == nil {
 		return Result{}, fmt.Errorf("the MCP server %s is not running", id)
 	}
+	ctx, stop := untilStopped(ctx, s.ctx)
+	defer stop()
 	var arguments any = map[string]any{}
 	if len(args) > 0 && string(args) != "null" {
 		arguments = args

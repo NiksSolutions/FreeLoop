@@ -55,8 +55,9 @@ type ResourceText struct {
 // errUnsupported marks a server without the capability asked for.
 var errUnsupported = errors.New("not offered by the server")
 
-// running returns a running server's session and capabilities.
-func (m *Manager) running(id string) (*sdk.ClientSession, *sdk.ServerCapabilities, error) {
+// running returns a running server's session and capabilities, and the context that
+// ends when the server is stopped.
+func (m *Manager) running(id string) (*sdk.ClientSession, *sdk.ServerCapabilities, context.Context, error) {
 	m.mu.Lock()
 	s, ok := m.servers[id]
 	var cs *sdk.ClientSession
@@ -65,21 +66,23 @@ func (m *Manager) running(id string) (*sdk.ClientSession, *sdk.ServerCapabilitie
 	}
 	m.mu.Unlock()
 	if cs == nil {
-		return nil, nil, fmt.Errorf("the MCP server %s is not running", id)
+		return nil, nil, nil, fmt.Errorf("the MCP server %s is not running", id)
 	}
 	caps := &sdk.ServerCapabilities{}
 	if ir := cs.InitializeResult(); ir != nil && ir.Capabilities != nil {
 		caps = ir.Capabilities
 	}
-	return cs, caps, nil
+	return cs, caps, s.ctx, nil
 }
 
 // Resources lists a running server's resources; none when it offers none.
 func (m *Manager) Resources(ctx context.Context, id string) ([]Resource, error) {
-	cs, caps, err := m.running(id)
+	cs, caps, server, err := m.running(id)
 	if err != nil {
 		return nil, err
 	}
+	ctx, stop := untilStopped(ctx, server)
+	defer stop()
 	out := []Resource{}
 	if caps.Resources == nil {
 		return out, nil
@@ -103,10 +106,12 @@ func (m *Manager) Resources(ctx context.Context, id string) ([]Resource, error) 
 
 // Prompts lists a running server's prompts; none when it offers none.
 func (m *Manager) Prompts(ctx context.Context, id string) ([]Prompt, error) {
-	cs, caps, err := m.running(id)
+	cs, caps, server, err := m.running(id)
 	if err != nil {
 		return nil, err
 	}
+	ctx, stop := untilStopped(ctx, server)
+	defer stop()
 	out := []Prompt{}
 	if caps.Prompts == nil {
 		return out, nil
@@ -135,10 +140,12 @@ func (m *Manager) Prompts(ctx context.Context, id string) ([]Prompt, error) {
 // ReadResource returns a resource's text. Binary contents are left out
 // with a note; a resource with no text at all is an error.
 func (m *Manager) ReadResource(ctx context.Context, id, uri string) (string, error) {
-	cs, caps, err := m.running(id)
+	cs, caps, server, err := m.running(id)
 	if err != nil {
 		return "", err
 	}
+	ctx, stop := untilStopped(ctx, server)
+	defer stop()
 	if caps.Resources == nil {
 		return "", fmt.Errorf("resources are %w %s", errUnsupported, id)
 	}
@@ -171,10 +178,12 @@ func (m *Manager) ReadResource(ctx context.Context, id, uri string) (string, err
 
 // GetPrompt renders a prompt with its arguments.
 func (m *Manager) GetPrompt(ctx context.Context, id, name string, args map[string]string) (PromptText, error) {
-	cs, caps, err := m.running(id)
+	cs, caps, server, err := m.running(id)
 	if err != nil {
 		return PromptText{}, err
 	}
+	ctx, stop := untilStopped(ctx, server)
+	defer stop()
 	if caps.Prompts == nil {
 		return PromptText{}, fmt.Errorf("prompts are %w %s", errUnsupported, id)
 	}
