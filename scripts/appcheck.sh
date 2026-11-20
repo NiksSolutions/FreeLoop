@@ -11,6 +11,9 @@
 # is the one thing not covered: the scenario answers that call itself.
 #
 #   scripts/appcheck.sh
+#
+# APPCHECK_SLOW=1 runs the app and the page at background priority, on the slow cores,
+# about as slow as CI's runner: a failure seen only there shows here too.
 set -eu
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -75,7 +78,7 @@ swiftc -O "$HERE/appcheck/drive.swift" -o "$DATA/drive" 2>&1 | grep -v warning |
 APP="$DATA/freeloop"
 # start_app starts the app on $FREELOOP_HOME, logging to $1, and waits for it.
 start_app() {
-  "$APP" >"$1" 2>&1 &
+  ${APPCHECK_SLOW:+taskpolicy -c background} "$APP" >"$1" 2>&1 &
   pid=$!
   i=0
   until "$APP" sessions >/dev/null 2>&1; do
@@ -173,7 +176,7 @@ status=0
 # APPCHECK_SCENARIO runs another scenario on the same data, to try one step alone.
 # headCommit is the commit this checkout is at, which the served build says it is from.
 { echo "const headCommit = \"$(git -C "$ROOT" rev-parse --short=7 HEAD 2>/dev/null || true)\";"; cat "$HERE/appcheck/lib.js" "${APPCHECK_SCENARIO:-$HERE/appcheck/scenario.js}"; } > "$DATA/fresh.js"
-"$DATA/drive" "http://localhost:$PORT/" "$DATA/fresh.js" > "$OUT/results.txt" || status=$?
+${APPCHECK_SLOW:+taskpolicy -c background} "$DATA/drive" "http://localhost:$PORT/" "$DATA/fresh.js" > "$OUT/results.txt" || status=$?
 cat "$OUT/results.txt"
 
 # What the page says it saved has to be in the file.
@@ -202,7 +205,7 @@ lived_in_files "$FREELOOP_HOME"
 start_app "$DATA/lived-in.log"
 echo "-- lived-in"
 cat "$HERE/appcheck/lib.js" "$HERE/appcheck/lived-in.js" > "$DATA/lived-in.js"
-"$DATA/drive" "http://localhost:$PORT/" "$DATA/lived-in.js" > "$OUT/results-lived-in.txt" || status=1
+${APPCHECK_SLOW:+taskpolicy -c background} "$DATA/drive" "http://localhost:$PORT/" "$DATA/lived-in.js" > "$OUT/results-lived-in.txt" || status=1
 cat "$OUT/results-lived-in.txt"
 
 [ "$status" -eq 0 ] && echo "appcheck passed" || echo "appcheck FAILED"
