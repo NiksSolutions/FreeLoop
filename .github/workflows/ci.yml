@@ -95,6 +95,34 @@ jobs:
       - name: Frontend tests
         run: make frontend-test
 
+  # The fuzz targets (SEC-002, SEC-003, SEC-005, SES-002) for three minutes each, weekly
+  # and from the Actions page. Their seeds, and every input that ever failed one (kept in
+  # testdata/fuzz), run with the tests on every push. A failure keeps the input it found.
+  fuzz:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+
+      - name: Fuzz the rules, the protected paths and the transcripts
+        run: |
+          for target in FuzzDenyRuleHoldsThroughWrappers FuzzRulesNeverPanic FuzzProtectedPathsHoldInAnyCase; do
+            go test ./internal/permission/ -run '^$' -fuzz "^${target}\$" -fuzztime 3m || exit 1
+          done
+          go test ./internal/store/ -run '^$' -fuzz '^FuzzParseEvents$' -fuzztime 3m
+
+      - name: Keep the input that failed
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: fuzz-failures
+          path: internal/*/testdata/fuzz
+          retention-days: 30
+
   # The same tests on Windows for every push (NFR-XPLAT-003), and the app compiled for
   # both Windows architectures the way `make windows-exe` does it.
   windows:
