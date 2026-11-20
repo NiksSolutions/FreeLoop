@@ -54,6 +54,9 @@ type Store struct {
 	recentMu sync.Mutex
 	// workMu does the same for the folds of commits and their usage (GUI-051).
 	workMu sync.Mutex
+	// workUnread is, by session, the last reason its transcript could not be folded,
+	// so the log says it once and not on every fold. workMu guards it.
+	workUnread map[string]string
 	// rebuilt says why the database was rebuilt when it opened.
 	rebuilt  string
 	db       *sql.DB

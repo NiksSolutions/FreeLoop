@@ -5,7 +5,9 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log"
 	"regexp"
 	"sort"
 	"time"
@@ -128,7 +130,9 @@ type bucketKey struct {
 }
 
 // FoldWork folds the sessions that moved on until deadline, and returns how many it
-// left for the next call.
+// left for the next call. Each call folds at least one, so a call that starts with its
+// budget spent, as one that waited for the database does, still moves on; a session
+// that cannot be read is logged once, stepped over and not counted as left.
 func (s *Store) FoldWork(ctx context.Context, deadline time.Time, resolve CommitResolver) (int, error) {
 	s.workMu.Lock()
 	defer s.workMu.Unlock()
@@ -171,26 +175,42 @@ func (s *Store) FoldWork(ctx context.Context, deadline time.Time, resolve Commit
 		stale = append(stale, w)
 	}
 	rows.Close()
+	folded := false
 	for i, w := range stale {
-		if !time.Now().Before(deadline) {
+		if folded && !time.Now().Before(deadline) {
 			return len(stale) - i, nil
 		}
-		if err := s.foldWorkSession(ctx, w, since, resolve); err != nil {
+		ok, err := s.foldWorkSession(ctx, w, since, resolve)
+		if err != nil {
 			return 0, err
 		}
+		folded = folded || ok
 	}
 	return 0, nil
 }
 
-func (s *Store) foldWorkSession(ctx context.Context, w workSession, since int64, resolve CommitResolver) error {
+// foldWorkSession folds one session, and says whether it could: one deleted meanwhile,
+// or whose transcript cannot be read, is left as it is.
+func (s *Store) foldWorkSession(ctx context.Context, w workSession, since int64, resolve CommitResolver) (bool, error) {
 	events, err := s.Events(ctx, w.id, 0)
-	if err != nil {
-		return nil // deleted meanwhile
+	if errors.Is(err, ErrNotFound) {
+		return false, nil
 	}
+	if err != nil {
+		if s.workUnread == nil {
+			s.workUnread = map[string]string{}
+		}
+		if s.workUnread[w.id] != err.Error() {
+			s.workUnread[w.id] = err.Error()
+			log.Printf("store: work: session %s cannot be read, so its commits and usage are not counted: %v", w.id, err)
+		}
+		return false, nil
+	}
+	delete(s.workUnread, w.id)
 	resolved := map[int64][]event.CommitInfo{}
 	rows, err := s.db.QueryContext(ctx, `SELECT seq, commits FROM work_resolved WHERE session_id = ?`, w.id)
 	if err != nil {
-		return fmt.Errorf("store: work: %w", err)
+		return false, fmt.Errorf("store: work: %w", err)
 	}
 	for rows.Next() {
 		var seq int64
@@ -361,26 +381,26 @@ func (s *Store) foldWorkSession(ctx context.Context, w workSession, since int64,
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("store: work: %w", err)
+		return false, fmt.Errorf("store: work: %w", err)
 	}
 	defer tx.Rollback()
 	for _, q := range []string{`DELETE FROM work_usage WHERE session_id = ?`, `DELETE FROM usage_buckets WHERE session_id = ?`, `DELETE FROM work_commits WHERE session_id = ?`} {
 		if _, err := tx.ExecContext(ctx, q, w.id); err != nil {
-			return fmt.Errorf("store: work: %w", err)
+			return false, fmt.Errorf("store: work: %w", err)
 		}
 	}
 	for _, r := range usage {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO work_usage (session_id, root_id, project_id, harness_id, end_seq, ts, provider_id, model, input, output, cache_read, cache_write, cache_write_1h, calls)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			w.id, w.root, w.project, w.harness, r.endSeq, r.ts, r.provider, r.model, r.input, r.output, r.cacheRead, r.cacheWrite, r.cacheWrite1h, r.calls); err != nil {
-			return fmt.Errorf("store: work: %w", err)
+			return false, fmt.Errorf("store: work: %w", err)
 		}
 	}
 	for k, r := range buckets {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO usage_buckets (bucket, session_id, harness_id, provider_id, model, input, output, cache_read, cache_write, cache_write_1h, calls)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			k.bucket, w.id, w.harness, k.provider, k.model, r.input, r.output, r.cacheRead, r.cacheWrite, r.cacheWrite1h, r.calls); err != nil {
-			return fmt.Errorf("store: work: %w", err)
+			return false, fmt.Errorf("store: work: %w", err)
 		}
 	}
 	for _, c := range commits {
@@ -396,19 +416,22 @@ func (s *Store) foldWorkSession(ctx context.Context, w workSession, since int64,
 				unit_seq = excluded.unit_seq, unit_ts = excluded.unit_ts, added = excluded.added, deleted = excluded.deleted, files = excluded.files
 			WHERE work_commits.root_id = '' AND excluded.root_id != ''`,
 			c.info.SHA, rootID, w.id, w.project, unitSeq, unitTS, c.info.At, c.info.Added, c.info.Deleted, c.info.Files); err != nil {
-			return fmt.Errorf("store: work: %w", err)
+			return false, fmt.Errorf("store: work: %w", err)
 		}
 	}
 	for seq, c := range fresh {
 		b, _ := json.Marshal(c)
 		if _, err := tx.ExecContext(ctx, `INSERT OR REPLACE INTO work_resolved (session_id, seq, commits) VALUES (?, ?, ?)`, w.id, seq, string(b)); err != nil {
-			return fmt.Errorf("store: work: %w", err)
+			return false, fmt.Errorf("store: work: %w", err)
 		}
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE sessions SET work_seq = ? WHERE id = ?`, w.last, w.id); err != nil {
-		return fmt.Errorf("store: work: %w", err)
+		return false, fmt.Errorf("store: work: %w", err)
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // WorkCommit is a commit a session made.

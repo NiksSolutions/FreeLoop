@@ -249,27 +249,45 @@ type ActivityReport struct {
 // itself filling in rather than holding the page.
 const activityBudget = 1500 * time.Millisecond
 
-var activityMu sync.Mutex
+var (
+	activityMu sync.Mutex
+	// activityUnread is, by session, the last reason it could not be folded, so the
+	// log says it once and not on every report. activityMu guards it.
+	activityUnread = map[string]string{}
+)
 
 // foldStale folds sessions that have moved on, until the budget is spent, and
-// reports how many it left. One that cannot be read waits for the next report.
+// reports how many it left.
 func (e *Engine) foldStale(ctx context.Context) int {
+	return e.foldStaleUntil(ctx, time.Now().Add(activityBudget))
+}
+
+// foldStaleUntil is foldStale until deadline. It folds at least one session, so a
+// report that starts with its budget spent, as one that waited for another does,
+// still moves on. One that cannot be read is logged once, stepped over and not
+// counted as left; the next report tries it again.
+func (e *Engine) foldStaleUntil(ctx context.Context, deadline time.Time) int {
 	activityMu.Lock()
 	defer activityMu.Unlock()
-	deadline := time.Now().Add(activityBudget)
 	stale, err := e.store.ActivityStale(ctx)
 	if err != nil {
 		log.Printf("engine: activity: %v", err)
 		return 0
 	}
+	folded := false
 	for i, st := range stale {
-		if !time.Now().Before(deadline) {
+		if folded && !time.Now().Before(deadline) {
 			return len(stale) - i
 		}
-		err := e.foldActivityOf(ctx, st)
-		if err != nil {
-			log.Printf("engine: activity of %s: %v", st.ID, err)
+		if err := e.foldActivityOf(ctx, st); err != nil {
+			if activityUnread[st.ID] != err.Error() {
+				activityUnread[st.ID] = err.Error()
+				log.Printf("engine: activity of %s cannot be counted: %v", st.ID, err)
+			}
+			continue
 		}
+		delete(activityUnread, st.ID)
+		folded = true
 	}
 	return 0
 }

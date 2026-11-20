@@ -1,8 +1,12 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"log"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -184,6 +188,62 @@ func TestActivityReport(t *testing.T) {
 	}
 	if slices.ContainsFunc(rep.Rows, func(r ActivityRow) bool { return strings.Contains(r.Name, "secret") }) {
 		t.Errorf("a deleted session's command stayed: %+v", rep.Rows)
+	}
+}
+
+// GUI-021: every activity fold moves on, even one that starts with its budget spent,
+// as one that waited for another report does; a session that cannot be read is said
+// once and stepped over, so it neither holds back the sessions after it nor counts as left.
+func TestActivityFoldAlwaysMovesOn(t *testing.T) {
+	ctx := context.Background()
+	e := openTest(t, t.TempDir())
+	defer e.Close()
+	var ids []string
+	for range 3 {
+		ses, _ := demoSession(t, e, "", "ask")
+		ids = append(ids, ses.ID)
+	}
+	turn := func() {
+		for _, id := range ids {
+			e.emit(id, event.TurnStarted, struct{}{})
+			e.emit(id, event.TurnEnded, event.TurnEndedData{StopReason: "end_turn"})
+		}
+	}
+	turn()
+	spent := time.Now().Add(-time.Second)
+	for _, want := range []int{2, 1, 0} {
+		if left := e.foldStaleUntil(ctx, spent); left != want {
+			t.Fatalf("a fold with its budget spent left %d, want %d", left, want)
+		}
+	}
+
+	// One can no longer be read: wherever it comes in the order, the others are folded
+	// and it is not counted as left.
+	turn()
+	var logged bytes.Buffer
+	log.SetOutput(&logged)
+	defer log.SetOutput(os.Stderr)
+	e.store.Release(ids[2])
+	path := filepath.Join(e.dataDir, "sessions", ids[2], "events.jsonl")
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	for left := -1; left != 0; calls++ {
+		if calls == 3 {
+			t.Fatalf("still %d left after %d folds", left, calls)
+		}
+		left = e.foldStaleUntil(ctx, spent)
+	}
+	stale, _ := e.store.ActivityStale(ctx)
+	if len(stale) != 1 || stale[0].ID != ids[2] {
+		t.Errorf("behind after the folds: %+v", stale)
+	}
+	if lines := strings.Split(strings.TrimSpace(logged.String()), "\n"); len(lines) != 1 || !strings.Contains(lines[0], ids[2]) {
+		t.Errorf("the unreadable session was said %d times: %q", len(lines), logged.String())
 	}
 }
 

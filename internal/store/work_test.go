@@ -1,8 +1,13 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"log"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -186,5 +191,62 @@ func TestLimitSpansAndBuckets(t *testing.T) {
 	}
 	if rows, _ := s.BucketUsage(ctx, sp.First, sp.PeakAt, []string{"other"}); len(rows) != 0 {
 		t.Errorf("another agent's usage counted: %+v", rows)
+	}
+}
+
+// GUI-051: every fold moves on, even one that starts with its budget spent, as one
+// that waited for the database does; a session that cannot be read is said once and
+// stepped over, so it neither holds back the sessions after it nor counts as left.
+func TestWorkFoldAlwaysMovesOn(t *testing.T) {
+	ctx := context.Background()
+	clock := &workClock{now: time.Date(2026, 11, 10, 9, 0, 0, 0, time.Local)}
+	s := workStore(t, clock)
+	var ids []string
+	for _, title := range []string{"a", "b", "c"} {
+		ses, err := s.CreateSession(ctx, session.Session{Title: title, HarnessID: "builtin", ProviderID: "p", Model: "m", ProjectID: "proj"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, ses.ID)
+	}
+	usage := func() {
+		for _, id := range ids {
+			put(t, s, clock, id, event.UsageUpdate, event.UsageData{InputTokens: 10, OutputTokens: 1})
+		}
+	}
+	behind := func() int {
+		var n int
+		s.db.QueryRowContext(ctx, `SELECT count(*) FROM sessions WHERE work_seq != last_seq`).Scan(&n)
+		return n
+	}
+	usage()
+	spent := time.Now().Add(-time.Second)
+	for _, want := range []int{2, 1, 0} {
+		if left, err := s.FoldWork(ctx, spent, nil); err != nil || left != want || behind() != want {
+			t.Fatalf("a fold with its budget spent: %d left, %d behind, %v; want %d", left, behind(), err, want)
+		}
+	}
+
+	// c, the most recent and so folded first, can no longer be read.
+	usage()
+	var logged bytes.Buffer
+	log.SetOutput(&logged)
+	defer log.SetOutput(os.Stderr)
+	s.Release(ids[2])
+	path := filepath.Join(s.sessionDir(ids[2]), "events.jsonl")
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if left, _ := s.FoldWork(ctx, spent, nil); left != 1 || behind() != 2 {
+		t.Fatalf("past the unreadable one: %d left, %d behind", left, behind())
+	}
+	if left, _ := s.FoldWork(ctx, spent, nil); left != 0 || behind() != 1 {
+		t.Fatalf("the rest: %d left, %d behind", left, behind())
+	}
+	if lines := strings.Split(strings.TrimSpace(logged.String()), "\n"); len(lines) != 1 || !strings.Contains(lines[0], ids[2]) {
+		t.Errorf("the unreadable session was said %d times: %q", len(lines), logged.String())
 	}
 }
