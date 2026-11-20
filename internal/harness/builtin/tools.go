@@ -601,9 +601,7 @@ func loadSkill() *tool {
 					}
 					text := c.Text
 					if in.File == "" {
-						// The folder as it is spelled: %q would double each backslash of a
-						// Windows path, which the model would then type.
-						text = fmt.Sprintf("<skill name=%q folder=\"%s\">\n%s\n</skill>\n", in.Name, c.Dir, strings.TrimSpace(c.Text))
+						text = skillTag(in.Name, c.Dir, c.Text)
 						if len(c.Files) > 0 {
 							text += "\nFiles in the skill (read them with load_skill and file; run scripts with the shell tool from the folder above):\n- " + strings.Join(c.Files, "\n- ") + "\n"
 						}
@@ -735,4 +733,11 @@ func taskTool() *tool {
 			}, nil
 		},
 	}
+}
+
+// skillTag wraps a skill's text in a tag naming it and its folder. The folder is as it
+// is spelled, since %q would double each backslash of a Windows path, which the model
+// would then type; only a quote, which would end the attribute, is written &quot;.
+func skillTag(name, dir, text string) string {
+	return fmt.Sprintf("<skill name=%q folder=\"%s\">\n%s\n</skill>\n", name, strings.ReplaceAll(dir, `"`, "&quot;"), strings.TrimSpace(text))
 }
