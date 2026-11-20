@@ -26,6 +26,7 @@ import {
   type Style,
 } from "./api.ts";
 import { bySession, createBatcher, foldSessions, mergeList } from "./eventBatch.ts";
+import { newest } from "./newest.ts";
 import { heldSessions, ingestHeld, letGo, LET_GO_MS } from "./heldTranscripts.ts";
 import { emptyTranscript, type Transcript, type TranscriptEvent } from "./transcript.ts";
 import { hitLabel, snippetParts } from "./search.ts";
@@ -161,6 +162,24 @@ const PANE_SHORTCUT = { left: "paneLeft", right: "paneRight", up: "paneUp", down
 
 // How many events the engine returns at most for one read (engine.MaxEventsPage).
 const EVENTS_PAGE = 5000;
+
+// A list read again before the last read answered takes only the newest reply
+// (newest.ts), one guard per list. A window has one App.
+const reads = {
+  backlogs: newest(),
+  projects: newest(),
+  environments: newest(),
+  attention: newest(),
+  usage: newest(),
+  budgets: newest(),
+  harnesses: newest(),
+  profiles: newest(),
+  providers: newest(),
+  config: newest(),
+  colors: newest(),
+  issues: newest(),
+  styles: newest(),
+};
 
 const COLLAPSED_KEY ="freeloop.collapsedProjects";
 const GROUP_BY_KEY = "freeloop.groupBy";
@@ -310,10 +329,7 @@ export default function App() {
   const [attention, setAttention] = useState<AttentionItem[]>([]);
   // Trusted projects' workflow backlogs, for the Board (WFL-004), read while it shows.
   const [backlogs, setBacklogs] = useState<BacklogInfo[]>([]);
-  const refreshBacklogs = () =>
-    EngineService.Backlogs()
-      .then((l) => setBacklogs(l ?? []))
-      .catch(() => setBacklogs([]));
+  const refreshBacklogs = () => reads.backlogs(EngineService.Backlogs(), (l) => setBacklogs(l ?? [])).catch(() => setBacklogs([]));
   // A project's AFK run in full (WFL-009), by its root, from the Board or a session.
   const [runFor, setRunFor] = useState<string | null>(null);
   useEffect(() => {
@@ -421,25 +437,12 @@ export default function App() {
       })
       .catch(report);
   };
-  const refreshProjects = () =>
-    EngineService.ListProjects()
-      .then((list) => setProjects(list ?? []))
-      .catch(report);
-  const refreshEnvironments = () =>
-    EngineService.ListEnvironments()
-      .then((list) => setEnvironments(list ?? []))
-      .catch(report);
-  const refreshAttention = () =>
-    EngineService.Attention()
-      .then((list) => setAttention(list ?? []))
-      .catch(report);
+  const refreshProjects = () => reads.projects(EngineService.ListProjects(), (list) => setProjects(list ?? [])).catch(report);
+  const refreshEnvironments = () => reads.environments(EngineService.ListEnvironments(), (list) => setEnvironments(list ?? [])).catch(report);
+  const refreshAttention = () => reads.attention(EngineService.Attention(), (list) => setAttention(list ?? [])).catch(report);
   const refreshToday = () => {
-    EngineService.Usage(1)
-      .then((days) => setToday(days?.[0] ?? null))
-      .catch(report);
-    EngineService.Budgets()
-      .then((list) => setBudgets(list ?? []))
-      .catch(() => setBudgets([]));
+    reads.usage(EngineService.Usage(1), (days) => setToday(days?.[0] ?? null)).catch(report);
+    reads.budgets(EngineService.Budgets(), (list) => setBudgets(list ?? [])).catch(() => setBudgets([]));
   };
   // Events that change what needs attention arrive in bursts; one refresh
   // per burst is enough.
@@ -452,17 +455,10 @@ export default function App() {
     }, 100);
   };
   const refreshProfiles = () => {
-    EngineService.ListHarnesses()
-      .then((list) => setHarnesses(list ?? []))
-      .catch(report);
-    return EngineService.ListProfiles()
-      .then((list) => setProfiles(list ?? []))
-      .catch(report);
+    reads.harnesses(EngineService.ListHarnesses(), (list) => setHarnesses(list ?? [])).catch(report);
+    return reads.profiles(EngineService.ListProfiles(), (list) => setProfiles(list ?? [])).catch(report);
   };
-  const refreshProviders = () =>
-    EngineService.ListProviders()
-      .then((list) => setProviders(list ?? []))
-      .catch(report);
+  const refreshProviders = () => reads.providers(EngineService.ListProviders(), (list) => setProviders(list ?? [])).catch(report);
 
   // What each session is doing (GUI-030).
   const [activities, setActivities] = useState<Record<string, Activity>>({});
@@ -567,33 +563,28 @@ export default function App() {
   // A config object only replaces the current one when it differs, so an
   // unrelated reload does not reset a half-edited settings form.
   const refreshConfig = () => {
-    EngineService.Config()
-      .then((disk) => {
+    reads
+      .config(EngineService.Config(), (disk) => {
         // A size chosen with ⌘+ or ⌘- and not saved yet is newer than the file.
         const c = fontPending.current === null ? disk : { ...disk, ui: { ...disk.ui, fontSize: fontPending.current } };
         if (fontsPending.current) c.ui = { ...c.ui, ...fontsPending.current };
         setConfig((old) => (old && JSON.stringify(old) === JSON.stringify(c) ? old : c));
       })
       .catch(report);
-    EngineService.Colors()
-      .then((disk) => {
+    reads
+      .colors(EngineService.Colors(), (disk) => {
         if (colorsPending.current) return;
         setColors((old) => (JSON.stringify([old.light, old.dark]) === JSON.stringify([disk.light, disk.dark]) ? old : (disk as ColorSet)));
       })
       .catch(report);
-    EngineService.ConfigIssues()
-      .then((list) => setIssues(list ?? []))
-      .catch(report);
+    reads.issues(EngineService.ConfigIssues(), (list) => setIssues(list ?? [])).catch(report);
     refreshStyles();
   };
 
   // Styles (GUI-053): saved sets of fonts and colors, switched to from Settings →
   // Appearance or the palette by copying one over the fonts and colors in force.
   const [styles, setStyles] = useState<Style[]>([]);
-  const refreshStyles = () =>
-    EngineService.Styles()
-      .then((list) => setStyles(list ?? []))
-      .catch(report);
+  const refreshStyles = () => reads.styles(EngineService.Styles(), (list) => setStyles(list ?? [])).catch(report);
   const applyStyle = async (style: Style | null, confirm = true) => {
     const now = configNow.current;
     if (!now) return;
