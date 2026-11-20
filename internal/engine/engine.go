@@ -164,10 +164,13 @@ type Engine struct {
 	cfg     config.Config
 	colors  config.Colors
 	styles  []config.Style
-	// loginEnv is what shell startup files set, for commands in a sandbox.
-	loginOnce sync.Once
-	loginEnv  map[string]string
-	// loginGitConfig is the user's name and email as a git config file's text.
+	// loginEnv is what shell startup files set, for commands in a sandbox, and
+	// loginGitConfig the user's name and email as a git config file's text; read once
+	// it works (loginRead), at most every loginRetry until then. loginMu guards them.
+	loginMu        sync.Mutex
+	loginRead      bool
+	loginFailed    time.Time
+	loginEnv       map[string]string
 	loginGitConfig string
 	// editorArgv is the command that opens a file for editing.
 	editorArgv func(path string) []string

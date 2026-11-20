@@ -42,10 +42,9 @@ func TestSandboxGitConfigStaysWithConfinedCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer e.Close()
-	e.loginOnce.Do(func() {
-		e.loginEnv = map[string]string{}
-		e.loginGitConfig = "[user]\n\tname = \"Sandbox Name\"\n"
-	})
+	e.loginMu.Lock()
+	e.loginRead, e.loginEnv, e.loginGitConfig = true, map[string]string{}, "[user]\n\tname = \"Sandbox Name\"\n"
+	e.loginMu.Unlock()
 	p, err := e.SetProjectTrust(ctx, repo, true)
 	if err != nil {
 		t.Fatal(err)

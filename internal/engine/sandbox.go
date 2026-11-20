@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"maps"
 	"path/filepath"
 	"regexp"
@@ -202,7 +203,7 @@ func (e *Engine) sandboxEnv(ctx context.Context, ses session.Session, cfg config
 	c.ProtectedPatterns = append(c.ProtectedPatterns, "^"+quoted+"/.+/\\.git(/.*)?$", "^"+quoted+"/.+/\\."+regexp.QuoteMeta(strings.TrimPrefix(ProjectDir, "."))+"(/.*)?$")
 	c.ProtectedPatterns = append(c.ProtectedPatterns, bareRepositoryPatterns(quoted)...)
 	sid := ses.ID
-	allVars := e.loginVars(ctx, host)
+	allVars, loginGitConfig := e.loginVars(ctx, host)
 	// Git's own config is closed to confined commands, so they get only the user's
 	// name, as a global config of its own: a variable would beat what the
 	// repository says. A command can change this copy, so only confined commands
@@ -210,9 +211,9 @@ func (e *Engine) sandboxEnv(ctx context.Context, ses session.Session, cfg config
 	// keep the user's own config, or a command could write core.fsmonitor here and
 	// have them run it (security review, 2026-11-13).
 	cacheEnv["GIT_CONFIG_GLOBAL"] = "/dev/null"
-	if e.loginGitConfig != "" {
+	if loginGitConfig != "" {
 		own := filepath.Join(cache, "gitconfig")
-		if err := environment.WriteCacheFile(own, []byte(e.loginGitConfig)); err != nil {
+		if err := environment.WriteCacheFile(own, []byte(loginGitConfig)); err != nil {
 			return nil, nil, err
 		}
 		cacheEnv["GIT_CONFIG_GLOBAL"] = own
@@ -317,45 +318,78 @@ func (e *Engine) gitProtected(ctx context.Context, host *environment.Local, c *e
 var gitActive = []string{"config", "config.worktree", "hooks", "commondir", "gitdir"}
 
 // loginVars are what the user's shell startup files set, for commands in a
-// sandbox, which cannot read those files. A login shell outside the sandbox reads
-// them once, with everything else the app runs that way, and what looks like a
-// secret stays out: such a command needs no approval, so a prompt-injected
-// printenv would otherwise hand it to the model. Git's own config is closed too;
-// loginGitConfig keeps only the user's name from it.
-func (e *Engine) loginVars(ctx context.Context, host *environment.Local) map[string]string {
-	e.loginOnce.Do(func() {
-		e.loginEnv = map[string]string{}
-		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		defer cancel()
-		const marker = "__FREELOOP_ENV__"
-		res, err := host.Exec(ctx, environment.ExecSpec{
-			Command: "printf '%s\\n' " + marker + "; /usr/bin/env",
-			Env:     map[string]string{"HOME": e.home},
-		})
-		if err != nil || res.ExitCode != 0 {
-			return
+// sandbox, which cannot read those files, and the user's name for git. A login shell
+// outside the sandbox reads them, with everything else the app runs that way, and what
+// looks like a secret stays out: such a command needs no approval, so a
+// prompt-injected printenv would otherwise hand it to the model. Git's own config is
+// closed too; the git config kept holds only the user's name from it. What was read is
+// kept; a read that failed, a slow shell at a cold start or one the caller gave up on,
+// is logged and tried again by a later caller, at most every loginRetry, rather than
+// leaving every sandboxed command without PATH until the app restarts.
+func (e *Engine) loginVars(ctx context.Context, host *environment.Local) (map[string]string, string) {
+	e.loginMu.Lock()
+	defer e.loginMu.Unlock()
+	if !e.loginRead && (e.loginFailed.IsZero() || loginRetryDue(e.loginFailed)) {
+		// Shared by every session after, so not cut short by this caller's request.
+		env, gitConfig, err := readLoginShell(e, context.WithoutCancel(ctx), host)
+		if err != nil {
+			e.loginFailed = time.Now()
+			log.Printf("engine: the login shell could not be read, so sandboxed commands go without what it sets (PATH, git's user name) until a later try: %v", err)
+		} else {
+			e.loginEnv, e.loginGitConfig, e.loginRead = env, gitConfig, true
 		}
-		_, out, ok := strings.Cut(res.Output, marker+"\n")
-		if !ok {
-			return
-		}
-		for _, line := range strings.Split(out, "\n") {
-			name, value, ok := strings.Cut(line, "=")
-			if ok && envName.MatchString(name) && keepLoginVar(name, value) {
-				e.loginEnv[name] = value
-			}
-		}
-		e.loginGitConfig = ""
-		for _, key := range []string{"name", "email"} {
-			if v, ok := git(ctx, host, "config", "--global", "--get", "user."+key); ok && strings.TrimSpace(v) != "" {
-				e.loginGitConfig += "\t" + key + " = " + strconv.Quote(strings.TrimSpace(v)) + "\n"
-			}
-		}
-		if e.loginGitConfig != "" {
-			e.loginGitConfig = "[user]\n" + e.loginGitConfig
-		}
+	}
+	return maps.Clone(e.loginEnv), e.loginGitConfig
+}
+
+// loginRetry is how long a failed read of the login shell waits before the next try,
+// so a shell that keeps failing does not hold up every sandboxed command.
+const loginRetry = 30 * time.Second
+
+// loginRetryDue says whether the read that failed at failed may be tried again; tests
+// replace it.
+var loginRetryDue = func(failed time.Time) bool { return time.Since(failed) >= loginRetry }
+
+// readLoginShell is (*Engine).readLogin; tests replace it.
+var readLoginShell = (*Engine).readLogin
+
+// readLogin runs a login shell outside the sandbox and returns the variables it sets
+// that a sandboxed command may have, and the user's git name and email as config text.
+func (e *Engine) readLogin(ctx context.Context, host *environment.Local) (map[string]string, string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	const marker = "__FREELOOP_ENV__"
+	res, err := host.Exec(ctx, environment.ExecSpec{
+		Command: "printf '%s\\n' " + marker + "; /usr/bin/env",
+		Env:     map[string]string{"HOME": e.home},
 	})
-	return maps.Clone(e.loginEnv)
+	if err != nil {
+		return nil, "", err
+	}
+	if res.ExitCode != 0 {
+		return nil, "", fmt.Errorf("it exited with %d", res.ExitCode)
+	}
+	_, out, ok := strings.Cut(res.Output, marker+"\n")
+	if !ok {
+		return nil, "", errors.New("its output did not hold the variables")
+	}
+	env := map[string]string{}
+	for _, line := range strings.Split(out, "\n") {
+		name, value, ok := strings.Cut(line, "=")
+		if ok && envName.MatchString(name) && keepLoginVar(name, value) {
+			env[name] = value
+		}
+	}
+	gitConfig := ""
+	for _, key := range []string{"name", "email"} {
+		if v, ok := git(ctx, host, "config", "--global", "--get", "user."+key); ok && strings.TrimSpace(v) != "" {
+			gitConfig += "\t" + key + " = " + strconv.Quote(strings.TrimSpace(v)) + "\n"
+		}
+	}
+	if gitConfig != "" {
+		gitConfig = "[user]\n" + gitConfig
+	}
+	return env, gitConfig, nil
 }
 
 var envName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
