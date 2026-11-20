@@ -1107,7 +1107,9 @@ await step("the Settings page follows the language chosen, at once", async () =>
   pick("de");
   const h2 = await until("the heading in German", () => document.querySelector(".settings-page h2")?.textContent === "Darstellung" && document.querySelector(".settings-page h2"), 8000).catch(() => null);
   check("Deutsch turns the Settings heading German without a reload", h2, document.querySelector(".settings-page h2")?.textContent);
-  check("the page's lang follows", document.documentElement.lang === "de", document.documentElement.lang);
+  // Set by an effect just after the render that changed the words, so a moment later.
+  const lang = await until("the page's lang", () => document.documentElement.lang === "de", 2000).catch(() => false);
+  check("the page's lang follows", lang, document.documentElement.lang);
   check("the sections and the column follow", !!withText(".settings-page h3", "Farbmodus und Textgröße") && !!withText(".settings-nav button", "Zurück") && !!withText(".settings-nav h2", "Modelle"));
   pick("en");
   await until("the heading in English", () => document.querySelector(".settings-page h2")?.textContent === "Appearance", 8000).catch(() => {});
