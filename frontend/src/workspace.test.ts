@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { withoutFailed, chooseLayout, closePane, cycle, focusPane, forget, movePane, openIn, placeIn, restore, setLayout, SINGLE, stableOrder, swapPanes, tabbed, type WorkspaceState, USAGE_PANE, isSession } from "./workspace.ts";
+import { withoutFailed, chooseLayout, closePane, cycle, focusPane, forget, gone, movePane, openIn, placeIn, restore, setLayout, SINGLE, stableOrder, swapPanes, tabbed, type WorkspaceState, USAGE_PANE, isSession } from "./workspace.ts";
 
 const w = (layout: 1 | 2 | 3 | 4, panes: (string | null)[], active = 0): WorkspaceState => ({ layout, panes, active });
 
@@ -130,4 +130,18 @@ test("a pane that failed is left out of what is saved, the rest kept in place", 
   assert.deepEqual(withoutFailed(work, new Set(["x"])), work);
   assert.equal(withoutFailed(work, new Set()), work);
   assert.deepEqual(withoutFailed(w(2, [USAGE_PANE, "b"]), new Set([USAGE_PANE])), w(2, [null, "b"]));
+});
+
+test("a pane is emptied only for a session its own list no longer holds", () => {
+  const exists = (list: string[]) => (sid: string) => list.includes(sid);
+  // Deleted: the list of the same moment does not hold it.
+  assert.deepEqual(gone(w(2, ["a", "b"]), exists(["a"])), ["b"]);
+  assert.deepEqual(gone(w(2, ["a", USAGE_PANE]), exists([])), ["a"]);
+  // The demo on a slow computer: a render whose list did not hold the demo yet asks for
+  // its panes to be checked; meanwhile the demo is put in the pane. Only what that
+  // render's own panes held is taken out, so the demo stays.
+  const before = w(1, ["work30"]);
+  const missing = gone(before, exists(["work30"]));
+  const now = openIn(before, "demo", "active");
+  assert.deepEqual(forget(now, (sid) => !missing.includes(sid)).panes, ["demo"]);
 });

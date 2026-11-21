@@ -730,13 +730,18 @@ export default function App() {
     }, 400);
     return () => clearTimeout(timer);
   }, [work, failedPanes]);
+  // A pane whose session was deleted is emptied: the sessions gone are read from this
+  // render's panes and list, which agree, and only those are taken out (ws.gone).
   useEffect(() => {
-    if (sessionsLoaded) setWork((w) => ws.forget(w, (sid) => sessions.some((x) => x.id === sid)));
-    if (sessionsLoaded) {
-      pruneDrafts((sid) => sessions.some((x) => x.id === sid));
-      // What was typed in a deleted session goes with it (GUI-049).
-      pruneHistory((sid) => sessions.some((x) => x.id === sid));
-    }
+    if (!sessionsLoaded) return;
+    const missing = ws.gone(work, (sid) => sessions.some((x) => x.id === sid));
+    if (missing.length > 0) setWork((w) => ws.forget(w, (sid) => !missing.includes(sid)));
+  }, [sessions, sessionsLoaded, work]);
+  useEffect(() => {
+    if (!sessionsLoaded) return;
+    pruneDrafts((sid) => sessions.some((x) => x.id === sid));
+    // What was typed in a deleted session goes with it (GUI-049).
+    pruneHistory((sid) => sessions.some((x) => x.id === sid));
   }, [sessions, sessionsLoaded]);
 
   // A pane chosen with the keyboard takes the keyboard: its composer.

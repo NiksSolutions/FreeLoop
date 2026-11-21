@@ -149,6 +149,14 @@ export function forget(w: WorkspaceState, exists: (sid: string) => boolean): Wor
   return { ...w, panes: w.panes.map((s) => (s !== null && keep(s) ? s : null)) };
 }
 
+// gone is the sessions in w's panes that exists does not hold. Taken from the panes and
+// the list of one moment, they agree; emptying panes by a list in an update applied
+// later would empty one given a session that list did not hold yet (the demo's, on a
+// slow computer), so the caller removes only these.
+export function gone(w: WorkspaceState, exists: (sid: string) => boolean): string[] {
+  return w.panes.filter((s): s is string => s !== null && s !== USAGE_PANE && !exists(s));
+}
+
 // restore checks a saved workspace before it is used.
 export function restore(saved: unknown): WorkspaceState {
   const v = saved as Partial<WorkspaceState> | null;
