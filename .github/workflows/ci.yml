@@ -123,6 +123,39 @@ jobs:
           path: internal/*/testdata/fuzz
           retention-days: 30
 
+  # Known vulnerabilities in what the app uses (SEC-012), weekly and from the Actions
+  # page: Go's scanner over the code that is called, for each system (Windows whole; Linux
+  # and macOS but for the window's shell, whose Wails code needs cgo for its own system),
+  # and npm's over the frontend's packages and the lint tools. govulncheck is pinned and
+  # installed here only, so go.mod carries no tool.
+  vulns:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+
+      - name: Go's vulnerabilities in the code that is called
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.10.0
+          scan="$(go env GOPATH)/bin/govulncheck"
+          GOOS=windows CGO_ENABLED=0 "$scan" ./...
+          for os in linux darwin; do
+            GOOS=$os CGO_ENABLED=0 "$scan" ./internal/... ./cmd/freeloop-sbom ./cmd/freeloop-sign || exit 1
+          done
+
+      - name: npm's in the frontend's packages and the lint tools
+        run: |
+          (cd frontend && npm audit --audit-level=high)
+          (cd frontend/lint && npm audit --audit-level=high)
+
   # The same tests on Windows for every push (NFR-XPLAT-003), and the app compiled for
   # both Windows architectures the way `make windows-exe` does it.
   windows:
