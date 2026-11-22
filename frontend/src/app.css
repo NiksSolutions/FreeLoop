@@ -6578,6 +6578,15 @@ table.hooks .hook-command {
 }
 
 /* Settings → Phone (GUI-052). */
+/* Where a long session's drawn part ends, above or below (issue 046). */
+.conversation .earlier {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  margin: 8px auto;
+  text-align: center;
+}
+
 /* The PNG carries its white quiet zone, which a camera needs in either theme. */
 .phone-qr {
   display: block;

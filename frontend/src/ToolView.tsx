@@ -83,12 +83,19 @@ export default function ToolView({ item, roots = [], onError }: { item: Extract<
   const plan = planText(item);
   // An agent's questions read as questions (HRN-021).
   const questions = plan === null ? agentQuestions(item.input) : null;
+  // A closed card draws its line only, and what it holds once it is opened: a long
+  // conversation drew every command's input and output folded away (issue 046).
+  const startsOpen = waiting || plan !== null;
+  const [opened, setOpened] = useState(false);
 
   return (
     <details
       data-tool-call={item.toolCallId}
       className={`tool tool-${item.status} ${waiting ? "tool-waiting" : ""}`}
-      open={waiting || plan !== null || undefined}
+      open={startsOpen || undefined}
+      onToggle={(e) => {
+        if (e.currentTarget.open) setOpened(true);
+      }}
     >
       <summary>
         <span className={`dot dot-${item.status}`} aria-hidden="true" />
@@ -119,79 +126,83 @@ export default function ToolView({ item, roots = [], onError }: { item: Extract<
           </span>
         )}
       </summary>
-      {plan !== null ? (
-        <PlanCard text={plan} />
-      ) : questions ? (
-        // The form shows them while it waits; after, the questions stay readable.
-        !waiting && (
-          <ul className="agent-questions">
-            {questions.map((q, i) => (
-              <li key={i}>
-                {q.question} <span className="muted">{q.options.join(" · ")}</span>
-              </li>
-            ))}
-          </ul>
-        )
-      ) : (
-        <pre className="tool-input">{JSON.stringify(item.input, null, 2)}</pre>
-      )}
-      {item.content
-        // An external agent sends the plan again as text: once is enough.
-        .filter((c) => plan === null || (c.content?.text ?? "").trim() !== plan.trim())
-        .map((c, i) => (
-          <ContentView key={i} c={c} />
-        ))}
-      {shownDecision && decided.reason && <p className="muted">{decided.reason}</p>}
-      {decided?.persisted && (
-        <p className="muted">
-          {tNodes("tool.savedRule", {
-            rule: <code>{decided.persisted.command || decided.persisted.path || decided.persisted.tool}</code>,
-            scope: SCOPE[decided.persisted.scope] ? t(SCOPE[decided.persisted.scope]) : decided.persisted.scope,
-          })}
-        </p>
-      )}
-      {waiting && plan !== null && (
-        <div className="approval plan-approval" role="group" aria-label={t("tool.approvePlan")} ref={box}>
-          <PlanDecision item={item} onError={onError} />
-        </div>
-      )}
-      {waiting && plan === null && (
-        <div className="approval" role="group" aria-label={form ? t("tool.formAsks", { server: form.server }) : t("tool.approveCall")} ref={box}>
-          {form && <McpFormView form={form} state={mcpForm} />}
-          {item.permission?.command && (
-            <p>{tNodes("tool.runCommand", { command: <code>{item.permission.command}</code> })}</p>
+      {(startsOpen || opened) && (
+        <>
+          {plan !== null ? (
+            <PlanCard text={plan} />
+          ) : questions ? (
+            // The form shows them while it waits; after, the questions stay readable.
+            !waiting && (
+              <ul className="agent-questions">
+                {questions.map((q, i) => (
+                  <li key={i}>
+                    {q.question} <span className="muted">{q.options.join(" · ")}</span>
+                  </li>
+                ))}
+              </ul>
+            )
+          ) : (
+            <pre className="tool-input">{JSON.stringify(item.input, null, 2)}</pre>
           )}
-          {item.permission?.paths?.map((p) => (
-            <p key={p} className="muted">
-              <code>{p}</code>
+          {item.content
+            // An external agent sends the plan again as text: once is enough.
+            .filter((c) => plan === null || (c.content?.text ?? "").trim() !== plan.trim())
+            .map((c, i) => (
+              <ContentView key={i} c={c} />
+            ))}
+          {shownDecision && decided.reason && <p className="muted">{decided.reason}</p>}
+          {decided?.persisted && (
+            <p className="muted">
+              {tNodes("tool.savedRule", {
+                rule: <code>{decided.persisted.command || decided.persisted.path || decided.persisted.tool}</code>,
+                scope: SCOPE[decided.persisted.scope] ? t(SCOPE[decided.persisted.scope]) : decided.persisted.scope,
+              })}
             </p>
-          ))}
-          {item.permission?.hookFailed && <p className="warn-text">{hookFailedText(item.permission.hookFailed)}</p>}
-          {!form && <input aria-label={t("tool.note")} placeholder={t("tool.notePlaceholder")} value={reason} onChange={(e) => setReason(e.target.value)} />}
-          <div className="approval-buttons">
-            {offersAlways && (
-              <select value={scope} onChange={(e) => setScope(e.target.value)} aria-label={t("tool.alwaysScope")}>
-                <option value="session">{t("tool.alwaysSession")}</option>
-                <option value="global">{t("tool.alwaysGlobal")}</option>
-              </select>
-            )}
-            {item.permission!.options.map((o) => {
-              const kind = optionKind(o.kind);
-              const hint = kind ? approvalHint(kind) : null;
-              return (
-                <button
-                  key={o.optionId}
-                  className={o.kind.startsWith("allow") ? "primary" : "danger"}
-                  onClick={() => choose(o)}
-                  title={hint && !form ? t("tool.shortcut", { keys: hint }) : undefined}
-                >
-                  {form ? formLabel(o.kind) : optionLabel(o.kind, o.name)}
-                  {hint && !form && <kbd aria-hidden="true">{hint.split(" ")[0]}</kbd>}
-                </button>
-              );
-            })}
-          </div>
-        </div>
+          )}
+          {waiting && plan !== null && (
+            <div className="approval plan-approval" role="group" aria-label={t("tool.approvePlan")} ref={box}>
+              <PlanDecision item={item} onError={onError} />
+            </div>
+          )}
+          {waiting && plan === null && (
+            <div className="approval" role="group" aria-label={form ? t("tool.formAsks", { server: form.server }) : t("tool.approveCall")} ref={box}>
+              {form && <McpFormView form={form} state={mcpForm} />}
+              {item.permission?.command && (
+                <p>{tNodes("tool.runCommand", { command: <code>{item.permission.command}</code> })}</p>
+              )}
+              {item.permission?.paths?.map((p) => (
+                <p key={p} className="muted">
+                  <code>{p}</code>
+                </p>
+              ))}
+              {item.permission?.hookFailed && <p className="warn-text">{hookFailedText(item.permission.hookFailed)}</p>}
+              {!form && <input aria-label={t("tool.note")} placeholder={t("tool.notePlaceholder")} value={reason} onChange={(e) => setReason(e.target.value)} />}
+              <div className="approval-buttons">
+                {offersAlways && (
+                  <select value={scope} onChange={(e) => setScope(e.target.value)} aria-label={t("tool.alwaysScope")}>
+                    <option value="session">{t("tool.alwaysSession")}</option>
+                    <option value="global">{t("tool.alwaysGlobal")}</option>
+                  </select>
+                )}
+                {item.permission!.options.map((o) => {
+                  const kind = optionKind(o.kind);
+                  const hint = kind ? approvalHint(kind) : null;
+                  return (
+                    <button
+                      key={o.optionId}
+                      className={o.kind.startsWith("allow") ? "primary" : "danger"}
+                      onClick={() => choose(o)}
+                      title={hint && !form ? t("tool.shortcut", { keys: hint }) : undefined}
+                    >
+                      {form ? formLabel(o.kind) : optionLabel(o.kind, o.name)}
+                      {hint && !form && <kbd aria-hidden="true">{hint.split(" ")[0]}</kbd>}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </>
       )}
     </details>
   );

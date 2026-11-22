@@ -201,10 +201,18 @@ lived_in_long_session "$APP" "$FREELOOP_HOME" "$DATA/lived-in"
 kill "$pid" 2>/dev/null || true
 wait "$pid" 2>/dev/null || true
 pid=
+# Read once by a fresh app, the long session's row learns how far its transcript goes,
+# so the next start indexes it for search as it would one the app wrote itself.
+start_app "$DATA/lived-in-index.log"
+"$APP" events "$long_sid" -after 1000000000 >/dev/null
+kill "$pid" 2>/dev/null || true
+wait "$pid" 2>/dev/null || true
+pid=
 lived_in_files "$FREELOOP_HOME"
 start_app "$DATA/lived-in.log"
 echo "-- lived-in"
-cat "$HERE/appcheck/lib.js" "$HERE/appcheck/lived-in.js" > "$DATA/lived-in.js"
+# A slow machine prints the long session's times instead of holding them to a limit.
+{ if [ -n "${CI:-}${APPCHECK_SLOW:-}" ]; then echo "const slowMachine = true;"; else echo "const slowMachine = false;"; fi; cat "$HERE/appcheck/lib.js" "$HERE/appcheck/lived-in.js"; } > "$DATA/lived-in.js"
 ${APPCHECK_SLOW:+taskpolicy -c background} "$DATA/drive" "http://localhost:$PORT/" "$DATA/lived-in.js" > "$OUT/results-lived-in.txt" || status=1
 cat "$OUT/results-lived-in.txt"
 

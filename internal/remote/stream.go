@@ -107,6 +107,18 @@ func (s *Server) sessionStream(w http.ResponseWriter, r *http.Request, _ config.
 	if last, err := strconv.ParseInt(r.Header.Get("Last-Event-ID"), 10, 64); err == nil && last > after {
 		after = last
 	}
+	// A phone opens a session at its end (issue 046): tail asks for only its last
+	// events, and a stream taken up again goes on from where it was.
+	if tail, _ := strconv.Atoi(r.URL.Query().Get("tail")); tail > 0 && after == 0 {
+		evs, err := s.eng.EventsBefore(r.Context(), id, 0, tail)
+		if err != nil {
+			http.Error(w, "the session could not be read", http.StatusInternalServerError)
+			return
+		}
+		if len(evs) > 0 {
+			after = evs[0].Seq - 1
+		}
+	}
 	// Subscribed before reading what came before, so nothing falls between.
 	ch, cancel := s.eng.Subscribe()
 	defer cancel()

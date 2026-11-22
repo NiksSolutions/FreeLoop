@@ -200,6 +200,12 @@ func (s *EngineService) Events(ctx context.Context, sessionID string, afterSeq i
 	return s.eng.Events(ctx, sessionID, afterSeq, engine.MaxEventsPage)
 }
 
+// EventsBefore returns the last limit of a session's events before beforeSeq (0: its
+// end), never more than engine.MaxEventsPage: a session opens at its end.
+func (s *EngineService) EventsBefore(ctx context.Context, sessionID string, beforeSeq int64, limit int) ([]event.Event, error) {
+	return s.eng.EventsBefore(ctx, sessionID, beforeSeq, limit)
+}
+
 func (s *EngineService) Prompt(ctx context.Context, sessionID, text string) (engine.PromptResult, error) {
 	return s.eng.Prompt(ctx, sessionID, text)
 }

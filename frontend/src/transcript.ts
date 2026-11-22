@@ -26,9 +26,31 @@ export interface Transcript {
   events: TranscriptEvent[];
   length: number;
   lastSeq: number;
+  // The seq of the first event it holds: 1 for a whole session, later for one opened at
+  // its end whose earlier events are not read yet (issue 046).
+  firstSeq: number;
 }
 
-export const emptyTranscript: Transcript = { events: [], length: 0, lastSeq: 0 };
+export const emptyTranscript: Transcript = { events: [], length: 0, lastSeq: 0, firstSeq: 1 };
+
+// transcriptFrom is an empty transcript that starts at seq: apply takes events from there.
+export function transcriptFrom(seq: number): Transcript {
+  return seq <= 1 ? emptyTranscript : { events: [], length: 0, lastSeq: seq - 1, firstSeq: seq };
+}
+
+// withEarlier puts a session's earlier events in front of what tr holds. They must run
+// without a gap up to where it starts; ones it holds already are left out. The view is
+// folded again from the new start, which costs milliseconds even for a long session.
+export function withEarlier(tr: Transcript, earlier: readonly TranscriptEvent[]): Transcript {
+  const before = earlier.filter((ev) => ev.seq < tr.firstSeq);
+  if (before.length === 0) return tr;
+  for (let i = 0; i < before.length; i++) {
+    const want = i === before.length - 1 ? tr.firstSeq - 1 : before[i + 1].seq - 1;
+    if (before[i].seq !== want) throw new Error(t("session.earlier.gap"));
+  }
+  const events = [...before, ...tr.events.slice(0, tr.length)];
+  return { events, length: events.length, lastSeq: tr.lastSeq, firstSeq: before[0].seq };
+}
 
 export interface ApplyResult {
   transcript: Transcript;
@@ -60,7 +82,7 @@ function extend(tr: Transcript, added: TranscriptEvent[], lastSeq: number): Tran
   // (emptyTranscript is shared by everyone).
   const events = tr.length > 0 && tr.events.length === tr.length ? tr.events : tr.events.slice(0, tr.length);
   for (const ev of added) events.push(ev);
-  return { events, length: events.length, lastSeq };
+  return { events, length: events.length, lastSeq, firstSeq: tr.firstSeq };
 }
 
 // summary renders an event's payload as one line of text for the M0 view.

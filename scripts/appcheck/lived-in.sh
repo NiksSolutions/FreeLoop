@@ -84,4 +84,5 @@ lived_in_long_session() {
   home=$2
   sid=$("$app" new "$3/projects/api" -title "Long session" -profile default -provider demo -model scripted)
   node "$ROOT/scripts/appcheck/longsession.ts" "${LONG_SHAPE:-tools}" "$sid" "$home/sessions/$sid/events.jsonl"
+  long_sid=$sid
 }

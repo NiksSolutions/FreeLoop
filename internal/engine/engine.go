@@ -1130,6 +1130,30 @@ func (e *Engine) Events(ctx context.Context, sessionID string, afterSeq int64, l
 	return evs, err
 }
 
+// EventsBefore returns the last limit of a session's events with seq below beforeSeq,
+// in order; a beforeSeq of 0 or less means the session's end, and limit is at most
+// MaxEventsPage. A window opens a long session with its end and reads what came before
+// a page at a time (issue 046); seqs have no gaps, so this is a range read.
+func (e *Engine) EventsBefore(ctx context.Context, sessionID string, beforeSeq int64, limit int) ([]event.Event, error) {
+	if limit <= 0 || limit > MaxEventsPage {
+		limit = MaxEventsPage
+	}
+	start := time.Now()
+	var evs []event.Event
+	var err error
+	switch {
+	case beforeSeq <= 0:
+		evs, err = e.store.TailEvents(ctx, sessionID, limit)
+	case beforeSeq > 1:
+		after := max(beforeSeq-1-int64(limit), 0)
+		evs, err = e.store.EventsLimit(ctx, sessionID, after, int(beforeSeq-1-after))
+	}
+	if took := time.Since(start); took > time.Second {
+		log.Printf("engine: reading %s's events before %d took %v (%d events)", sessionID, beforeSeq, took.Round(time.Millisecond), len(evs))
+	}
+	return evs, err
+}
+
 // Subscribe returns a channel of every event persisted from now on, in seq
 // order per session, and a function that ends the subscription. A subscriber
 // that falls behind loses events rather than slowing the engine; it notices

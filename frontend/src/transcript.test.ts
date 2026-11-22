@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { optimizerCounts, apply, awaitingDecision, buildView as foldOnce, emptyTranscript, viewOf, type SessionView, type Transcript, HELD_BY, hookFailedText, lineDiff, panelData, summary, toolRuns, type Item, type TranscriptEvent } from "./transcript.ts";
+import { optimizerCounts, apply, awaitingDecision, buildView as foldOnce, emptyTranscript, transcriptFrom, viewOf, withEarlier, type SessionView, type Transcript, HELD_BY, hookFailedText, lineDiff, panelData, summary, toolRuns, type Item, type TranscriptEvent } from "./transcript.ts";
 import { setLanguage } from "./i18n.ts";
 
 // stepped folds events the way a window gets them: in batches through apply, the view
@@ -8,12 +8,12 @@ import { setLanguage } from "./i18n.ts";
 function stepped(events: readonly TranscriptEvent[], cuts: readonly number[]): SessionView {
   // Built as apply does, but without its demand that seqs run from 1: some fixtures start later.
   const held: TranscriptEvent[] = [];
-  let view = viewOf({ events: held, length: 0, lastSeq: 0 });
+  let view = viewOf({ events: held, length: 0, lastSeq: 0, firstSeq: 1 });
   let from = 0;
   for (const to of [...cuts, events.length]) {
     if (to <= from) continue;
     held.push(...events.slice(from, to));
-    view = viewOf({ events: held, length: held.length, lastSeq: events[to - 1].seq });
+    view = viewOf({ events: held, length: held.length, lastSeq: events[to - 1].seq, firstSeq: 1 });
     from = to;
   }
   return view;
@@ -738,3 +738,54 @@ test("an image whose uri is not a string is left out, not thrown on", () => {
     assert.deepEqual(items.filter((i) => i.kind === "user"), []);
   }
 });
+
+// Issue 046: a long session opens with its last events and gets what came before a page
+// at a time, read back from its start and put in front once all are in. That gives the
+// view of the whole session: the totals, the files of the right panel and a rewind's
+// greyed range, which reaches back past where the end began, included.
+test("a long session opened at its end and then given what came before equals the whole", () => {
+  const base = longFixture("tools", 20000).events;
+  const ts = base[base.length - 1].ts;
+  const more = (type: string, data: unknown) => ({ v: 1, seq: base.length + extra.length + 1, ts, sid: base[0].sid, type, data }) as TranscriptEvent;
+  const extra: TranscriptEvent[] = [];
+  extra.push(more("rewind", { checkpointSeq: 15000, context: true }));
+  extra.push(more("user_message", { text: "after the rewind" }));
+  const events = [...base, ...extra];
+  const whole = foldOnce(events);
+  assert.ok(whole.items.some((i) => i.rewound && Number(i.key) < 18000), "the rewind reaches back before the end that opens");
+
+  const TAIL = 2000;
+  const end = events.slice(-TAIL);
+  let tr = apply(transcriptFrom(end[0].seq), end).transcript;
+  assert.equal(tr.firstSeq, events.length - TAIL + 1);
+  assert.equal(tr.lastSeq, events.length);
+  const partial = viewOf(tr);
+  assert.ok(partial.items.length > 0 && partial.items.length < whole.items.length);
+  // What it shows of the end is what the whole shows there, but for items begun before.
+  const lastKey = whole.items[whole.items.length - 1].key;
+  assert.deepEqual(partial.items[partial.items.length - 1], whole.items.find((i) => i.key === lastKey));
+
+  // Read back a page at a time, as the window does, and put in front at once.
+  const pages: TranscriptEvent[][] = [];
+  for (let before = tr.firstSeq; before > 1; ) {
+    const page = events.slice(Math.max(0, before - 1 - 5000), before - 1);
+    pages.unshift(page);
+    before = page[0].seq;
+  }
+  assert.ok(pages.every((p) => p.length <= 5000));
+  tr = withEarlier(tr, pages.flat());
+  assert.equal(tr.firstSeq, 1);
+  const full = viewOf(tr);
+  assert.deepStrictEqual(full, whole);
+  assert.deepStrictEqual(panelData(full), panelData(whole));
+  assert.deepEqual(full.usage, whole.usage);
+  assert.deepEqual(full.items.filter((i) => i.rewound).map((i) => i.key), whole.items.filter((i) => i.rewound).map((i) => i.key));
+
+  // A live event after it goes on from the end; one held already is not put in twice.
+  const live = more("user_message", { text: "live" });
+  tr = apply(tr, [live]).transcript;
+  assert.equal(tr.lastSeq, live.seq);
+  assert.equal(withEarlier(tr, events.slice(0, 10)), tr);
+  assert.throws(() => withEarlier(apply(transcriptFrom(100), events.slice(99, 120)).transcript, events.slice(0, 50)), /in order/);
+});
+

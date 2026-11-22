@@ -4,7 +4,7 @@ import { heldSessions, ingestHeld, letGo, LET_GO_MS } from "./heldTranscripts.ts
 import { emptyTranscript, type Transcript, type TranscriptEvent } from "./transcript.ts";
 
 const ev = (sid: string, seq: number): TranscriptEvent => ({ sid, seq, ts: "2026-01-01T00:00:00Z", type: "agent_message_chunk", data: {} }) as TranscriptEvent;
-const tr = (n: number): Transcript => ({ events: Array.from({ length: n }, (_, i) => ev("x", i + 1)), length: n, lastSeq: n });
+const tr = (n: number): Transcript => ({ events: Array.from({ length: n }, (_, i) => ev("x", i + 1)), length: n, lastSeq: n, firstSeq: 1 });
 
 test("the sessions held are those in a pane or on the screen; a standalone window holds its own", () => {
   assert.deepEqual([...heldSessions({ panes: ["a", null, "usage", "b"], screenSession: "c" })].sort(), ["a", "b", "c"]);

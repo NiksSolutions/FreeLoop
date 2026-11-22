@@ -28,7 +28,7 @@ import {
 import { bySession, createBatcher, foldSessions, mergeList } from "./eventBatch.ts";
 import { newest } from "./newest.ts";
 import { heldSessions, ingestHeld, letGo, LET_GO_MS } from "./heldTranscripts.ts";
-import { emptyTranscript, type Transcript, type TranscriptEvent } from "./transcript.ts";
+import { emptyTranscript, transcriptFrom, withEarlier, type Transcript, type TranscriptEvent } from "./transcript.ts";
 import { hitLabel, snippetParts } from "./search.ts";
 import { formatCost, type PriceEntry } from "./cost.ts";
 import { windowSession } from "./windows.ts";
@@ -162,6 +162,9 @@ const PANE_SHORTCUT = { left: "paneLeft", right: "paneRight", up: "paneUp", down
 
 // How many events the engine returns at most for one read (engine.MaxEventsPage).
 const EVENTS_PAGE = 5000;
+// How many events a session opens with, from its end; what came before is read once
+// that is drawn (issue 046).
+const EVENTS_TAIL = 2000;
 
 // A list read again before the last read answered takes only the newest reply
 // (newest.ts), one guard per list. A window has one App.
@@ -232,13 +235,14 @@ function StatusDot({ status }: { status: string }) {
 }
 
 // The app check counts renders and events, shortens the time a session off screen keeps
-// its events and reads how many sessions hold some, by setting this on the window;
-// nothing sets it otherwise.
+// its events, reads how many sessions hold some and when a session's end was drawn
+// (SessionView.tsx), by setting this on the window; nothing sets it otherwise.
 interface Probe {
   renders: number;
   events: number;
   letGoMs?: number;
   held?: number;
+  drawn?: number;
 }
 const probe = () => (window as unknown as { __freeloopCount?: Probe }).__freeloopCount;
 
@@ -492,19 +496,58 @@ export default function App() {
       return;
     }
     fetching.current.set(sid, false);
-    const after = transcriptsRef.current[sid]?.lastSeq ?? 0;
-    EngineService.Events(sid, after)
+    // A session not held yet opens at its end; one held goes on from its last event.
+    const held = transcriptsRef.current[sid];
+    const read = held ? EngineService.Events(sid, held.lastSeq) : EngineService.EventsBefore(sid, 0, EVENTS_TAIL);
+    read
       .then((events) => {
         const again = fetching.current.get(sid);
         fetching.current.delete(sid);
-        ingest(sid, events ?? []);
+        const list = events ?? [];
+        // It starts where its end begins, and ingest takes the events from there.
+        if (!held && !transcriptsRef.current[sid] && list.length > 0) transcriptsRef.current = { ...transcriptsRef.current, [sid]: transcriptFrom(list[0].seq) };
+        ingest(sid, list);
+        // What came before is read a moment later, once the end is drawn: its pages are
+        // parsed where the window draws, and would hold up the first drawing. (Not on the
+        // next frame: a window behind others gets none.)
+        if (!held && list.length > 0 && list[0].seq > 1) setTimeout(() => readEarlier(sid), 50);
         // The engine gives a page at a time (engine.MaxEventsPage): a full one means more follow.
-        if (again || (events?.length ?? 0) >= EVENTS_PAGE) catchUp(sid);
+        if (again || (held && list.length >= EVENTS_PAGE)) catchUp(sid);
       })
       .catch((err) => {
         fetching.current.delete(sid);
         report(err);
       });
+  };
+
+  // readEarlier reads what came before a session's held start, a page at a time back to
+  // its first event, and puts it in front once all of it is in, so the view is folded and
+  // drawn again once and not for each page (issue 046). It stops if the session is let
+  // go, or opened again from another end, meanwhile.
+  const readingEarlier = useRef(new Set<string>());
+  const readEarlier = async (sid: string) => {
+    if (readingEarlier.current.has(sid)) return;
+    readingEarlier.current.add(sid);
+    try {
+      const from = transcriptsRef.current[sid]?.firstSeq ?? 1;
+      const pages: TranscriptEvent[][] = [];
+      for (let before = from; before > 1; ) {
+        const page = (await EngineService.EventsBefore(sid, before, EVENTS_PAGE)) ?? [];
+        if (transcriptsRef.current[sid]?.firstSeq !== from) return;
+        if (page.length === 0) break;
+        pages.unshift(page);
+        before = page[0].seq;
+      }
+      const tr = transcriptsRef.current[sid];
+      if (!tr || tr.firstSeq !== from) return;
+      const next = { ...transcriptsRef.current, [sid]: withEarlier(tr, pages.flat()) };
+      transcriptsRef.current = next;
+      setTranscripts(next);
+    } catch (err) {
+      report(err);
+    } finally {
+      readingEarlier.current.delete(sid);
+    }
   };
 
   // The interface's language (GUI-048), from config.yaml or the system's. It is set
@@ -1655,7 +1698,7 @@ export default function App() {
                         <ul>
                           {(r.hits ?? []).map((h, i) => (
                             <li key={i}>
-                              <button className="search-hit" onClick={() => openSession(s.id, h.seq)}>
+                              <button className="search-hit" data-seq={h.seq} onClick={() => openSession(s.id, h.seq)}>
                                 <span className="muted search-kind">{hitLabel(h.kind)}</span>
                                 <span className="search-snippet">
                                   {snippetParts(h.snippet).map((p, j) => (p.mark ? <mark key={j}>{p.text}</mark> : <span key={j}>{p.text}</span>))}

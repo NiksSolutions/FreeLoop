@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { language, LANGUAGES, setLanguage, t, type Language } from "../i18n.ts";
 import { Markdown } from "../Markdown.tsx";
 import { createBatcher } from "../eventBatch.ts";
-import { apply, viewOf, emptyTranscript, phoneName, type Item, type Transcript, type TranscriptEvent } from "../transcript.ts";
+import { apply, viewOf, emptyTranscript, phoneName, transcriptFrom, type Item, type Transcript, type TranscriptEvent } from "../transcript.ts";
 import { api, followSession, followSummary, Unpaired, type PhoneRequest, type Summary } from "./api.ts";
 import { applicationServerKey, deviceName, onceOptions, pairCode, pushBody, sessionFromHash, pushSupported } from "./phone.ts";
 
@@ -237,6 +237,9 @@ function Sessions({ summary, onOpen }: { summary: Summary | null; onOpen: (id: s
   );
 }
 
+// How many events a session opens with on the phone: its end, as on the computer (issue 046).
+const PHONE_TAIL = 2000;
+
 function SessionScreen({ id, title, onBack }: { id: string; title: string; onBack: () => void }) {
   const [tr, setTr] = useState<Transcript>(emptyTranscript);
   const [text, setText] = useState("");
@@ -245,8 +248,11 @@ function SessionScreen({ id, title, onBack }: { id: string; title: string; onBac
   useEffect(() => {
     setTr(emptyTranscript);
     // One update per frame, however many events arrive (NFR-PERF-001).
-    const batcher = createBatcher<TranscriptEvent>((batch) => setTr((cur) => apply(cur, batch).transcript));
-    const stop = followSession(id, 0, (ev) => batcher.push(ev), () => {});
+    // The stream opens at the session's end, so the first events say where it starts.
+    const batcher = createBatcher<TranscriptEvent>((batch) =>
+      setTr((cur) => apply(cur.length === 0 && batch.length > 0 ? transcriptFrom(batch.reduce((m, ev) => Math.min(m, ev.seq), Infinity)) : cur, batch).transcript),
+    );
+    const stop = followSession(id, 0, (ev) => batcher.push(ev), () => {}, PHONE_TAIL);
     return () => {
       stop();
       batcher.cancel();
@@ -272,6 +278,7 @@ function SessionScreen({ id, title, onBack }: { id: string; title: string; onBac
         <h1>{title}</h1>
       </header>
       <main className="phone-conversation">
+        {tr.firstSeq > 1 && <p className="phone-muted">{t("phone.session.earlier")}</p>}
         {view.items.map((item) => (
           <PhoneItem key={item.key} item={item} />
         ))}

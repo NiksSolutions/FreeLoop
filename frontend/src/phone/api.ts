@@ -139,11 +139,12 @@ export function followSummary(on: (s: Summary) => void, onLost: () => void): () 
   );
 }
 
-// followSession calls back with a session's events from after; on a reconnect it sends
-// the last event's ID, and the server goes on from there.
-export function followSession(sid: string, after: number, on: (ev: TranscriptEvent) => void, onLost: () => void): () => void {
+// followSession calls back with a session's events from after, or with tail from its last
+// tail events (issue 046); on a reconnect it sends the last event's ID, and the server
+// goes on from there.
+export function followSession(sid: string, after: number, on: (ev: TranscriptEvent) => void, onLost: () => void, tail = 0): () => void {
   return follow(
-    `/api/sessions/${encodeURIComponent(sid)}/stream?after=${after}`,
+    `/api/sessions/${encodeURIComponent(sid)}/stream?after=${after}${tail > 0 ? `&tail=${tail}` : ""}`,
     (m) => {
       if (m.event === "event") on(JSON.parse(m.data));
     },

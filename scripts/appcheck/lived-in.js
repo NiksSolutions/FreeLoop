@@ -34,21 +34,97 @@ await step("a global rule allows any shell command", async () => {
   check("the global rule is in place", true);
 });
 
-// The made-up long session (80,000 events, issue 040): the time from a click on it to
-// its end being drawn is printed, so the window's cost of a long session is seen. It
-// is a number to record, not yet a limit (backlog/prds/before-going-public.md).
-await step("the long session opens, and the time to its end is printed", async () => {
+// The made-up long session (issue 040, 80,000 events). It opens at its end (issue 046):
+// the window reads its last events, draws the last few hundred items and reads what came
+// before a moment later, a page at a time. The time from a click to the end drawn is
+// held to a second, on a slower machine (CI, APPCHECK_SLOW) printed. It is the app's
+// own count (the probe's drawn), since the check's timers wait a second each while
+// the window is behind others.
+const conversationOf = (pane) => pane.querySelector(".conversation");
+const firstDrawn = (c) => [...c.children].find((el) => el.matches("[data-item], details.tool-run"));
+const keyOf = (el) => el?.getAttribute("data-item") ?? el?.querySelector("[data-item]")?.getAttribute("data-item");
+const searchBox = () => document.querySelector('.filter-search input[type="search"]');
+const searchFor = (q) => {
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(searchBox(), q);
+  searchBox().dispatchEvent(new Event("input", { bubbles: true }));
+};
+const longHits = () => {
+  const li = all(".search-session").find((s) => s.textContent.includes("Long session"))?.closest("li");
+  const found = li ? all("button.search-hit", li) : [];
+  return found.length > 0 && found;
+};
+
+await step("the long session opens at its end, in under a second", async () => {
+  window.__freeloopCount = { renders: 0, events: 0 };
   const t0 = performance.now();
   openSession("Long session");
   const pane = await until("the long session", () => activePane().querySelector(".session-titleline h2")?.textContent === "Long session" && activePane(), 8000);
-  // The end is drawn when the last turn's stop line is there and the view sits at the bottom.
-  const scroller = () => pane.querySelector(".conversation");
+  // The end is drawn when a turn's stop line is there and the view sits at the bottom.
   await until("the end of the long session", () => {
-    const c = scroller();
-    return c && all(".turn-stop", pane).length > 100 && toTheEnd(c) < 40;
+    const c = conversationOf(pane);
+    return c && all(".turn-stop", pane).length > 0 && toTheEnd(c) < 40;
   }, 120000);
+  const ms = Math.round((window.__freeloopCount.drawn ?? performance.now()) - t0);
+  delete window.__freeloopCount;
+  const drawn = all("[data-item]", pane).length;
+  if (slowMachine) check(`the long session's end is drawn after ${ms} ms (a slow machine, so not held to a second)`, true);
+  else check(`the long session's end is drawn after ${ms} ms, under a second`, ms < 1000, `${ms} ms`);
+  check(`it draws a few hundred items, not all of them (${drawn})`, drawn > 0 && drawn < 1500, `${drawn} items`);
+  const first = keyOf(firstDrawn(conversationOf(pane)));
+  await until("what came before read", () => !conversationOf(pane).hasAttribute("data-partial"), 120000);
+  await sleep(300);
+  const c = conversationOf(pane);
+  check(`what came before is read after ${Math.round(performance.now() - t0)} ms, and moves nothing drawn`, keyOf(firstDrawn(c)) === first && toTheEnd(c) < 40, `first ${first} then ${keyOf(firstDrawn(c))}, ${Math.round(toTheEnd(c))} px from the end`);
+});
+
+await step("scrolling up draws earlier items, the place kept", async () => {
+  const pane = activePane();
+  const c = conversationOf(pane);
+  const before = all("[data-item]", pane).length;
+  check("above what is drawn, a button draws earlier messages", !!withText("button.link", "Show earlier messages", pane));
+  // As a reader scrolls: the wheel first, so the view stops following the end.
+  c.dispatchEvent(new WheelEvent("wheel", { deltaY: -600, bubbles: true }));
+  c.scrollTop = 0;
+  const first = firstDrawn(c);
+  const y0 = first.getBoundingClientRect().top;
+  await until("earlier items", () => all("[data-item]", pane).length > before, 5000);
+  await sleep(500);
+  // The items drawn above settle to their heights in steps, each step keeping what is
+  // in view where it is; tens of pixels is that settling, a jump is the whole height.
+  const moved = Math.round(first.getBoundingClientRect().top - y0);
+  check(`earlier items are drawn above (${before} to ${all("[data-item]", pane).length})`, first.isConnected && c.scrollTop > 0, `scrollTop ${c.scrollTop}`);
+  check(`what was first stays where it was (moved ${moved} px)`, Math.abs(moved) < 100, `moved ${moved} px`);
+});
+
+await step("a search hit far back in the long session opens there, and the end is a click away", async () => {
+  searchFor("function");
+  // The app indexes the long session for search as it starts, from its file.
+  const hits = await until("hits in the long session", longHits, 60000).catch(() => null);
+  if (!hits) {
+    check("the long session has search hits", false, "none within 60 s");
+    searchFor("");
+    return;
+  }
+  const far = hits.reduce((a, b) => (Number(a.dataset.seq) < Number(b.dataset.seq) ? a : b));
+  const seq = Number(far.dataset.seq);
+  const t0 = performance.now();
+  far.click();
+  const pane = activePane();
+  const found = await until("the hit drawn and marked", () => pane.querySelector(".found"), 15000).catch(() => null);
   const ms = Math.round(performance.now() - t0);
-  check(`the long session's end is drawn after ${ms} ms, ${all(".turn-stop", pane).length} turns`, true);
+  const c = conversationOf(pane);
+  const r = found?.getBoundingClientRect();
+  const v = c.getBoundingClientRect();
+  check(`the hit at seq ${seq} is drawn and in view after ${ms} ms`, !!r && r.bottom > v.top && r.top < v.bottom, r ? `${Math.round(r.top)} to ${Math.round(r.bottom)} in ${Math.round(v.top)} to ${Math.round(v.bottom)}` : "not drawn");
+  const drawn = all("[data-item]", pane).length;
+  check(`it draws what is around it, not all that follows (${drawn})`, drawn > 0 && drawn < 1500, `${drawn} items`);
+  const toEnd = withText("button.link", "Go to the end", pane);
+  check("below it, a button goes back to the end", !!toEnd);
+  toEnd?.click();
+  await until("back at the end", () => !withText("button.link", "Go to the end", pane) && toTheEnd(c) < 40, 10000).catch(() => null);
+  check("Go to the end draws the end again", !withText("button.link", "Go to the end", pane) && toTheEnd(c) < 40, `${Math.round(toTheEnd(c))} px from the end`);
+  searchFor("");
+  await until("the search cleared", () => all(".session-row").length >= 30, 5000);
 });
 
 await step("the palette stays short with many skills and sessions", async () => {

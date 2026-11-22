@@ -55,6 +55,7 @@ import DictateButton from "./Dictation.tsx";
 import { insertDictation } from "./voice.ts";
 import type { PaletteItem } from "./palette.ts";
 import { itemForSeq } from "./search.ts";
+import { around, endFor, shownFrom, startFor } from "./shownRuns.ts";
 import { drawOnce, HOLD_PLACE, holdsPlace, READER_PAUSE, readerScrolling, scrollsByKey, scrollsUpByKey, settledPlace } from "./scrollPlace.ts";
 import { costText, estimate, formatCost, tallyCalls, type CostTally, type PriceEntry } from "./cost.ts";
 import { trustLines, trustStep } from "./trust.ts";
@@ -277,6 +278,9 @@ export default function SessionView({ session, transcript, focus, prices, initia
   const loc = locale();
   // eslint-disable-next-line react-hooks/exhaustive-deps -- the language is a cache key: the words come from t(), which reads it
   const view = useMemo(() => viewOf(transcript), [transcript, loc]);
+  // A long session opens at its end, and what came before follows a moment later
+  // (issue 046); until then the totals would count only part of it.
+  const partial = transcript.firstSeq > 1;
   // Estimated cost of the session and of each turn. A turn's cost is kept with its item,
   // which stays the same object until it changes, and the session's goes on from the calls
   // it counted last time (the calls only grow), so a batch costs what it holds.
@@ -689,6 +693,61 @@ export default function SessionView({ session, transcript, focus, prices, initia
   }, []);
   useEffect(() => (conversation.current ? drawOnce(conversation.current) : undefined), []);
 
+  // The conversation draws its last items, and earlier ones as the reader nears the top
+  // (shownRuns.ts, issue 046). from is the key of the first item drawn, kept once there,
+  // so what arrives before or after it moves nothing on screen.
+  const [from, setFrom] = useState<string | null>(null);
+  const start = shownFrom(view.runs, from);
+  // After a jump far back, until is the key of the first item not drawn, and later ones
+  // are drawn as the reader nears the bottom; null draws to the end and follows it.
+  const [until, setUntil] = useState<string | null>(null);
+  const end = until === null ? view.runs.length : Math.max(shownFrom(view.runs, until), start + 1);
+  const drawnRuns = start > 0 || end < view.runs.length ? view.runs.slice(start, end) : view.runs;
+  const firstDrawn = view.runs[start]?.items[0]?.key ?? null;
+  useEffect(() => {
+    if (firstDrawn !== null && firstDrawn !== from) setFrom(firstDrawn);
+  }, [firstDrawn, from]);
+  // The app check reads when the conversation was first drawn, through the probe App.tsx
+  // describes: a layout effect runs where timers in a window behind others wait a second.
+  useLayoutEffect(() => {
+    const probe = (window as unknown as { __freeloopCount?: { drawn?: number } }).__freeloopCount;
+    if (probe && probe.drawn === undefined && drawnRuns.length > 0) probe.drawn = performance.now();
+  });
+  // Earlier items are drawn with the place kept: the distance to the end is the same
+  // before and after.
+  const keepPlace = useRef<number | null>(null);
+  const drawEarlier = () => {
+    const el = conversation.current;
+    if (!el || start === 0 || keepPlace.current !== null) return;
+    keepPlace.current = el.scrollHeight - el.scrollTop;
+    setFrom(view.runs[startFor(view.runs, start)].items[0].key);
+  };
+  const drawLater = () => {
+    if (until === null) return;
+    const next = endFor(view.runs, end);
+    setUntil(next >= view.runs.length ? null : view.runs[next].items[0].key);
+  };
+  // Back to the end, which the view follows again.
+  const drawTheEnd = () => {
+    holdBottom.current = false;
+    setUntil(null);
+    setFrom(null);
+  };
+  useLayoutEffect(() => {
+    const el = conversation.current;
+    if (!el || keepPlace.current === null) return;
+    el.scrollTop = el.scrollHeight - keepPlace.current;
+    keepPlace.current = null;
+  }, [from]);
+  // What is drawn fills two screens at least, so there is something to scroll up into.
+  const fillEarlier = useEffectEvent(() => {
+    const el = conversation.current;
+    if (el && start > 0 && el.scrollHeight < 2 * el.clientHeight) drawEarlier();
+  });
+  useEffect(() => {
+    fillEarlier();
+  }, [start, view.runs]);
+
   // Scroll to a search hit once its item is there and mark it for a moment.
   const [focused, setFocused] = useState<string | null>(null);
   const shown = useRef(0);
@@ -701,7 +760,16 @@ export default function SessionView({ session, transcript, focus, prices, initia
   useEffect(() => {
     if (!aim || shown.current === aim.n) return;
     const key = itemForSeq(view.items, aim.seq);
-    const el = key && layoutBox.current?.querySelector<HTMLElement>(`[data-item="${key}"]`);
+    if (!key) return;
+    // An item not drawn is drawn first, with what is around it; this runs again once it is.
+    const at = shownFrom(view.runs, key);
+    if (at < start || at >= end) {
+      const near = around(view.runs, at);
+      setFrom(view.runs[near.start].items[0].key);
+      setUntil(near.end >= view.runs.length ? null : view.runs[near.end].items[0].key);
+      return;
+    }
+    const el = layoutBox.current?.querySelector<HTMLElement>(`[data-item="${key}"]`);
     if (!el) return;
     shown.current = aim.n;
     holdBottom.current = true;
@@ -712,7 +780,7 @@ export default function SessionView({ session, transcript, focus, prices, initia
     setFocused(key);
     const timer = setTimeout(() => setFocused(null), 2500);
     return () => clearTimeout(timer);
-  }, [aim, view.items]);
+  }, [aim, view.items, view.runs, start, end]);
 
   useEffect(() => {
     if (!view.running) setQueued(0);
@@ -1041,7 +1109,7 @@ export default function SessionView({ session, transcript, focus, prices, initia
 
   // The folders a command's leading `cd` adds nothing for (quietCommand).
   const roots = useMemo(() => [session.projectRoot, session.worktree].filter(Boolean) as string[], [session.projectRoot, session.worktree]);
-  const costLabel = costText(costs.session, costs.calls, view.measured);
+  const costLabel = partial ? t("session.earlier.counting") : costText(costs.session, costs.calls, view.measured);
 
   // Everything this view shows a control for, for the palette (GUI-014).
   const showPanel = (tab: PanelTab) => {
@@ -1474,6 +1542,7 @@ export default function SessionView({ session, transcript, focus, prices, initia
         <div
           ref={conversation}
           className="conversation"
+          data-partial={partial || undefined}
           role="region"
           aria-label={t("session.conversation")}
           onScroll={(e) => {
@@ -1481,6 +1550,8 @@ export default function SessionView({ session, transcript, focus, prices, initia
             const byReader = readerScrolling(performance.now(), lastInput.current, pointerDown.current);
             holdBottom.current = holdsPlace(holdBottom.current, lastTop.current, el.scrollTop, el.scrollHeight - el.scrollTop - el.clientHeight, byReader);
             lastTop.current = el.scrollTop;
+            if (el.scrollTop < el.clientHeight) drawEarlier();
+            if (until !== null && el.scrollHeight - el.scrollTop - el.clientHeight < el.clientHeight) drawLater();
           }}
           onWheel={(e) => {
             readerInput();
@@ -1504,8 +1575,19 @@ export default function SessionView({ session, transcript, focus, prices, initia
             else requestAnimationFrame(() => (holdBottom.current = settledPlace(holdBottom.current, toTheEnd(box))));
           }}
         >
-          {view.items.length === 0 && <p className="muted empty">{t("session.empty")}</p>}
-          {view.runs.map((run) => {
+          {view.items.length === 0 && !partial && <p className="muted empty">{t("session.empty")}</p>}
+          {start > 0 ? (
+            <button type="button" className="link earlier" onClick={drawEarlier}>
+              {t("session.earlier.show")}
+            </button>
+          ) : (
+            partial && (
+              <p className="muted earlier" role="status">
+                {t("session.earlier.reading")}
+              </p>
+            )
+          )}
+          {drawnRuns.map((run) => {
             const one = (item: Item) => (
               <ItemView key={item.key} sid={session.id} item={item} focused={item.key === focused} cost={turnCost(item)} locale={loc} roots={roots} onError={itemActions.onError} onRewind={itemActions.onRewind} onFork={itemActions.onFork} />
             );
@@ -1518,6 +1600,16 @@ export default function SessionView({ session, transcript, focus, prices, initia
               </details>
             );
           })}
+          {until !== null && (
+            <p className="row earlier">
+              <button type="button" className="link" onClick={drawLater}>
+                {t("session.later.show")}
+              </button>
+              <button type="button" className="link" onClick={drawTheEnd}>
+                {t("session.later.end")}
+              </button>
+            </p>
+          )}
           {accepting && !view.running && (
             <p className="muted working" role="status">
               {view.setup === "running"
