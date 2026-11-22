@@ -92,9 +92,9 @@ env_key = "CODEX_API_KEY"
 		},
 		{
 			id: "goose",
-			// Not measured yet: goose waits to be pinned (scripts/verify-agents.sh), and
-			// this is a guess for the first run to correct.
-			usage: struct{ measured, model string }{event.MeasuredTurn, ""},
+			// Measured 2026-11-22, when the user pinned 1.57.0: on the stand-in it reports
+			// no usage at all, as OpenCode does.
+			usage: struct{ measured, model string }{event.MeasuredNone, ""},
 			argv:  []string{filepath.Join(dir, "goose/goose"), "acp"},
 			env: func(url string) map[string]string {
 				return map[string]string{"GOOSE_PROVIDER": "openai", "GOOSE_MODEL": "stand-in", "OPENAI_HOST": url, "OPENAI_API_KEY": "stand-in", "GOOSE_DISABLE_KEYRING": "1"}

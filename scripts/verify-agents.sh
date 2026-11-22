@@ -47,4 +47,12 @@ if [ ! -x "$dir/goose/goose" ] || ! "$dir/goose/goose" --version | grep -q "$goo
 	fi
 	[ ! -f "$dir/goose/goose.tar.bz2" ] || tar xjf "$dir/goose/goose.tar.bz2" -C "$dir/goose"
 fi
-FREELOOP_AGENTS_DIR="$dir" go test ./internal/harness/acp/ -count=1 -v -run '^(TestPresetScenarios|TestClaudeCodeHoldsAgainstAHostileRepository)$' -timeout 30m | grep -E '^ *(---|ok|FAIL|PASS)|_test.go:[0-9]+: (allowed|denied|plan mode|the conversation)'
+# The tests' own exit status is the script's: piped straight into grep, a failing agent
+# left it 0, and CI's weekly run green (found 2026-11-22, when goose first ran).
+out="$(mktemp)"
+status=0
+FREELOOP_AGENTS_DIR="$dir" go test ./internal/harness/acp/ -count=1 -v -run '^(TestPresetScenarios|TestClaudeCodeHoldsAgainstAHostileRepository)$' -timeout 30m > "$out" 2>&1 || status=$?
+grep -E '^ *(---|ok|FAIL|PASS)|_test.go:[0-9]+: (allowed|denied|plan mode|the conversation|usage)' "$out" || true
+[ "$status" -eq 0 ] || grep -E '_test.go:[0-9]+:' "$out" | grep -v -E ': (allow|deny|plan): model ' || true
+rm -f "$out"
+exit "$status"
