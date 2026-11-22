@@ -17,3 +17,4 @@ OQ-045 says macOS, Windows and Linux work essentially the same before the reposi
 
 ## Notes
 - A virtual machine counts. Needs a person.
+- 2026-11-22: no machine at hand yet, so the fallback is done: the README's first screen says the Windows and Linux builds have not been run on a desktop, and OQ-045 notes that the repository went public that way. The issue stays open for the first run on a real machine (or a virtual one).

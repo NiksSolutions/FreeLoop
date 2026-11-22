@@ -27,7 +27,7 @@ Stages 1, 3 and 4 touch different packages (`internal/permission` and `internal/
 
 ## Decisions
 
-1. **Nothing new until the repository is public.** The freeze of 2026-11-07 did not hold: about 31,000 lines came after it. Until issue 056 is done, only these issues and fixes for what they find. The phone's open issues (026 to 032) and sharing usage across devices wait.
+1. **Nothing new until the repository is public.** The freeze of 2026-11-07 did not hold: about 31,000 lines came after it. Until issue 056 is done, only these issues and fixes for what they find. The phone's open issues (026 to 032) and sharing usage across devices wait. *2026-11-22: 056 is done, so this freeze ends; the one before 0.1.0 (ROADMAP.md, "Not before 0.1.0") still stands, and what is built in it is built at the user's request.*
 2. **A hole is closed from a failing test.** The test goes in first and fails for the reason the review gave; a hole that cannot be shown is recorded as not reproduced, not fixed blind.
 3. **The numbers to meet**, on the fixture of issue 040 (80,000 events), on the user's Mac:
    - a read of the last 100 events: under 5 ms, with memory that does not grow with the file;

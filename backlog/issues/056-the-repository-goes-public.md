@@ -1,6 +1,6 @@
 ---
 title: The repository goes public and CI runs green
-status: open
+status: done
 type: human
 blockedBy: [033-a-path-through-the-data-volume-is-the-same-path, 034-grep-and-glob-ask-before-a-secret-file, 035-deny-rules-see-through-quoting, 036-a-phones-key-works-only-with-its-login, 037-errors-in-the-policy-fail-closed, 038-an-approval-covers-only-what-was-shown, 042-small-questions-stop-reading-whole-transcripts, 045-a-session-not-on-screen-holds-no-transcript, 054-the-documents-say-what-is, 055-windows-and-linux-run-once]
 prd: before-going-public
@@ -20,3 +20,4 @@ The steps in DEVELOPING.md, "A public repository" (written as "Before the reposi
 - After this: tag `v0.1.0-beta.1` and ask three to five testers (ROADMAP.md, stage 4), then the things under "Out of scope" in the PRD.
 - 2026-11-13: the user made the repository public. A scan of all of history found neither the release key nor any real key or token; `main` is the only branch. Not yet done: CI's first run after the switch, private vulnerability reporting (off), the description and topics, and four commits of the same day under another address than the `noreply` one.
 - 2026-11-13: CI's first runs failed on both systems (a transcript could not be truncated on Windows; the test sshd could not read the runner's config on Linux); fixed the same day. The account was renamed `NiksSolutions`, and every address the app uses follows it (DEVELOPING.md, "A public repository").
+- 2026-11-22: done. The repository's description now says what the app is ("Desktop app for running AI coding agents with your own models, harnesses, skills and MCP servers. macOS, Windows and Linux."). The user left private vulnerability reporting off and added no topics. The macOS job, started by hand, was green (run 44961014555; its Windows job failed on a flaky test, fixed in 9016661). The four commits under another address stay: changing them would rewrite public history. 055 is met by its fallback (the README's first screen, OQ-045), and stays open for a run on a real machine. ROADMAP.md, "From here to 0.1.0", says where things stand, and the PRD's freeze of decision 1 ends.

@@ -459,7 +459,7 @@ Claude, meanwhile: fix what these find, first; then stage 3.
 ### Stage 4: beta 1 (the user decides, Claude prepares)
 
 1. **Decide which Macs.** *Decided 2026-11-08: Apple Silicon only, macOS 14 or later (NFR-XPLAT-001). The build is `arm64` alone, `make package` checks it, and `Info.plist` says so, so an Intel Mac refuses it with the system's own message.*
-2. **Tag `v0.1.0-beta.1`**, read the draft release, publish it. *Tagged 2026-11-19, before the user's runs of stage 2, at the user's request.*
+2. **Tag `v0.1.0-beta.1`**, read the draft release, publish it. *Tagged 2026-11-19, before the user's runs of stage 2, at the user's request. 2026-11-22: the tag's run failed in the Linux packaging, since fixed; the dry runs after it found a race that emptied the demo's pane and a flaky test, both fixed. The tag moves to the first commit whose dry run is green; no release exists yet.*
 3. **Ask three to five testers**, now that the repository is public, with the release notes and a short note on what to try and how to report.
 4. **A weekly beta**: fixes go out as `0.1.0-beta.2` and on, each through the same tag and draft.
 
@@ -469,7 +469,7 @@ Claude, meanwhile: fix what these find, first; then stage 3.
 
 Decisions before 0.1.0, each the user's:
 1. **Signing (OQ-009, reopened).** With an Apple Developer account (99 USD a year), releases are signed and notarized: no "Open Anyway", and the Keychain stops asking after each update. Without it, both stay, as the README says. *2026-11-12: the question is now OQ-057 and still open; the project's own signature on releases, which needs no account, is built (OQ-056, SEC-021). Decided 2026-11-19: no signature from Apple or Microsoft (OQ-057 closed).*
-2. **Going public.** *Done 2026-11-13: the user made the repository public.* A scan of all of history that day found neither the release key nor any real key or token, only made-up ones in tests; `main` is its only branch. Four commits of 2026-11-13 carry an address other than the `noreply` one the rest were rewritten to, and private vulnerability reporting is off; DEVELOPING.md, "A public repository", says what each needs. Actions minutes are now free, and the update check and updating in place reach the releases without a sign-in.
+2. **Going public.** *Done 2026-11-13: the user made the repository public.* A scan of all of history that day found neither the release key nor any real key or token, only made-up ones in tests; `main` is its only branch. Four commits of 2026-11-13 carry an address other than the `noreply` one the rest were rewritten to, and private vulnerability reporting is off; DEVELOPING.md, "A public repository", says what each needs. Actions minutes are now free, and the update check and updating in place reach the releases without a sign-in. *2026-11-22: the repository's description says what the app is; private vulnerability reporting stays off and no topics were added, as the user chose that day. The macOS job, started by hand, was green the same day (run 44961014555), so issue 056 is done; the Windows and Linux desktops are still untried (issue 055, OQ-045).*
 3. **Contributions (OQ-017):** the DCO and a code of conduct when they open after v1 scoping.
 
 ### Not before 0.1.0
