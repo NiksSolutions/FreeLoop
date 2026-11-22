@@ -13,10 +13,11 @@ import (
 	"github.com/FinanceNik/Freeloop/internal/provider/scripted"
 )
 
-// slow is a provider whose calls take a while, counting how many run at
+// slow is a provider whose calls wait at a gate, counting how many run at
 // once.
 type slow struct {
 	provider.Provider
+	gate          chan struct{}
 	running, peak atomic.Int32
 }
 
@@ -28,7 +29,10 @@ func (s *slow) Stream(ctx context.Context, req provider.ChatRequest) (<-chan pro
 			break
 		}
 	}
-	time.Sleep(150 * time.Millisecond)
+	select {
+	case <-s.gate:
+	case <-ctx.Done():
+	}
 	ch, err := s.Provider.Stream(ctx, req)
 	s.running.Add(-1)
 	return ch, err
@@ -42,7 +46,7 @@ func TestProviderConcurrencyCap(t *testing.T) {
 	defer e.Close()
 	ch, cancel := e.Subscribe()
 	defer cancel()
-	sp := &slow{Provider: scripted.New("p", scripted.Step{Text: "ok"})}
+	sp := &slow{Provider: scripted.New("p", scripted.Step{Text: "ok"}), gate: make(chan struct{})}
 	e.mu.Lock()
 	e.providers.built["p"] = &configuredProvider{cfg: config.Provider{ID: "p", Name: "p", Type: "scripted"}, p: sp, slots: make(chan struct{}, 2)}
 	e.mu.Unlock()
@@ -59,24 +63,26 @@ func TestProviderConcurrencyCap(t *testing.T) {
 	for _, sid := range sids {
 		e.Prompt(ctx, sid, "go")
 	}
-	deadline := time.After(10 * time.Second)
+	deadline := time.After(30 * time.Second)
 	for len(done) < len(sids) {
 		select {
 		case ev := <-ch:
 			if ev.Type == event.SessionStatus && strings.Contains(string(ev.Data), `"queued"`) {
 				queued++
+				// The two calls with a slot hold it at the gate until the other
+				// three are seen waiting, however slowly the sessions start.
+				if queued == 3 {
+					close(sp.gate)
+				}
 			}
 			if ev.Type == event.TurnEnded {
 				done[ev.SID] = true
 			}
 		case <-deadline:
-			t.Fatal("sessions did not finish")
+			t.Fatalf("sessions did not finish; %d were shown as queued", queued)
 		}
 	}
 	if p := sp.peak.Load(); p > 2 {
 		t.Errorf("%d calls ran at once on a provider capped at 2", p)
-	}
-	if queued < 3 {
-		t.Errorf("only %d sessions were shown as queued", queued)
 	}
 }
