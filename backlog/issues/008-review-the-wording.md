@@ -1,6 +1,6 @@
 ---
 title: Review the German and Dutch wording in the running app
-status: open
+status: done
 type: human
 blockedBy: [006-menu-bar-and-notifications, 007-no-untranslated-text-and-no-clipping]
 prd: german-and-dutch-interface
@@ -18,3 +18,4 @@ user, and anything that reads badly once laid out.
 
 ## Notes
 Needs a look at the running app and a native reader's judgement, so it is not for an unattended run.
+- 2026-11-22: the user reviewed the wording and approved it; no corrections, so the catalogues stay as they are.

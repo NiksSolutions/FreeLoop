@@ -552,7 +552,7 @@ The interface in German and Dutch, chosen in Settings (GUI-048; the PRD and issu
 5. **The help pages (backlog 005).** *Built 2026-11-10.* All thirteen in `frontend/src/help/de/` and `help/nl/`, translated with the interface's own words for every label; `help.test.ts` holds each to the English page's shape, code and shortcuts.
 6. **The menu bar and notifications (backlog 006).** *Built 2026-11-10.* `cmd/freeloop/words.go`, in the language the window resolved; notices carry what happened beside the engine's English. Wails' Help menu, which loaded wails.io into the window, became Freeloop Help.
 7. **The guards (backlog 007).** *Built 2026-11-10.* The source test reads every file but eight that hold no interface text; `make check-app` fails on a clipped control or heading in Deutsch and Nederlands.
-8. **The user's review of the wording (backlog 008).** *Open.*
+8. **The user's review of the wording (backlog 008).** *Done 2026-11-22: the user reviewed the wording and approved it as it is.*
 
 ## The Board as a workflow board (planned 2026-11-09, at the user's request)
 
@@ -588,7 +588,7 @@ Not in: a model per issue, a model per planning stage, model hints in workflow f
 
 The user has a Copilot plan from a client and wants to use it in Freeloop.
 
-1. **A Copilot CLI preset (HRN-007, SEC-006).** *Built 2026-11-10. `make verify-agents` runs `@github/copilot` 1.0.109 in its ACP mode on the stand-in, through its own provider settings and offline: it asks through the broker, writes when allowed, not when denied or in plan mode, and repository settings asking for allow-all change nothing. Signing in with a real Copilot plan is the user's check.*
+1. **A Copilot CLI preset (HRN-007, SEC-006).** *Built 2026-11-10. `make verify-agents` runs `@github/copilot` 1.0.109 in its ACP mode on the stand-in, through its own provider settings and offline: it asks through the broker, writes when allowed, not when denied or in plan mode, and repository settings asking for allow-all change nothing. Signing in with a real Copilot plan is the user's check; since 2026-11-22 the user works with it on their Copilot plan, on their work Mac.*
    - **Its own sign-in.** Freeloop starts the unmodified CLI, which GitHub documents for other apps to start over ACP, and never sees its login (HRN-008). Calling Copilot's internal model API from the built-in agent was ruled out: it needs the Copilot token.
    - **Modes.** Every mode but plan maps to its Agent mode, which asks; plan to its Plan mode. Its Autopilot turns on its own allow-all, so nothing maps to it, and its "Allow All" session option is never offered, as no agent's permission option is. `COPILOT_ALLOW_ALL=false` keeps a shell setting from approving everything.
    - **Repository hooks.** The run found that over ACP it trusts the folder it is started in and runs `.github/hooks/*.json` there: a `preToolUse` hook approved a write that was never asked about. It has no setting to stop that, so in an untrusted project the session does not start while the project has hooks for it (`HarnessPreset.RepoHooks`), and the trust prompt lists them.
