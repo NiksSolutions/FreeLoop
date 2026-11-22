@@ -116,9 +116,11 @@ let app = NSApplication.shared
 // process's timers and the page's with them, which reads as a step that stalls (opening
 // a session took over 30 s in about one CI run in four; it never did here).
 let busy = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .latencyCritical], reason: "running the app check")
-// APPCHECK_HEIGHT runs it in a shorter window, as a laptop's half screen is.
+// APPCHECK_HEIGHT runs it in a shorter window, as a laptop's half screen is, and
+// APPCHECK_WIDTH in a narrower one, as a phone's is.
 let height = Double(ProcessInfo.processInfo.environment["APPCHECK_HEIGHT"] ?? "") ?? 720
-let window = KeyWindow(contentRect: NSRect(x: 0, y: 0, width: 1400, height: height), styleMask: [.borderless], backing: .buffered, defer: false)
+let width = Double(ProcessInfo.processInfo.environment["APPCHECK_WIDTH"] ?? "") ?? 1400
+let window = KeyWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: height), styleMask: [.borderless], backing: .buffered, defer: false)
 let mouse = Mouse()
 let configuration = WKWebViewConfiguration()
 // Storage of its own, for this run only: the window's storage outlived a run, so a check
@@ -127,6 +129,11 @@ configuration.websiteDataStore = .nonPersistent()
 configuration.userContentController.addScriptMessageHandler(mouse, contentWorld: .page, name: "mouse")
 let snap = Snap()
 configuration.userContentController.addScriptMessageHandler(snap, contentWorld: .page, name: "snap")
+// APPCHECK_INIT names a script run before the page's own, such as one putting a paired
+// phone's key in the page's storage.
+if let path = ProcessInfo.processInfo.environment["APPCHECK_INIT"], !path.isEmpty, let source = try? String(contentsOfFile: path, encoding: .utf8) {
+  configuration.userContentController.addUserScript(WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+}
 let web = CheckedWebView(frame: window.contentView!.bounds, configuration: configuration)
 window.contentView!.addSubview(web)
 window.makeKeyAndOrderFront(nil)

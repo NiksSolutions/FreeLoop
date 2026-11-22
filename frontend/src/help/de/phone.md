@@ -6,7 +6,7 @@ Sitzungen unterwegs vom Telefon aus verfolgen, über das eigene private Netz.
 
 - Live sehen, was wartet, und jede Sitzung.
 - Eine Anfrage einmal erlauben oder ablehnen. Formulare, Pläne, Regeln und Einstellungen warten auf den Computer.
-- Einer Sitzung eine Nachricht senden oder ihre Runde anhalten.
+- Einer Sitzung eine Nachricht senden, auf Wunsch mit Bildern aus den Fotos oder eingefügt, oder ihre Runde anhalten.
 
 Nachrichten und Entscheidungen vom Telefon sagen das in der Sitzung, mit dem Namen des Telefons.
 

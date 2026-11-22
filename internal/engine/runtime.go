@@ -791,10 +791,15 @@ type DecideRequest struct {
 	Answers map[string]any `json:"answers,omitempty"`
 }
 
-// PromptFrom sends a text message from elsewhere than this computer's window, which
-// the transcript records: via is "phone:<device>" (GUI-052).
-func (e *Engine) PromptFrom(ctx context.Context, sid, text, via string) (PromptResult, error) {
-	return e.enqueue(ctx, sid, queued{text: text, via: via})
+// PromptFrom sends a message from elsewhere than this computer's window, which the
+// transcript records: via is "phone:<device>" (GUI-052). Its pictures are checked and
+// stored as the window's are (SES-015, issue 058).
+func (e *Engine) PromptFrom(ctx context.Context, sid, text, via string, images []ImageInput) (PromptResult, error) {
+	stored, err := e.storeImages(ctx, sid, images)
+	if err != nil {
+		return PromptResult{}, err
+	}
+	return e.enqueue(ctx, sid, queued{text: text, via: via, images: stored})
 }
 
 // ErrDecideOnLaptop refuses an answer that only this computer's window may give.

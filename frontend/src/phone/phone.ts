@@ -107,3 +107,17 @@ export function sessionFromHash(hash: string): string {
   const m = /(?:^#|&)session=([A-Za-z0-9_-]{1,64})(?:&|$)/.exec(hash);
   return m ? m[1] : "";
 }
+
+// toolCommand is the command a tool call ran, from its input, for the line a tapped tool
+// call opens to (issue 057); nothing when the input names none.
+export function toolCommand(input: unknown): string {
+  const command = (input as { command?: unknown } | null)?.command;
+  return typeof command === "string" ? command : "";
+}
+
+// pastedPictures picks the pictures out of what was pasted into the message box (issue
+// 058): a screenshot copied on the phone arrives as a file of an image type, beside text
+// that pastes as text.
+export function pastedPictures<T extends { type: string }>(files: ArrayLike<T>): T[] {
+  return Array.from(files).filter((f) => f.type.startsWith("image/"));
+}

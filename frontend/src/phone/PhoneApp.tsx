@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { language, LANGUAGES, setLanguage, t, type Language } from "../i18n.ts";
 import { Markdown } from "../Markdown.tsx";
 import { createBatcher } from "../eventBatch.ts";
 import { apply, viewOf, emptyTranscript, phoneName, transcriptFrom, type Item, type Transcript, type TranscriptEvent } from "../transcript.ts";
-import { api, followSession, followSummary, Unpaired, type PhoneRequest, type Summary } from "./api.ts";
-import { applicationServerKey, deviceName, onceOptions, pairCode, pushBody, sessionFromHash, pushSupported } from "./phone.ts";
+import { MAX_IMAGES, room } from "../images.ts";
+import { prepareImage } from "../imageprep.ts";
+import { api, followSession, followSummary, Unpaired, type Picture, type PhoneRequest, type Summary } from "./api.ts";
+import { applicationServerKey, deviceName, onceOptions, pairCode, pastedPictures, pushBody, sessionFromHash, pushSupported, toolCommand } from "./phone.ts";
 
 // The phone app (GUI-052): what needs the user, the sessions, one session live with
 // a message box, and settings. From here a plain request is allowed or denied once;
@@ -260,14 +262,48 @@ function SessionScreen({ id, title, onBack }: { id: string; title: string; onBac
   }, [id]);
   const view = useMemo(() => viewOf(tr), [tr]);
   useEffect(() => end.current?.scrollIntoView({ block: "end" }), [tr.lastSeq]);
+  // The message box grows with what is typed, up to its CSS max-height, and shrinks back.
+  const field = useRef<HTMLTextAreaElement>(null);
+  useLayoutEffect(() => {
+    const el = field.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
+  }, [text]);
+  // Pictures for the next message (issue 058), scaled down as on the computer.
+  const [pictures, setPictures] = useState<(Picture & { id: number })[]>([]);
+  const [sending, setSending] = useState(false);
+  const chooser = useRef<HTMLInputElement>(null);
+  const nextPicture = useRef(0);
+  const attach = (files: Blob[]) => {
+    const take = files.slice(0, room(pictures.length, files.length));
+    setError(take.length < files.length ? t("attach.tooManyPictures", { max: MAX_IMAGES }) : "");
+    for (const file of take)
+      prepareImage(file)
+        .then(({ mediaType, data, url }) => {
+          // Shown from its data, which the page's policy allows, not from the object URL.
+          URL.revokeObjectURL(url);
+          setPictures((cur) => (cur.length < MAX_IMAGES ? [...cur, { mediaType, data, id: nextPicture.current++ }] : cur));
+        })
+        .catch((err) => setError(String(err.message ?? err)));
+  };
   const send = () => {
     const msg = text.trim();
-    if (!msg) return;
+    if (!msg && pictures.length === 0) return;
     setError("");
+    setSending(true);
     api
-      .prompt(id, msg)
-      .then(() => setText(""))
-      .catch((err) => setError(String(err.message ?? err)));
+      .prompt(
+        id,
+        msg,
+        pictures.map(({ mediaType, data }) => ({ mediaType, data })),
+      )
+      .then(() => {
+        setText("");
+        setPictures([]);
+      })
+      .catch((err) => setError(String(err.message ?? err)))
+      .finally(() => setSending(false));
   };
   return (
     <div className="phone-session-screen">
@@ -280,16 +316,66 @@ function SessionScreen({ id, title, onBack }: { id: string; title: string; onBac
       <main className="phone-conversation">
         {tr.firstSeq > 1 && <p className="phone-muted">{t("phone.session.earlier")}</p>}
         {view.items.map((item) => (
-          <PhoneItem key={item.key} item={item} />
+          <PhoneItem key={item.key} item={item} sid={id} />
         ))}
         <div ref={end} />
       </main>
       <footer className="phone-composer">
         {error && <p role="alert">{error}</p>}
-        <textarea value={text} onChange={(e) => setText(e.target.value)} placeholder={t("phone.composer.placeholder")} aria-label={t("phone.composer.label")} rows={2} />
-        <div className="phone-row">
-          {view.running && <button onClick={() => api.cancel(id).catch((err) => setError(String(err.message ?? err)))}>{t("phone.composer.stop")}</button>}
-          <button className="primary" onClick={send} disabled={!text.trim()}>
+        {pictures.length > 0 && (
+          <ul className="phone-pictures" aria-label={t("composer.pictures")}>
+            {pictures.map((p, i) => (
+              <li key={p.id}>
+                <img src={`data:${p.mediaType};base64,${p.data}`} alt={t("composer.picture", { n: i + 1 })} />
+                <button className="phone-picture-remove" aria-label={t("composer.removePicture", { n: i + 1 })} onClick={() => setPictures((cur) => cur.filter((q) => q.id !== p.id))}>
+                  ×
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="phone-compose-row">
+          <button className="phone-add-picture" aria-label={t("phone.composer.addPicture")} onClick={() => chooser.current?.click()}>
+            <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="5" width="18" height="14" rx="2" />
+              <circle cx="9" cy="10" r="1.6" />
+              <path d="m21 16-5-5-8 8" />
+            </svg>
+          </button>
+          {/* The phone's photo picker or camera; a pasted screenshot is attached as well. */}
+          <input
+            ref={chooser}
+            type="file"
+            accept="image/*"
+            multiple
+            hidden
+            onChange={(e) => {
+              attach([...(e.target.files ?? [])]);
+              e.target.value = "";
+            }}
+          />
+          <textarea
+            ref={field}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onPaste={(e) => {
+              const pasted = pastedPictures(e.clipboardData.files);
+              if (pasted.length === 0) return;
+              e.preventDefault();
+              attach(pasted);
+            }}
+            placeholder={t("phone.composer.placeholder")}
+            aria-label={t("phone.composer.label")}
+            rows={1}
+          />
+          {view.running && (
+            <button className="phone-stop" aria-label={t("phone.composer.stop")} onClick={() => api.cancel(id).catch((err) => setError(String(err.message ?? err)))}>
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <rect x="7" y="7" width="10" height="10" rx="1.5" fill="currentColor" />
+              </svg>
+            </button>
+          )}
+          <button className="primary" onClick={send} disabled={sending || (!text.trim() && pictures.length === 0)}>
             {view.running ? t("phone.composer.queue") : t("phone.composer.send")}
           </button>
         </div>
@@ -298,11 +384,46 @@ function SessionScreen({ id, title, onBack }: { id: string; title: string; onBac
   );
 }
 
-function PhoneItem({ item }: { item: Item }) {
+// The pictures a message carried (issue 058), read with the phone's key once and kept
+// while the app is open: data URLs, or "" for one that could not be read. They are the
+// user's own attachments; nothing a model writes is ever shown as a picture.
+const sentPictures = new Map<string, string>();
+
+function SentPictures({ sid, images }: { sid: string; images: { name: string }[] }) {
+  const [, setLoaded] = useState(0);
+  useEffect(() => {
+    let live = true;
+    for (const img of images) {
+      const key = `${sid}/${img.name}`;
+      if (sentPictures.has(key)) continue;
+      api
+        .attachment(sid, img.name)
+        .then((a) => sentPictures.set(key, a.mediaType.startsWith("image/") ? `data:${a.mediaType};base64,${a.data}` : ""))
+        .catch(() => sentPictures.set(key, ""))
+        .finally(() => live && setLoaded((n) => n + 1));
+    }
+    return () => {
+      live = false;
+    };
+  }, [sid, images]);
+  return (
+    <div className="phone-sent-pictures">
+      {images.map((img, i) => {
+        const src = sentPictures.get(`${sid}/${img.name}`);
+        if (src === "") return <span key={img.name} className="phone-muted">{t("transcript.picture.missing")}</span>;
+        if (!src) return <span key={img.name} className="phone-picture-loading" role="img" aria-label={t("transcript.picture.loading")} />;
+        return <img key={img.name} src={src} alt={t("transcript.picture.alt", { number: i + 1 })} />;
+      })}
+    </div>
+  );
+}
+
+function PhoneItem({ item, sid }: { item: Item; sid: string }) {
   switch (item.kind) {
     case "user":
       return (
         <div className="phone-msg phone-user">
+          {(item.images ?? []).length > 0 && <SentPictures sid={sid} images={item.images!} />}
           {item.text}
           {phoneName(item.via) && <div className="phone-muted">{t("session.item.fromPhone", { name: phoneName(item.via) })}</div>}
         </div>
@@ -316,14 +437,28 @@ function PhoneItem({ item }: { item: Item }) {
     case "tool": {
       const p = item.permission;
       const waiting = p && !p.decided;
+      const command = toolCommand(item.input);
+      const [mark, state] = item.status === "failed" ? ["✗", t("phone.tool.failed")] : item.status === "completed" ? ["✓", t("phone.tool.done")] : ["…", t("phone.tool.running")];
+      // One line; tapping it shows the whole title and the command (issue 057).
+      const call = (
+        <details className={`phone-tool phone-tool-${item.status}`}>
+          <summary>
+            <span className="phone-tool-mark" role="img" aria-label={state}>
+              {mark}
+            </span>
+            <span className="phone-tool-title">{item.title}</span>
+          </summary>
+          <div className="phone-tool-full">
+            <span>{item.title}</span>
+            {command && command !== item.title && <pre>{command}</pre>}
+          </div>
+        </details>
+      );
+      if (!waiting) return call;
       return (
-        <div className="phone-tool">
-          <span className="phone-muted">{item.status === "failed" ? "✗" : item.status === "completed" ? "✓" : "…"}</span> {item.title}
-          {waiting && (
-            <RequestCard
-              req={{ requestId: p.requestId, sessionId: "", toolCallId: item.toolCallId, tool: item.tool, command: p.command, paths: p.paths, options: p.options, onLaptop: !!p.form }}
-            />
-          )}
+        <div className="phone-call">
+          {call}
+          <RequestCard req={{ requestId: p.requestId, sessionId: "", toolCallId: item.toolCallId, tool: item.tool, command: p.command, paths: p.paths, options: p.options, onLaptop: !!p.form }} />
         </div>
       );
     }

@@ -42,6 +42,12 @@ export interface PhoneAttention {
   stuck?: string;
 }
 
+// Picture is one picture of a message, base64 encoded, as the engine takes and gives it.
+export interface Picture {
+  mediaType: string;
+  data: string;
+}
+
 export interface Summary {
   sessions: PhoneSession[];
   attention: PhoneAttention[];
@@ -72,7 +78,10 @@ export const api = {
     return { answer: r.answer };
   },
   summary: () => call<Summary>("GET", "/api/summary"),
-  prompt: (sid: string, text: string) => call<{ queued: boolean }>("POST", `/api/sessions/${encodeURIComponent(sid)}/prompt`, { text }),
+  // A message may carry pictures, or be pictures alone (issue 058).
+  prompt: (sid: string, text: string, images: Picture[] = []) =>
+    call<{ queued: boolean }>("POST", `/api/sessions/${encodeURIComponent(sid)}/prompt`, images.length > 0 ? { text, images } : { text }),
+  attachment: (sid: string, name: string) => call<Picture>("GET", `/api/sessions/${encodeURIComponent(sid)}/attachments/${encodeURIComponent(name)}`),
   cancel: (sid: string) => call("POST", `/api/sessions/${encodeURIComponent(sid)}/cancel`, {}),
   decide: (requestId: string, optionId: string) => call("POST", "/api/decide", { requestId, optionId }),
   pushKey: () => call<{ key: string }>("GET", "/api/push/key"),

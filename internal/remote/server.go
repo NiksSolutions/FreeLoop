@@ -31,15 +31,19 @@ import (
 	"github.com/FinanceNik/Freeloop/internal/config"
 	"github.com/FinanceNik/Freeloop/internal/engine"
 	"github.com/FinanceNik/Freeloop/internal/secrets"
+	"github.com/FinanceNik/Freeloop/internal/store"
 )
 
 const (
 	// A phone's key goes unused for this long before it stops working; use renews it.
-	keyLife     = 90 * 24 * time.Hour
-	pairLife    = 5 * time.Minute
-	pairTries   = 5
-	maxBody     = 64 << 10
-	phoneHeader = "X-Freeloop-Phone"
+	keyLife   = 90 * 24 * time.Hour
+	pairLife  = 5 * time.Minute
+	pairTries = 5
+	maxBody   = 64 << 10
+	// maxPictureBody is what a message with pictures may be (issue 058): ten pictures at
+	// the store's limit, base64 encoded, beside a message of maxBody.
+	maxPictureBody = int64(engine.MaxImages)*(4*(store.MaxAttachment+2)/3+64) + maxBody
+	phoneHeader    = "X-Freeloop-Phone"
 	// The headers tailscale serve adds. A process on this computer can send them
 	// too, so they are a second check, never the gate.
 	tsLogin  = "Tailscale-User-Login"
@@ -451,6 +455,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/sessions/{id}/events", s.authed(s.events))
 	mux.HandleFunc("GET /api/sessions/{id}/stream", s.authed(s.sessionStream))
 	mux.HandleFunc("POST /api/sessions/{id}/prompt", s.authed(s.prompt))
+	mux.HandleFunc("GET /api/sessions/{id}/attachments/{name}", s.authed(s.attachment))
 	mux.HandleFunc("POST /api/sessions/{id}/cancel", s.authed(s.cancel))
 	mux.HandleFunc("POST /api/decide", s.authed(s.decide))
 	mux.HandleFunc("GET /api/push/key", s.authed(s.pushKey))
@@ -477,7 +482,11 @@ func (s *Server) Handler() http.Handler {
 				http.Error(w, "not from the phone app", http.StatusForbidden)
 				return
 			}
-			r.Body = http.MaxBytesReader(w, r.Body, maxBody)
+			limit := int64(maxBody)
+			if r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/api/sessions/") && strings.HasSuffix(r.URL.Path, "/prompt") {
+				limit = maxPictureBody
+			}
+			r.Body = http.MaxBytesReader(w, r.Body, limit)
 		}
 		mux.ServeHTTP(w, r)
 	})
@@ -642,19 +651,54 @@ func (s *Server) prompt(w http.ResponseWriter, r *http.Request, d config.Device)
 	if !ok {
 		return
 	}
+	// The body may hold pictures (issue 058), so it may be up to maxPictureBody; the
+	// text stays within maxBody, as before.
 	var body struct {
-		Text string `json:"text"`
+		Text   string              `json:"text"`
+		Images []engine.ImageInput `json:"images"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.Text) == "" {
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if tooLarge := (*http.MaxBytesError)(nil); errors.As(err, &tooLarge) {
+			writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "the message is too large"})
+			return
+		}
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "write a message"})
 		return
 	}
-	res, err := s.eng.PromptFrom(context.WithoutCancel(r.Context()), id, body.Text, via(d))
+	text := body.Text
+	if strings.TrimSpace(text) == "" {
+		text = ""
+	}
+	if len(text) > maxBody {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "the message is too long"})
+		return
+	}
+	if text == "" && len(body.Images) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "write a message"})
+		return
+	}
+	res, err := s.eng.PromptFrom(context.WithoutCancel(r.Context()), id, text, via(d), body.Images)
 	if err != nil {
 		failed(w, http.StatusBadRequest, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
+}
+
+// attachment is one of a session's pictures, for the phone to show beside the message
+// that carried it (issue 058). Only pictures: an attachment is the user's own file,
+// never something a model wrote.
+func (s *Server) attachment(w http.ResponseWriter, r *http.Request, _ config.Device) {
+	id, ok := s.readable(w, r)
+	if !ok {
+		return
+	}
+	a, err := s.eng.Attachment(r.Context(), id, r.PathValue("name"))
+	if err != nil || !strings.HasPrefix(a.MediaType, "image/") {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no such picture"})
+		return
+	}
+	writeJSON(w, http.StatusOK, a)
 }
 
 func (s *Server) cancel(w http.ResponseWriter, r *http.Request, _ config.Device) {

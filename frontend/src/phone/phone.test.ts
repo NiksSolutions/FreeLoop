@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { applicationServerKey, sessionFromHash, deviceName, pushBody, onceOptions, pairCode, parseSSE, pickLanguage, pushSupported, reconnectDelay } from "./phone.ts";
+import { applicationServerKey, sessionFromHash, deviceName, pushBody, onceOptions, pairCode, parseSSE, pickLanguage, pushSupported, reconnectDelay, toolCommand, pastedPictures } from "./phone.ts";
 
 test("a tapped notification's link opens that session, and nothing else does", () => {
   assert.equal(sessionFromHash("#session=ses_01-A"), "ses_01-A");
@@ -76,4 +76,19 @@ test("push needs a service worker, push and notifications in the browser", () =>
   assert.equal(pushSupported({}), false);
   assert.equal(pushSupported({ serviceWorker: {}, PushManager: {}, Notification: {} }), true);
   assert.equal(pushSupported({ serviceWorker: {}, PushManager: {} }), false);
+});
+
+test("a tapped tool call shows the command it ran, if its input names one", () => {
+  assert.equal(toolCommand({ command: "go test ./..." }), "go test ./...");
+  assert.equal(toolCommand({ path: "a.go" }), "");
+  assert.equal(toolCommand({ command: 42 }), "");
+  assert.equal(toolCommand(null), "");
+  assert.equal(toolCommand(undefined), "");
+  assert.equal(toolCommand("go test"), "");
+});
+
+test("a pasted screenshot is attached, and pasted text is left to paste as text", () => {
+  const files = [{ type: "image/png", name: "shot" }, { type: "text/plain", name: "note" }, { type: "image/heic", name: "photo" }, { type: "", name: "unknown" }];
+  assert.deepEqual(pastedPictures(files).map((f) => f.name), ["shot", "photo"]);
+  assert.deepEqual(pastedPictures([]), []);
 });

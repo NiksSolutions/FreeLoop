@@ -50,8 +50,13 @@ provider: demo
 model: scripted
 YAML
 # A paired phone that turned notifications on (issue 027): Settings, Phone lists it so.
-cat > "$FREELOOP_HOME/devices.json" <<'JSON'
-[{"id":"dev_0000000000000001","name":"Check phone","tokenHash":"00","paired":"2026-11-01T10:00:00Z","lastSeen":"2026-11-01T10:00:00Z","push":{"endpoint":"https://fcm.googleapis.com/fcm/send/check","p256dh":"x","auth":"y"}}]
+# And the phone the phone pass drives (issues 057, 058), seen today, so its key is good:
+# PHONE_KEY is 32 bytes, 1 to 32, made for this check only; tokenHash is their SHA-256.
+PHONE_KEY=AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA
+now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+cat > "$FREELOOP_HOME/devices.json" <<JSON
+[{"id":"dev_0000000000000001","name":"Check phone","tokenHash":"00","paired":"2026-11-01T10:00:00Z","lastSeen":"2026-11-01T10:00:00Z","push":{"endpoint":"https://fcm.googleapis.com/fcm/send/check","p256dh":"x","auth":"y"}},
+ {"id":"dev_0000000000000002","name":"Check iPhone","tokenHash":"ae216c2ef5247a3782c135efa279a3e4cdc61094270f5d2be58c6204b7a612c9","paired":"$now","lastSeen":"$now"}]
 JSON
 
 . "$HERE/appcheck/lived-in.sh"
@@ -186,6 +191,23 @@ if ! grep -q 'allowBypass: true' "$FREELOOP_HOME/config.yaml"; then
 else
   echo "ok    bypass is in config.yaml"
 fi
+
+# The phone pass (GUI-052, issues 057 and 058): the phone app at an iPhone's width on a
+# session of what is hard to fit on a phone, written behind the app's back, so the app
+# starts again to read it. The page turns the phone server on first.
+echo "-- phone"
+mkdir -p "$DATA/projects/phone"
+git -C "$DATA/projects/phone" init -q
+phone_sid=$("$APP" new "$DATA/projects/phone" -title "Check phone session" -provider demo -model scripted)
+node "$HERE/appcheck/phonesession.ts" "$phone_sid" "$FREELOOP_HOME/sessions/$phone_sid/events.jsonl"
+restart_app "$DATA/app-phone.log"
+cat "$HERE/appcheck/lib.js" "$HERE/appcheck/phone-on.js" > "$DATA/phone-on.js"
+${APPCHECK_SLOW:+taskpolicy -c background} "$DATA/drive" "http://localhost:$PORT/" "$DATA/phone-on.js" > "$OUT/results-phone.txt" || status=1
+printf 'localStorage.setItem("freeloop.phone.key", "%s");\n' "$PHONE_KEY" > "$DATA/phone-init.js"
+cat "$HERE/appcheck/lib.js" "$HERE/appcheck/phone.js" > "$DATA/phone.js"
+APPCHECK_INIT="$DATA/phone-init.js" APPCHECK_WIDTH=390 APPCHECK_HEIGHT=844 APPCHECK_DEADLINE=120 \
+  ${APPCHECK_SLOW:+taskpolicy -c background} "$DATA/drive" "http://127.0.0.1:$((PORT + 1))/phone/" "$DATA/phone.js" >> "$OUT/results-phone.txt" || status=1
+cat "$OUT/results-phone.txt"
 
 # The second pass: the same app on a lived-in data folder.
 kill "$pid" 2>/dev/null || true

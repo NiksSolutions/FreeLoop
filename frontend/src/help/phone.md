@@ -6,7 +6,7 @@ Follow your sessions from your phone while you are away, over your own private n
 
 - See what needs you, and every session, live.
 - Allow or deny a request once. Forms, plans, rules and settings wait for the computer.
-- Send a message to a session, or stop its turn.
+- Send a message to a session, with pictures from your photos or pasted if you like, or stop its turn.
 
 Messages and decisions from the phone say so in the session, with the phone's name.
 

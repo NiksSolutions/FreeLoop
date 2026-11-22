@@ -6,7 +6,7 @@ Sessies onderweg volgen vanaf de telefoon, via het eigen privénetwerk.
 
 - Live zien wat wacht, en elke sessie.
 - Een verzoek één keer toestaan of weigeren. Formulieren, plannen, regels en instellingen wachten op de computer.
-- Een sessie een bericht sturen, of haar beurt stoppen.
+- Een sessie een bericht sturen, desgewenst met afbeeldingen uit je foto's of geplakt, of haar beurt stoppen.
 
 Berichten en beslissingen vanaf de telefoon zeggen dat in de sessie, met de naam van de telefoon.
 
