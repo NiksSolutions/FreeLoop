@@ -88,7 +88,7 @@ Not in M2: Docker, worktrees, terminal, search, signing if the developer account
 
 Goal: the release meant for other people. Environments beyond the local folder, the harness SDK, polish that makes it a daily tool for someone who is not the author, and the trust signals an open-source desktop app needs.
 
-Status (2026-11-12): every requirement under Delivers is built, each in a section below with its date and what was and was not checked, except the VoiceOver pass of NFR-A11Y-003, which is the user's (the audit is done: part 12). Of the definition of done, these are open: that VoiceOver pass; goose in `make verify-agents`, whose download the user has not pinned yet, so its scenarios are skipped while the other presets pass on a stand-in model; a person timing the harness template against its docs; and five people using the app for a week. No release has been made.
+Status (2026-11-12): every requirement under Delivers is built, each in a section below with its date and what was and was not checked, except the VoiceOver pass of NFR-A11Y-003, which is the user's (the audit is done: part 12). Of the definition of done, these are open: that VoiceOver pass; goose in `make verify-agents`, whose download the user has not pinned yet, so its scenarios are skipped while the other presets pass on a stand-in model; a person timing the harness template against its docs; and five people using the app for a week. 0.1.0-beta.1 was published as a pre-release on 2026-11-22.
 
 Delivers:
 - Environments: ENV-005, ENV-006, ENV-007.
@@ -459,7 +459,7 @@ Claude, meanwhile: fix what these find, first; then stage 3.
 ### Stage 4: beta 1 (the user decides, Claude prepares)
 
 1. **Decide which Macs.** *Decided 2026-11-08: Apple Silicon only, macOS 14 or later (NFR-XPLAT-001). The build is `arm64` alone, `make package` checks it, and `Info.plist` says so, so an Intel Mac refuses it with the system's own message.*
-2. **Tag `v0.1.0-beta.1`**, read the draft release, publish it. *Tagged 2026-11-19, before the user's runs of stage 2, at the user's request. 2026-11-22: the tag's run failed in the Linux packaging, since fixed; the dry runs after it found a race that emptied the demo's pane and a flaky test, both fixed. The tag moves to the first commit whose dry run is green; no release exists yet.*
+2. **Tag `v0.1.0-beta.1`**, read the draft release, publish it. *Tagged 2026-11-19, before the user's runs of stage 2, at the user's request. 2026-11-22: the tag's run failed in the Linux packaging, since fixed; the dry runs after it found a race that emptied the demo's pane and a flaky test, both fixed. The tag moved to 7540983, whose dry run was green, and 0.1.0-beta.1 was published as a pre-release the same day, its 23 files checked against the signed list with `freeloop-sign verify`.*
 3. **Ask three to five testers**, now that the repository is public, with the release notes and a short note on what to try and how to report.
 4. **A weekly beta**: fixes go out as `0.1.0-beta.2` and on, each through the same tag and draft.
 

@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Freeloop is an open-source desktop app for macOS, Windows and Linux that hosts AI coding agents: the user's policy and the user's bill over every agent they run (OQ-054), with switchable harnesses, the user's own models, Agent Skills, MCP servers and custom environments, built for someone who runs many sessions across many repos at once. Claude Code is the UX inspiration, not the base: Freeloop is the host, Claude Code is one external harness among several, and the built-in harness is the agent that needs no vendor.
 
-Status: M0 to M2 and nearly all of v1 are built; real-provider runs, a first run of the Windows and Linux builds on a Windows and a Linux desktop (issue 055) and a first release are what remain open. `docs/ROADMAP.md` lists what each milestone covers, where each feature lives and what is next. The documents in `docs/` are the specification. When this file and a document disagree, the document wins; fix this file.
+Status: M0 to M2 and nearly all of v1 are built; real-provider runs, a first run of the Windows and Linux builds on a Windows and a Linux desktop (issue 055) remain open; the first beta, 0.1.0-beta.1, was published as a pre-release on 2026-11-22. `docs/ROADMAP.md` lists what each milestone covers, where each feature lives and what is next. The documents in `docs/` are the specification. When this file and a document disagree, the document wins; fix this file.
 
 ## Read first
 

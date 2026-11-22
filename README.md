@@ -9,7 +9,7 @@ Freeloop is an open-source desktop app for macOS, Windows and Linux that puts yo
 
 The limits: this decides what an agent asks to do. An approved shell command runs as you unless the environment is sandboxed, and only a sandbox or a container holds against an agent that does not ask. [docs/VISION.md](docs/VISION.md) says what has been tested with which agent, and [docs/SECURITY.md](docs/SECURITY.md) the rest.
 
-Status: early, and not yet released. Most of what v1 lists is built; [docs/ROADMAP.md](docs/ROADMAP.md) says what each milestone covers and what remains. The Mac app is in daily use; the Windows and Linux builds are new and have not yet been run on a Windows or Linux desktop, so expect rough edges there. No release has been published yet, and the release files are not signed for Apple or Microsoft. The specification is in `docs/`.
+Status: early. The first beta, 0.1.0-beta.1, is out for a few testers (2026-11-22). Most of what v1 lists is built; [docs/ROADMAP.md](docs/ROADMAP.md) says what each milestone covers and what remains. The Mac app is in daily use; the Windows and Linux builds are new and have not yet been run on a Windows or Linux desktop, so expect rough edges there. The release files are not signed for Apple or Microsoft. The specification is in `docs/`.
 
 ## What it does
 
@@ -31,7 +31,7 @@ Status: early, and not yet released. Most of what v1 lists is built; [docs/ROADM
 
 ### Download a release
 
-No release has been published yet. Once one is, releases are on the repository's Releases page. Download the file for your system and `SHA256SUMS`, and check the download before opening it:
+Releases are on the repository's Releases page; the first is a beta, 0.1.0-beta.1. Download the file for your system and `SHA256SUMS`, and check the download before opening it:
 
 ```sh
 shasum -a 256 -c SHA256SUMS --ignore-missing   # macOS
