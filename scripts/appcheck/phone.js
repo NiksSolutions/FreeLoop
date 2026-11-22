@@ -83,6 +83,41 @@ await step("the message box is one row and grows with what is typed", async () =
   check("and shrinks again when emptied", Math.abs(box(field).height - before) < 2, `${Math.round(box(field).height)} px`);
 });
 
+// Issue 059: on a real iPhone the newest message slipped under the message box when the
+// keyboard opened. The keyboard shrinks what the page can show; the window shrinking
+// does the same here.
+await step("the newest message stays in view while the reader is at the end", async () => {
+  const resize = (h) => window.webkit.messageHandlers.resize.postMessage([innerWidth, h]);
+  const composer = document.querySelector(".phone-composer");
+  const field = composer.querySelector("textarea");
+  const newest = () => all(".phone-conversation > *").filter((el) => box(el).height > 0).at(-1);
+  const shows = () => box(newest()).bottom <= box(composer).top + 2;
+  const where = () => `newest ends at ${Math.round(box(newest()).bottom)} px, the message box starts at ${Math.round(box(composer).top)}`;
+  const tall = innerHeight;
+  window.scrollTo(0, document.scrollingElement.scrollHeight);
+  await sleep(300);
+  check("at the end, the newest message shows above the message box", shows(), where());
+  await resize(tall - 300);
+  await sleep(400);
+  check("the keyboard opening keeps it in view", shows(), where());
+  type(field, "one\ntwo\nthree\nfour");
+  await sleep(300);
+  check("so does the message box growing", shows(), where());
+  type(field, "");
+  await resize(tall);
+  await sleep(400);
+  check("and the keyboard closing", shows(), where());
+  // Scrolled up to read, the reader stays where they are.
+  window.scrollTo(0, document.scrollingElement.scrollHeight - innerHeight - 400);
+  await sleep(300);
+  const y = window.scrollY;
+  await resize(tall - 300);
+  await sleep(400);
+  check("scrolled up, the keyboard opening leaves the view where the reader put it", Math.abs(window.scrollY - y) < 40 && !shows(), `${Math.round(y)} to ${Math.round(window.scrollY)} px`);
+  await resize(tall);
+  await sleep(400);
+});
+
 window.scrollTo(0, 0);
 await sleep(100);
 await snap("phone-conversation");

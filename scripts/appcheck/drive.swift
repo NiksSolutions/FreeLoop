@@ -55,6 +55,19 @@ final class Mouse: NSObject, WKScriptMessageHandlerWithReply {
   }
 }
 
+// A new size for the window, as a phone's keyboard shrinks what the page can show: the
+// scenario sends [width, height].
+final class Resize: NSObject, WKScriptMessageHandlerWithReply {
+  func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage, replyHandler: @escaping (Any?, String?) -> Void) {
+    guard let a = message.body as? [Double], a.count == 2 else { return replyHandler(nil, "bad resize message") }
+    Task { @MainActor in
+      window.setContentSize(NSSize(width: a[0], height: a[1]))
+      web.frame = window.contentView!.bounds
+      replyHandler(true, nil)
+    }
+  }
+}
+
 // A picture of the window, for a check that failed: on a machine no one watches, such as
 // CI, it shows what the page looked like. The scenario sends a name; the picture goes to
 // $APPCHECK_SHOTS, numbered, when that is set.
@@ -129,6 +142,8 @@ configuration.websiteDataStore = .nonPersistent()
 configuration.userContentController.addScriptMessageHandler(mouse, contentWorld: .page, name: "mouse")
 let snap = Snap()
 configuration.userContentController.addScriptMessageHandler(snap, contentWorld: .page, name: "snap")
+let resize = Resize()
+configuration.userContentController.addScriptMessageHandler(resize, contentWorld: .page, name: "resize")
 // APPCHECK_INIT names a script run before the page's own, such as one putting a paired
 // phone's key in the page's storage.
 if let path = ProcessInfo.processInfo.environment["APPCHECK_INIT"], !path.isEmpty, let source = try? String(contentsOfFile: path, encoding: .utf8) {

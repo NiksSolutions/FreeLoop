@@ -239,6 +239,11 @@ function Sessions({ summary, onOpen }: { summary: Summary | null; onOpen: (id: s
   );
 }
 
+// toEnd scrolls the page to its end: the newest message, just above the message box.
+function toEnd() {
+  window.scrollTo(0, document.documentElement.scrollHeight);
+}
+
 // How many events a session opens with on the phone: its end, as on the computer (issue 046).
 const PHONE_TAIL = 2000;
 
@@ -246,7 +251,40 @@ function SessionScreen({ id, title, onBack }: { id: string; title: string; onBac
   const [tr, setTr] = useState<Transcript>(emptyTranscript);
   const [text, setText] = useState("");
   const [error, setError] = useState("");
-  const end = useRef<HTMLDivElement>(null);
+  // The conversation keeps its newest message in view while the reader is at its end: as
+  // events arrive, as the keyboard opens or closes (what the page can show shrinks or
+  // grows) and as the message box grows. Scrolled up, it stays where the reader put it
+  // (issue 059).
+  const atEnd = useRef(true);
+  const composer = useRef<HTMLElement>(null);
+  const conversation = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const view = window.visualViewport;
+    const shown = () => view?.height ?? window.innerHeight;
+    let settled = shown();
+    const onScroll = () => {
+      // While what the page can show changes size, the browser scrolls by itself; only a
+      // scroll at a settled size says where the reader is.
+      if (shown() !== settled) return;
+      const bottom = view ? view.pageTop + view.height : window.scrollY + window.innerHeight;
+      atEnd.current = document.documentElement.scrollHeight - bottom < 80;
+    };
+    const onResize = () => {
+      settled = shown();
+      if (atEnd.current) toEnd();
+    };
+    const grown = new ResizeObserver(() => atEnd.current && toEnd());
+    for (const el of [composer.current, conversation.current]) if (el) grown.observe(el);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onResize);
+    view?.addEventListener("resize", onResize);
+    return () => {
+      grown.disconnect();
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onResize);
+      view?.removeEventListener("resize", onResize);
+    };
+  }, []);
   useEffect(() => {
     setTr(emptyTranscript);
     // One update per frame, however many events arrive (NFR-PERF-001).
@@ -261,7 +299,9 @@ function SessionScreen({ id, title, onBack }: { id: string; title: string; onBac
     };
   }, [id]);
   const view = useMemo(() => viewOf(tr), [tr]);
-  useEffect(() => end.current?.scrollIntoView({ block: "end" }), [tr.lastSeq]);
+  useEffect(() => {
+    if (atEnd.current) toEnd();
+  }, [tr.lastSeq]);
   // The message box grows with what is typed, up to its CSS max-height, and shrinks back.
   const field = useRef<HTMLTextAreaElement>(null);
   useLayoutEffect(() => {
@@ -292,6 +332,9 @@ function SessionScreen({ id, title, onBack }: { id: string; title: string; onBac
     if (!msg && pictures.length === 0) return;
     setError("");
     setSending(true);
+    // What the reader sends is what they look at next.
+    atEnd.current = true;
+    toEnd();
     api
       .prompt(
         id,
@@ -313,14 +356,13 @@ function SessionScreen({ id, title, onBack }: { id: string; title: string; onBac
         </button>
         <h1>{title}</h1>
       </header>
-      <main className="phone-conversation">
+      <main className="phone-conversation" ref={conversation}>
         {tr.firstSeq > 1 && <p className="phone-muted">{t("phone.session.earlier")}</p>}
         {view.items.map((item) => (
           <PhoneItem key={item.key} item={item} sid={id} />
         ))}
-        <div ref={end} />
       </main>
-      <footer className="phone-composer">
+      <footer className="phone-composer" ref={composer}>
         {error && <p role="alert">{error}</p>}
         {pictures.length > 0 && (
           <ul className="phone-pictures" aria-label={t("composer.pictures")}>

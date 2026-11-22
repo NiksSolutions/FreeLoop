@@ -21,4 +21,4 @@ In a rebuilt app, with Tailscale on the Mac and the iPhone, set up the phone as 
 ## Notes
 - Needs a person, an iPhone and Tailscale on both.
 - Anything that goes wrong becomes an issue of its own.
-- 2026-11-22: the user set it up with Tailscale on this Mac and an iPhone and paired it; it works in the phone's browser. Found: the conversation did not fit the phone and read unlike the desktop (issue 057), and pictures could not be sent (issue 058); both built the same day. The rest of the acceptance is still to be run.
+- 2026-11-22: the user set it up with Tailscale on this Mac and an iPhone and paired it; it works in the phone's browser. Found: the conversation did not fit the phone and read unlike the desktop (issue 057), and pictures could not be sent (issue 058); both built the same day. On the new layout, the newest message slipped under the message box with the keyboard open (issue 059), also built that day. The rest of the acceptance is still to be run.
