@@ -702,6 +702,9 @@ await step("the phone page turns the phone server on, and pairs only with a code
   const code = await until("the code", () => page.querySelector(".phone-code")?.textContent, 5000);
   check("the code is 20 letters and digits, in groups", /^[0-9A-Z]{4}(-[0-9A-Z]{4}){4}$/.test(code), code);
   check("the address carries the code", page.querySelector(".phone-link-text")?.textContent === `https://phone.test:8443/phone/#pair=${code}`, page.querySelector(".phone-link-text")?.textContent);
+  const drawn = () => [...page.querySelectorAll("img.phone-qr")].find((i) => i.complete && i.naturalWidth > 0);
+  const qr = await until("the QR code", drawn, 5000).catch(() => null);
+  check("the QR code is drawn, with an accessible name", !!qr?.src.startsWith("data:image/png;base64,") && !!qr.alt.trim(), qr?.outerHTML.slice(0, 120));
   withText("button", "Cancel", page).click();
   await until("the window closed", () => !page.querySelector(".phone-code"), 5000);
   enable.click();

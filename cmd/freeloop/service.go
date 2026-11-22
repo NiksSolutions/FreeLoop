@@ -1127,6 +1127,11 @@ func (s *EngineService) StartPhonePairing() (remote.PairingStatus, error) {
 	return s.phone.srv.StartPairing()
 }
 
+// PhonePairingQR draws the pairing link the page shows as a QR code, a PNG data URL.
+func (s *EngineService) PhonePairingQR(link string) (string, error) {
+	return remote.PairingQR(link)
+}
+
 // AnswerPhonePairing is the user's answer to the phone waiting to be paired.
 func (s *EngineService) AnswerPhonePairing(allow bool) error {
 	return s.phone.srv.AnswerPairing(allow)

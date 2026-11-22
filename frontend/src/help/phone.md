@@ -15,7 +15,7 @@ Messages and decisions from the phone say so in the session, with the phone's na
 1. In **Settings → Phone**, turn on **Answer my phone**. Freeloop then answers on a port of this computer only, and keeps running when its window closes.
 2. Install Tailscale on this computer and on your phone, sign both in to the same account, and turn on HTTPS certificates in Tailscale's admin console.
 3. Run the command the page shows once, in a terminal. It serves Freeloop on your tailnet only. The page also shows how to stop it.
-4. Choose **Pair a phone…**, open the address it shows on your phone, and confirm on the computer.
+4. Choose **Pair a phone…**, scan the QR code it shows with your phone's camera (or open the address beside it on your phone), and confirm on the computer.
 
 On an iPhone, **Add to Home Screen** in Safari gives it its own icon; if it asks to pair again there, do so.
 

@@ -15,7 +15,7 @@ Berichten en beslissingen vanaf de telefoon zeggen dat in de sessie, met de naam
 1. Onder **Instellingen → Telefoon** **De telefoon antwoorden** aanzetten. Freeloop antwoordt dan alleen op een poort van deze computer en blijft draaien als het venster sluit.
 2. Tailscale installeren op deze computer en de telefoon, beide aanmelden met hetzelfde account en in het beheer van Tailscale HTTPS-certificaten aanzetten.
 3. De opdracht die de pagina toont één keer in een terminal uitvoeren. Die biedt Freeloop alleen aan op het eigen tailnet. De pagina toont ook hoe je hem stopt.
-4. **Telefoon koppelen…** kiezen, het getoonde adres op de telefoon openen en op de computer bevestigen.
+4. **Telefoon koppelen…** kiezen, de getoonde QR-code met de camera van de telefoon scannen (of het adres ernaast op de telefoon openen) en op de computer bevestigen.
 
 Op een iPhone geeft **Zet op beginscherm** in Safari een eigen pictogram; vraagt het daar opnieuw om te koppelen, dan nog een keer koppelen.
 

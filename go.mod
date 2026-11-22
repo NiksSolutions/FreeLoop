@@ -18,6 +18,7 @@ require (
 	golang.org/x/text v0.43.0
 	google.golang.org/genai v1.77.0
 	modernc.org/sqlite v1.61.0
+	rsc.io/qr v0.2.0
 )
 
 require (

@@ -6578,6 +6578,15 @@ table.hooks .hook-command {
 }
 
 /* Settings → Phone (GUI-052). */
+/* The PNG carries its white quiet zone, which a camera needs in either theme. */
+.phone-qr {
+  display: block;
+  width: 180px;
+  height: 180px;
+  margin: 8px 0;
+  image-rendering: pixelated;
+}
+
 .phone-code {
   font-family: var(--mono);
   font-size: calc(22rem / 14);

@@ -15,7 +15,7 @@ Nachrichten und Entscheidungen vom Telefon sagen das in der Sitzung, mit dem Nam
 1. Unter **Einstellungen → Telefon** **Dem Telefon antworten** einschalten. Freeloop antwortet dann nur auf einem Port dieses Computers und läuft weiter, wenn das Fenster geschlossen wird.
 2. Tailscale auf diesem Computer und dem Telefon installieren, beide mit demselben Konto anmelden und in der Tailscale-Verwaltung HTTPS-Zertifikate einschalten.
 3. Den Befehl, den die Seite zeigt, einmal in einem Terminal ausführen. Er stellt Freeloop nur im eigenen Tailnet bereit. Die Seite zeigt auch, wie man ihn beendet.
-4. **Telefon koppeln…** wählen, die angezeigte Adresse auf dem Telefon öffnen und auf dem Computer bestätigen.
+4. **Telefon koppeln…** wählen, den angezeigten QR-Code mit der Kamera des Telefons scannen (oder die Adresse daneben auf dem Telefon öffnen) und auf dem Computer bestätigen.
 
 Auf einem iPhone gibt **Zum Home-Bildschirm** in Safari ein eigenes Symbol; fragt es dort erneut nach dem Koppeln, einfach noch einmal koppeln.
 

@@ -58,7 +58,23 @@ export default function Phone({ config, onSaved, onError }: Props) {
   const host = remote.host;
   const pairing = status?.pairing;
   const link = pairing && host ? `https://${host}:${HTTPS_PORT}/phone/#pair=${pairing.code}` : "";
-  const time = (iso: string) => (iso ? new Date(iso).toLocaleString(locale(), { dateStyle: "medium", timeStyle: "short" }) : "–");
+  // The link as a QR code for the phone's camera; only the one drawn for the link
+  // shown now is shown.
+  const [qr, setQR] = useState({ link: "", url: "" });
+  const failed = useEffectEvent((err: unknown) => onError(err));
+  useEffect(() => {
+    if (!link) return;
+    let live = true;
+    EngineService.PhonePairingQR(link)
+      .then((url) => {
+        if (live) setQR({ link, url });
+      })
+      .catch(failed);
+    return () => {
+      live = false;
+    };
+  }, [link]);
+  const time =(iso: string) => (iso ? new Date(iso).toLocaleString(locale(), { dateStyle: "medium", timeStyle: "short" }) : "–");
 
   let state = t("phone.state.off");
   if (status?.why === "approval") state = t("phone.state.approval");
@@ -151,6 +167,7 @@ export default function Phone({ config, onSaved, onError }: Props) {
         ) : (
           <>
             <p>{t("phone.pair.open")}</p>
+            {link && qr.link === link && <img className="phone-qr" src={qr.url} alt={t("phone.pair.qr")} />}
             <p className="phone-code">{pairing.code}</p>
             {link && (
               <p className="row">
