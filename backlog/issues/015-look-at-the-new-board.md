@@ -1,6 +1,6 @@
 ---
 title: Look at the new Board in the running app
-status: open
+status: done
 type: human
 blockedBy: [011-review-qa-and-stopped-issues, 012-rows-collapse-filter-and-done-cap, 013-untrusted-rows-and-the-empty-board, 014-issue-detail-panel]
 prd: workflow-board
@@ -17,3 +17,4 @@ A person uses the new Board on real projects for a day and says what still reads
 
 ## Notes
 - The tests cannot tell whether the board is pleasant to read; this is that check.
+- 2026-11-22: the user used the board in the running app and reports it works well; nothing was found to write up or fix. The acceptance items were reported as a whole, not one by one.

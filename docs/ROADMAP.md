@@ -564,7 +564,7 @@ GUI-016 reworded: the Board becomes a scrum board of workflow issues, designed i
 4. **012, rows collapse, a filter, the Done cap.** *Built 2026-11-10.* `capDone`, `rowState`, `rowsFor` and the stored choice in `frontend/src/board.ts`; Done is ordered by when the run finished each issue; a row with an issue waiting for the user stays open. The check seeds a second project with seven finished issues.
 5. **013, untrusted rows and the empty board's actions.** *Built 2026-11-10.* `BacklogInfo.Trusted`; an untrusted project with a backlog folder gets an empty row (the folder's existence is the only thing looked at), trusted from the row as from its session; the empty Board offers Start a workflow… and the help.
 6. **014, the read-only detail panel.** *Built 2026-11-10.* `Engine.IssueDetail` (the issue by its id in a trusted project's backlog, its sessions from the runs, newest first) and `IssuePanel.tsx`.
-7. **015, a look in the running app (the user).**
+7. **015, a look in the running app (the user).** *Done 2026-11-22: the user used the board and reports it works well; nothing to fix.*
 
 Not in: dragging, a Sessions view on the Board, filters beyond a project, parallel runs, changes to Needs attention.
 
@@ -580,7 +580,7 @@ WFL-011 to WFL-015: plan on a big model and hand the AFK issues to a small one, 
 6. **021, the AFK dialog starts from the set; the Board shows the run's models** (WFL-014). *Built 2026-11-10.* `AFKPlan.ModelSet`, `fromSetNote`, `modelOffered`, `AFKRun.ModelLabel`.
 7. **022, cost per issue and run on the Board** (WFL-015). *Built 2026-11-10.* `internal/engine/runcost.go`, `runCostLine` and `issueCostLine`.
 8. **023, a run's costs in its pull request and on the Usage page** (WFL-015). *Built 2026-11-10.* `pullRequestCost`, `runSessions`, the export's run columns, `runKey`.
-9. **024, a try with real providers (the user).**
+9. **024, a try with real providers (the user).** *Done 2026-11-22: the user tried model sets on real providers and reports they work well.*
 
 Not in: a model per issue, a model per planning stage, model hints in workflow files, sets outside workflows, cost estimates. Cost per commit for ordinary sessions stood here and was built on 2026-11-11 (GUI-051, "What a unit of work costs" below).
 

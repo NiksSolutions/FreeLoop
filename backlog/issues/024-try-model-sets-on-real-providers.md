@@ -1,6 +1,6 @@
 ---
 title: Try a model set with real providers
-status: open
+status: done
 type: human
 blockedBy: [020-a-workflow-session-starts-on-the-planning-model, 023-run-costs-in-the-pr-and-the-usage-page]
 prd: model-sets
@@ -16,3 +16,4 @@ In the rebuilt app, make a set that plans on Opus or Fable and works on a small 
 
 ## Notes
 - Needs real keys, so a person does it.
+- 2026-11-22: the user tried model sets on real providers and reports they work well. The acceptance items were reported as a whole, not one by one.
