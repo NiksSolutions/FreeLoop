@@ -577,6 +577,9 @@ export default function SessionView({ session, transcript, focus, prices, initia
   const openHistory = () => {
     setHistoryOpen(true);
     setPick(0);
+    // Now, and once more on the next frame in case drawing the list moved it; a window
+    // behind others gets no frames.
+    input.current?.focus();
     requestAnimationFrame(() => input.current?.focus());
   };
   const chooseHistory = (x: PastPrompt) => {
@@ -713,13 +716,14 @@ export default function SessionView({ session, transcript, focus, prices, initia
     const probe = (window as unknown as { __freeloopCount?: { drawn?: number } }).__freeloopCount;
     if (probe && probe.drawn === undefined && drawnRuns.length > 0) probe.drawn = performance.now();
   });
-  // Earlier items are drawn with the place kept: the distance to the end is the same
-  // before and after.
-  const keepPlace = useRef<number | null>(null);
+  // Earlier items are drawn with the place kept: what was drawn first stays where it was
+  // on screen, whatever else changes in the same moment (a jump also draws later items).
+  const keepPlace = useRef<{ el: Element; top: number } | null>(null);
   const drawEarlier = () => {
-    const el = conversation.current;
-    if (!el || start === 0 || keepPlace.current !== null) return;
-    keepPlace.current = el.scrollHeight - el.scrollTop;
+    const box = conversation.current;
+    if (!box || start === 0 || keepPlace.current !== null) return;
+    const first = [...box.children].find((c) => c.matches("[data-item], details.tool-run"));
+    keepPlace.current = first ? { el: first, top: first.getBoundingClientRect().top } : null;
     setFrom(view.runs[startFor(view.runs, start)].items[0].key);
   };
   const drawLater = () => {
@@ -734,10 +738,11 @@ export default function SessionView({ session, transcript, focus, prices, initia
     setFrom(null);
   };
   useLayoutEffect(() => {
-    const el = conversation.current;
-    if (!el || keepPlace.current === null) return;
-    el.scrollTop = el.scrollHeight - keepPlace.current;
+    const box = conversation.current;
+    const kept = keepPlace.current;
+    if (!box || !kept) return;
     keepPlace.current = null;
+    if (kept.el.isConnected) box.scrollTop += kept.el.getBoundingClientRect().top - kept.top;
   }, [from]);
   // What is drawn fills two screens at least, so there is something to scroll up into.
   const fillEarlier = useEffectEvent(() => {
@@ -773,14 +778,21 @@ export default function SessionView({ session, transcript, focus, prices, initia
     if (!el) return;
     shown.current = aim.n;
     holdBottom.current = true;
-    // Items above have estimated heights until rendered; scroll again once
-    // they settle.
-    el.scrollIntoView({ block: "center" });
-    setTimeout(() => el.scrollIntoView({ block: "center" }), 80);
     setFocused(key);
     const timer = setTimeout(() => setFocused(null), 2500);
     return () => clearTimeout(timer);
   }, [aim, view.items, view.runs, start, end]);
+  // The hit is scrolled to once it is drawn as found: in a run of tool calls, that is what
+  // opens the run, and before it the item has no place on the page to scroll to.
+  useLayoutEffect(() => {
+    if (!focused) return;
+    const el = layoutBox.current?.querySelector<HTMLElement>(`[data-item="${focused}"]`);
+    if (!el) return;
+    el.scrollIntoView({ block: "center" });
+    // Items above have estimated heights until drawn; scroll again once they settle.
+    const again = setTimeout(() => el.scrollIntoView({ block: "center" }), 80);
+    return () => clearTimeout(again);
+  }, [focused]);
 
   useEffect(() => {
     if (!view.running) setQueued(0);
@@ -1550,8 +1562,10 @@ export default function SessionView({ session, transcript, focus, prices, initia
             const byReader = readerScrolling(performance.now(), lastInput.current, pointerDown.current);
             holdBottom.current = holdsPlace(holdBottom.current, lastTop.current, el.scrollTop, el.scrollHeight - el.scrollTop - el.clientHeight, byReader);
             lastTop.current = el.scrollTop;
-            if (el.scrollTop < el.clientHeight) drawEarlier();
-            if (until !== null && el.scrollHeight - el.scrollTop - el.clientHeight < el.clientHeight) drawLater();
+            // Only the reader's own scrolling draws more: a jump's scrolling, or the view
+            // settling after what is drawn changed, must not.
+            if (byReader && el.scrollTop < el.clientHeight) drawEarlier();
+            if (byReader && until !== null && el.scrollHeight - el.scrollTop - el.clientHeight < el.clientHeight) drawLater();
           }}
           onWheel={(e) => {
             readerInput();

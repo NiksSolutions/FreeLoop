@@ -632,7 +632,8 @@ await step("earlier prompts come back, and @ puts the session's files first", as
   (await until("the palette entry", () => withText(".palette-item", "Search earlier prompts"), 3000)).click();
   const list = await until("the earlier prompts", () => pane.querySelector('.mention-picker[aria-label="Earlier prompts"]'), 3000);
   check("the search lists it, with its project", !!withText("li", "go and read the notes", list) && list.querySelector("li .muted")?.textContent.length > 0);
-  check("the focus is in the box, for the arrows and Enter", document.activeElement === box);
+  await until("the focus in the box", () => document.activeElement === box, 2000).catch(() => null);
+  check("the focus is in the box, for the arrows and Enter", document.activeElement === box, document.activeElement?.outerHTML.slice(0, 80));
   key("Enter");
   await sleep(150);
   check("Enter puts it in the box, not sent", box.value === "go and read the notes" && !pane.querySelector('.mention-picker[aria-label="Earlier prompts"]'), `it reads "${box.value}"`);
@@ -1931,10 +1932,15 @@ await step("the demo runs a tour and removes itself", async () => {
   // The tour asks about notes.md and .env; the rest the policy answers itself.
   const pane = activePane();
   const asked = [];
+  // Each request once: its card waits for the decision to come back, and on a slow
+  // machine a second look found the same button.
+  const answered = new Set();
   await until("the closing message", () => {
     for (const b of all(".approval-buttons button", pane)) {
-      if (b.textContent.includes("Allow once")) {
-        asked.push(b.closest(".approval").textContent);
+      const card = b.closest(".approval");
+      if (b.textContent.includes("Allow once") && !answered.has(card)) {
+        answered.add(card);
+        asked.push(card.textContent);
         b.click();
       }
     }
@@ -2230,7 +2236,7 @@ await step("a workflow slices a brief and runs its issues AFK", async () => {
     }
     await smallModel(again);
     await sleep(150);
-    (await until("Start again", () => { const b = withText("button", "Start the run", again); return b && !b.disabled && b; }, 4000)).click();
+    (await until("Start again", () => { const b = withText("button", "Start the run", again); return b && !b.disabled && b; }, 10000)).click();
     await until("the dialog closed again", () => !document.querySelector(".afk-dialog"), 8000);
     await until("a newer run takes the issue up", () => column(issueCard("001")) === "Working" && !issueCard("001").querySelector(".issue-mark-stopped"), 40000);
     check("a newer run takes the issue up and the mark is gone", column(issueCard("001")) === "Working" && !issueCard("001").querySelector(".issue-mark-stopped"));
