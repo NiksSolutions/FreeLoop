@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -237,7 +238,7 @@ func (e *Engine) fetchCode(serverID string, port int) auth.AuthorizationCodeFetc
 			ErrorLog:          log.New(io.Discard, "", 0),
 		}
 		go srv.Serve(ln)
-		defer srv.Close()
+		defer stopCallback(srv)
 
 		e.setSignInURL(serverID, args.URL)
 		defer e.setSignInURL(serverID, "")
@@ -279,17 +280,30 @@ func callbackHandler(want string, got chan<- url.Values) http.Handler {
 			http.Error(w, "Bad Request", http.StatusBadRequest)
 			return
 		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		msg := "Signed in. You can close this tab and return to Freeloop."
 		if q.Get("error") != "" {
 			msg = "The sign-in did not complete: " + q.Get("error") + ". Return to Freeloop to try again."
 		}
-		fmt.Fprintf(w, "<!doctype html><meta charset=utf-8><title>Freeloop</title><p style=\"font:15px system-ui;margin:3em\">%s</p>", html.EscapeString(msg))
+		page := fmt.Sprintf("<!doctype html><meta charset=utf-8><title>Freeloop</title><p style=\"font:15px system-ui;margin:3em\">%s</p>", html.EscapeString(msg))
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Content-Length", strconv.Itoa(len(page)))
+		io.WriteString(w, page)
 		select {
 		case got <- q:
 		default:
 		}
 	})
+}
+
+// stopCallback stops the loopback server of a sign-in once the page it is sending has
+// gone out, so the browser shows "Signed in" and not a dropped connection; a page not
+// sent within two seconds is cut off.
+func stopCallback(srv *http.Server) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if srv.Shutdown(ctx) != nil {
+		srv.Close()
+	}
 }
 
 func (e *Engine) setSignInURL(serverID, u string) {

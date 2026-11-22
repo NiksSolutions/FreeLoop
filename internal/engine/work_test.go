@@ -76,8 +76,11 @@ func TestWorkCostReport(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// One window, so one reset time: read from the clock for each report, it moved by a
+	// second when the clock turned one between them, and that is another window.
+	resets := time.Now().Add(3 * time.Hour).Unix()
 	limit := func(used float64) {
-		put(event.LimitUpdate, event.LimitData{Source: "Agent", Windows: []event.LimitWindow{{ID: "five_hour", Label: "5-hour limit", UsedPercent: used, ResetsAt: time.Now().Add(3 * time.Hour).Unix(), Status: "allowed"}}})
+		put(event.LimitUpdate, event.LimitData{Source: "Agent", Windows: []event.LimitWindow{{ID: "five_hour", Label: "5-hour limit", UsedPercent: used, ResetsAt: resets, Status: "allowed"}}})
 	}
 	limit(5)
 	put(event.UsageUpdate, event.UsageData{ProviderID: "p", Model: "m", InputTokens: 2_000_000, OutputTokens: 100_000})
