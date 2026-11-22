@@ -56,8 +56,7 @@ type desktop struct {
 	win   *application.WebviewWindow
 	notes *notifications.NotificationService
 	dock  *dock.DockService
-	asked sync.Once
-	ok    bool
+	gate  notifyGate
 	// lang is the interface's language, as the window resolved it (GUI-048).
 	mu   sync.Mutex
 	lang string
@@ -130,16 +129,7 @@ func (d *desktop) notice(n engine.Notice) {
 	if d.win == nil || d.focused() {
 		return
 	}
-	// Asked on the first notice rather than at launch, so a user who never
-	// leaves the window is never asked.
-	d.asked.Do(func() {
-		ok, err := d.notes.RequestNotificationAuthorization()
-		if err != nil {
-			log.Printf("notifications: %v", err)
-		}
-		d.ok = ok
-	})
-	if !d.ok {
+	if !d.gate.allowed(d.notes) {
 		return
 	}
 	title, body := noticeText(n, d.language())
@@ -151,7 +141,63 @@ func (d *desktop) notice(n engine.Notice) {
 		Data:     map[string]any{"sessionId": n.SessionID},
 	})
 	if err != nil {
+		d.gate.failed(err)
+	}
+}
+
+// notifyPermission is what notices need of the system's notification permission.
+type notifyPermission interface {
+	RequestNotificationAuthorization() (bool, error)
+	CheckNotificationAuthorization() (bool, error)
+}
+
+// notifyGate asks for the permission on the first notice rather than at launch, so
+// a user who never leaves the window is never asked. A refusal is not kept: each
+// later notice checks again, so notifications allowed in System Settings afterwards
+// come at once, where they waited for a restart before (seen 2026-11-22).
+type notifyGate struct {
+	mu     sync.Mutex
+	asked  bool
+	ok     bool
+	logged bool
+}
+
+func (g *notifyGate) allowed(p notifyPermission) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.ok {
+		return true
+	}
+	var err error
+	if !g.asked {
+		g.asked = true
+		g.ok, err = p.RequestNotificationAuthorization()
+	} else {
+		g.ok, err = p.CheckNotificationAuthorization()
+	}
+	if g.ok {
+		g.logged = false
+	} else if err != nil {
+		g.logOnce(err)
+	}
+	return g.ok
+}
+
+// failed notes a notice the system did not take, as when notifications were turned
+// off since: the next one checks the permission again.
+func (g *notifyGate) failed(err error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.ok = false
+	g.logOnce(err)
+}
+
+// logOnce logs a refusal once until notifications are allowed again: it is checked
+// on every notice.
+func (g *notifyGate) logOnce(err error) {
+	if !g.logged {
 		log.Printf("notifications: %v", err)
+		g.logged = true
 	}
 }
 
