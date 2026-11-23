@@ -207,6 +207,16 @@ printf 'localStorage.setItem("freeloop.phone.key", "%s");\n' "$PHONE_KEY" > "$DA
 cat "$HERE/appcheck/lib.js" "$HERE/appcheck/phone.js" > "$DATA/phone.js"
 APPCHECK_INIT="$DATA/phone-init.js" APPCHECK_WIDTH=390 APPCHECK_HEIGHT=844 APPCHECK_DEADLINE=120 \
   ${APPCHECK_SLOW:+taskpolicy -c background} "$DATA/drive" "http://127.0.0.1:$((PORT + 1))/phone/" "$DATA/phone.js" >> "$OUT/results-phone.txt" || status=1
+# The computer out of reach (issue 060): every call to it fails until the page sets
+# window.__reach.
+cat "$DATA/phone-init.js" > "$DATA/phone-unreachable-init.js"
+cat >> "$DATA/phone-unreachable-init.js" <<'JS'
+const reach = window.fetch.bind(window);
+window.fetch = (input, init) => (!window.__reach && String(input instanceof Request ? input.url : input).includes("/api/") ? Promise.reject(new TypeError("Load failed")) : reach(input, init));
+JS
+cat "$HERE/appcheck/lib.js" "$HERE/appcheck/phone-unreachable.js" > "$DATA/phone-unreachable.js"
+APPCHECK_INIT="$DATA/phone-unreachable-init.js" APPCHECK_WIDTH=390 APPCHECK_HEIGHT=844 APPCHECK_DEADLINE=60 \
+  ${APPCHECK_SLOW:+taskpolicy -c background} "$DATA/drive" "http://127.0.0.1:$((PORT + 1))/phone/" "$DATA/phone-unreachable.js" >> "$OUT/results-phone.txt" || status=1
 cat "$OUT/results-phone.txt"
 
 # The second pass: the same app on a lived-in data folder.

@@ -23,6 +23,7 @@ Op een iPhone geeft **Zet op beginscherm** in Safari een eigen pictogram; vraagt
 
 - {{De Mac moet wakker blijven. **Deze computer wakker houden zolang een sessie werkt of wacht** voorkomt slapen bij inactiviteit; dichtgeklapt slaapt hij toch, tenzij hij aan de stroom en een extern scherm hangt.|De computer moet wakker blijven. **Deze computer wakker houden zolang een sessie werkt of wacht** voorkomt slapen bij inactiviteit; dichtklappen kan hem toch laten slapen.|De computer moet wakker blijven. **Deze computer wakker houden zolang een sessie werkt of wacht** vraagt het systeem niet te slapen bij inactiviteit; dichtklappen volgt de eigen instelling.}}
 - Freeloop moet blijven draaien: het venster sluiten verbergt het zolang de telefoon aan staat. Afsluiten stopt het.
+- Tailscale moet verbonden blijven, op de computer en op de telefoon. Op de computer daarvoor in Tailscale **Start on log in** aanzetten, zodat het na een herstart terugkomt. Bereikt de telefoon de computer niet, dan zegt hij dat.
 - De modus Alleen lokaal zet de telefoon uit, omdat de sessies anders deze computer zouden verlaten.
 
 ## Wat privé blijft

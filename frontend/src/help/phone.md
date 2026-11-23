@@ -23,6 +23,7 @@ On an iPhone, **Add to Home Screen** in Safari gives it its own icon; if it asks
 
 - {{The Mac must stay awake. **Keep this computer awake while a session works or waits for me** stops it sleeping when idle; a closed lid still sleeps it unless it is on power with an external display.|The computer must stay awake. **Keep this computer awake while a session works or waits for me** stops it sleeping when idle; closing the lid may still sleep it.|The computer must stay awake. **Keep this computer awake while a session works or waits for me** asks the system not to sleep when idle; closing the lid follows its own setting.}}
 - Freeloop must keep running: closing its window hides it while the phone is on. Quitting stops it.
+- Tailscale must stay connected, on the computer and on the phone. On the computer, turn on Tailscale's **Start on log in**, so it comes back after a restart. When the phone cannot reach the computer, it says so.
 - Local-only mode turns the phone off, since your sessions would leave this computer.
 
 ## What stays private

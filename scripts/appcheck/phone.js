@@ -118,6 +118,25 @@ await step("the newest message stays in view while the reader is at the end", as
   await sleep(400);
 });
 
+// Issue 060: with the keyboard open, an empty band stood between the message box and
+// the keyboard: the room kept for the home bar, which the keyboard covers. A Mac keeps
+// no such room, so the check gives the page an iPhone's.
+await step("typing, the message box sits on the keyboard", async () => {
+  const composer = document.querySelector(".phone-composer");
+  const field = composer.querySelector("textarea");
+  const room = () => parseFloat(getComputedStyle(composer).paddingBottom);
+  document.documentElement.style.setProperty("--safe-bottom", "34px");
+  await sleep(100);
+  check("not typing, it keeps the home bar's room", room() >= 40, `${room()} px`);
+  field.focus();
+  await sleep(100);
+  check("typing, that room goes, as the keyboard covers the home bar", room() <= 10, `${room()} px`);
+  field.blur();
+  await sleep(100);
+  check("and comes back when typing ends", room() >= 40, `${room()} px`);
+  document.documentElement.style.removeProperty("--safe-bottom");
+});
+
 window.scrollTo(0, 0);
 await sleep(100);
 await snap("phone-conversation");

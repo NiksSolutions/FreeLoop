@@ -33,11 +33,64 @@ test("the page links the manifest and Apple's touch icon", () => {
   assert.ok(statSync(new URL("apple-touch-icon.png", pub)).size > 0);
 });
 
-test("the worker answers no fetch and stores nothing", () => {
+test("the worker stores nothing", () => {
   const code = read("sw.js")
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .replace(/^\s*\/\/.*$/gm, "");
-  assert.doesNotMatch(code, /["']fetch["']|onfetch|\bcaches\b|indexedDB|localStorage|importScripts/);
+  assert.doesNotMatch(code, /\bcaches\b|indexedDB|localStorage|sessionStorage|importScripts|\.put\(/);
+});
+
+// The worker with a network that answers as given, and the fetch events it answered.
+function workerWith(network: (url: string) => Promise<Response>, language = "en") {
+  const listeners: Record<string, (e: unknown) => void> = {};
+  const self = {
+    addEventListener: (type: string, fn: (e: unknown) => void) => (listeners[type] = fn),
+    skipWaiting: () => {},
+    clients: { claim: () => {} },
+    navigator: { language },
+    registration: { showNotification: () => Promise.resolve() },
+  } as Record<string, unknown>;
+  new Function("self", "fetch", read("sw.js"))(self, (req: { url: string }) => network(req.url));
+  return (url: string, mode: string, method = "GET") => {
+    let answer: Promise<Response> | null = null;
+    listeners.fetch({ request: { url, mode, method }, respondWith: (p: Promise<Response>) => (answer = p) });
+    return answer as Promise<Response> | null;
+  };
+}
+
+// The home-screen app showed only a white page when the computer was out of reach (issue
+// 060): a page load of the app that the network fails gets a page saying so; every other
+// request goes to the network untouched.
+test("a page load the network fails says the computer is out of reach, and nothing else is answered", async () => {
+  const down = () => Promise.reject(new TypeError("Load failed"));
+  const fetchOf = workerWith(down, "de-CH");
+  const page = await fetchOf("https://mac.tail0.ts.net:8443/phone/", "navigate");
+  assert.ok(page, "a failed page load is answered");
+  const html = await page.text();
+  assert.match(page.headers.get("Content-Type") ?? "", /^text\/html/);
+  assert.match(html, /Der Computer ist nicht erreichbar/);
+  assert.match(html, /href="\/phone\/"/, "with a way to try again");
+  assert.doesNotMatch(html, /<script/i);
+  for (const [url, mode, method] of [
+    ["https://mac.tail0.ts.net:8443/api/summary", "cors", "GET"],
+    ["https://mac.tail0.ts.net:8443/api/sessions/s1/prompt", "cors", "POST"],
+    ["https://mac.tail0.ts.net:8443/phone/assets/index.js", "no-cors", "GET"],
+    ["https://mac.tail0.ts.net:8443/elsewhere", "navigate", "GET"],
+  ]) {
+    assert.equal(fetchOf(url, mode, method), null, `${method} ${url} (${mode}) is left to the network`);
+  }
+  // Reached, a page load is the computer's own answer.
+  const reached = new Response("<p>the app</p>", { headers: { "Content-Type": "text/html" } });
+  const answer = await workerWith(() => Promise.resolve(reached))("https://mac.tail0.ts.net:8443/phone/#session=s1", "navigate");
+  assert.equal(answer, reached);
+});
+
+test("the out-of-reach page in each language", async () => {
+  const words: Record<string, string> = { en: "Can't reach your computer", de: "Der Computer ist nicht erreichbar", nl: "De computer is niet bereikbaar", fr: "Can't reach your computer" };
+  for (const [lang, title] of Object.entries(words)) {
+    const page = await workerWith(() => Promise.reject(new TypeError("offline")), lang)("https://m/phone/", "navigate");
+    assert.match(await page!.text(), new RegExp(title), lang);
+  }
 });
 
 test("the worker is registered at /phone/ by the phone app only", () => {

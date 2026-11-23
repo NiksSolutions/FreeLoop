@@ -18,6 +18,8 @@
   --r-sm: 8px;
   --r-md: 10px;
   --r-lg: 14px;
+  /* The room an iPhone keeps for its home bar; the keyboard covers it (issue 060). */
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
   --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, "Cascadia Mono", Consolas, "DejaVu Sans Mono", "Liberation Mono", monospace;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   font-size: 16px;
@@ -417,9 +419,14 @@ pre {
   bottom: 0;
   display: grid;
   gap: 8px;
-  padding: 8px 12px calc(env(safe-area-inset-bottom) + 8px);
+  padding: 8px 12px calc(var(--safe-bottom) + 8px);
   background: var(--bg);
   border-top: 1px solid var(--border);
+}
+/* Typing, the keyboard covers the home bar, so its room would stand empty above the
+   keyboard (issue 060). */
+.phone-composer[data-keyboard] {
+  padding-bottom: 8px;
 }
 .phone-compose-row {
   display: flex;
@@ -514,6 +521,24 @@ pre {
   height: 80px;
   border-radius: var(--r-sm);
   background: var(--surface-2);
+}
+/* The computer out of reach (issue 060). */
+.phone-unreachable {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--danger);
+  border-radius: var(--r-md);
+  font-size: 14px;
+}
+.phone-composer .phone-unreachable {
+  margin: 0;
+}
+.phone-unreachable span {
+  flex: 1;
 }
 .phone-pair,
 .phone-settings {

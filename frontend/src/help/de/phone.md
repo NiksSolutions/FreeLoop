@@ -23,6 +23,7 @@ Auf einem iPhone gibt **Zum Home-Bildschirm** in Safari ein eigenes Symbol; frag
 
 - {{Der Mac muss wach bleiben. **Diesen Computer wach halten, solange eine Sitzung arbeitet oder wartet** verhindert den Ruhezustand bei Leerlauf; zugeklappt schläft er trotzdem, außer er hängt am Strom und an einem externen Bildschirm.|Der Computer muss wach bleiben. **Diesen Computer wach halten, solange eine Sitzung arbeitet oder wartet** verhindert den Ruhezustand bei Leerlauf; das Zuklappen kann ihn trotzdem schlafen legen.|Der Computer muss wach bleiben. **Diesen Computer wach halten, solange eine Sitzung arbeitet oder wartet** bittet das System, bei Leerlauf nicht zu schlafen; das Zuklappen folgt der eigenen Einstellung.}}
 - Freeloop muss weiterlaufen: Das Schließen des Fensters blendet es aus, solange das Telefon an ist. Beenden hält es an.
+- Tailscale muss verbunden bleiben, auf dem Computer und auf dem Telefon. Auf dem Computer dafür in Tailscale **Start on log in** einschalten, damit es nach einem Neustart wiederkommt. Erreicht das Telefon den Computer nicht, sagt es das.
 - Der Nur-lokal-Modus schaltet das Telefon aus, da die Sitzungen sonst diesen Computer verließen.
 
 ## Was privat bleibt

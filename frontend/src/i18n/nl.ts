@@ -1415,6 +1415,8 @@ export const nl = translationOf<typeof en>()({
   "phone.note": "Vanaf een telefoon kan een verzoek alleen één keer worden toegestaan of geweigerd; formulieren, plannen, regels en instellingen wachten op deze computer.",
   "phone.session.earlier": "Eerdere berichten staan op de computer.",
   "phone.loading": "Laden…",
+  "phone.unreachable": "De computer is niet bereikbaar. Controleren of Tailscale op deze telefoon en op de computer verbonden is en Freeloop daar draait.",
+  "phone.unreachable.retry": "Opnieuw proberen",
   "phone.tabs": "Weergaven",
   "phone.needs": "Wacht op actie",
   "phone.needs.none": "Er wacht nu niets.",

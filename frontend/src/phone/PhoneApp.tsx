@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { language, LANGUAGES, setLanguage, t, type Language } from "../i18n.ts";
 import { Markdown } from "../Markdown.tsx";
 import { createBatcher } from "../eventBatch.ts";
@@ -33,24 +33,39 @@ export default function PhoneApp() {
     return () => window.removeEventListener("hashchange", open);
   }, []);
 
-  // Paired once the summary answers; the stream keeps it fresh.
+  // Paired once the summary answers; the stream keeps it fresh and takes itself up again.
+  // While the computer is out of reach, as with Tailscale stopped, the app says so
+  // rather than show empty lists (issue 060).
+  const [unreachable, setUnreachable] = useState(false);
+  const unpaired = paired === false;
   useEffect(() => {
-    if (paired === false) return;
-    let stop = () => {};
-    api
-      .summary()
-      .then((s) => {
-        setPaired(true);
-        setSummary(s);
-        stop = followSummary(setSummary, () =>
-          api.summary().catch((err) => {
-            if (err instanceof Unpaired) setPaired(false);
-          }),
-        );
-      })
-      .catch((err) => setPaired(err instanceof Unpaired ? false : true));
-    return () => stop();
-  }, [paired]);
+    if (unpaired) return;
+    let live = true;
+    const reached = (s: Summary) => {
+      if (!live) return;
+      setPaired(true);
+      setSummary(s);
+      setUnreachable(false);
+    };
+    const check = () =>
+      api
+        .summary()
+        .then(reached)
+        .catch((err) => {
+          if (!live) return;
+          if (err instanceof Unpaired) setPaired(false);
+          else {
+            setPaired((p) => p ?? true);
+            setUnreachable(true);
+          }
+        });
+    check();
+    const stop = followSummary(reached, check);
+    return () => {
+      live = false;
+      stop();
+    };
+  }, [unpaired]);
 
   // While the app is open its icon shows how many requests wait, from the summary the
   // authenticated stream keeps fresh (never from a push).
@@ -65,16 +80,24 @@ export default function PhoneApp() {
   if (!paired) return <Pairing onPaired={() => setPaired(true)} />;
 
   const title =(sid: string) => summary?.sessions.find((s) => s.id === sid)?.title ?? sid;
+  // Below the title in the lists, above the message box in a session: where the eye is.
+  const banner = unreachable && (
+    <p role="alert" className="phone-unreachable">
+      <span>{t("phone.unreachable")}</span>
+      <button onClick={() => location.reload()}>{t("phone.unreachable.retry")}</button>
+    </p>
+  );
   return (
     <div className="phone">
       {screen.kind === "session" ? (
-        <SessionScreen id={screen.id} title={title(screen.id)} onBack={() => setScreen({ kind: "sessions" })} />
+        <SessionScreen id={screen.id} title={title(screen.id)} banner={banner} onBack={() => setScreen({ kind: "sessions" })} />
       ) : (
         <>
           <header className="phone-bar">
             <h1>Freeloop</h1>
           </header>
           <main className="phone-main">
+            {banner}
             {screen.kind === "needs" && <Needs summary={summary} title={title} onOpen={(id) => setScreen({ kind: "session", id })} />}
             {screen.kind === "sessions" && <Sessions summary={summary} onOpen={(id) => setScreen({ kind: "session", id })} />}
             {screen.kind === "settings" && (
@@ -197,7 +220,9 @@ function RequestCard({ req, onDone }: { req: PhoneRequest; onDone?: () => void }
 }
 
 function Needs({ summary, title, onOpen }: { summary: Summary | null; title: (sid: string) => string; onOpen: (id: string) => void }) {
-  const list = summary?.attention ?? [];
+  // Nothing read yet, as while the computer is out of reach: no claim that nothing waits.
+  if (!summary) return null;
+  const list = summary.attention;
   if (list.length === 0) return <p className="phone-note">{t("phone.needs.none")}</p>;
   return (
     <ul className="phone-list">
@@ -220,7 +245,8 @@ function Needs({ summary, title, onOpen }: { summary: Summary | null; title: (si
 const statusKey = { running: "phone.status.running", waiting_permission: "phone.status.waiting", waiting_input: "phone.status.waiting", error: "phone.status.error", queued: "phone.status.queued" } as const;
 
 function Sessions({ summary, onOpen }: { summary: Summary | null; onOpen: (id: string) => void }) {
-  const list = summary?.sessions ?? [];
+  if (!summary) return null;
+  const list = summary.sessions;
   if (list.length === 0) return <p className="phone-note">{t("phone.sessions.none")}</p>;
   return (
     <ul className="phone-list">
@@ -247,7 +273,7 @@ function toEnd() {
 // How many events a session opens with on the phone: its end, as on the computer (issue 046).
 const PHONE_TAIL = 2000;
 
-function SessionScreen({ id, title, onBack }: { id: string; title: string; onBack: () => void }) {
+function SessionScreen({ id, title, banner, onBack }: { id: string; title: string; banner: ReactNode; onBack: () => void }) {
   const [tr, setTr] = useState<Transcript>(emptyTranscript);
   const [text, setText] = useState("");
   const [error, setError] = useState("");
@@ -312,6 +338,9 @@ function SessionScreen({ id, title, onBack }: { id: string; title: string; onBac
   }, [text]);
   // Pictures for the next message (issue 058), scaled down as on the computer.
   const [pictures, setPictures] = useState<(Picture & { id: number })[]>([]);
+  // Typing, the keyboard covers the home bar, so the message box drops the room it
+  // keeps for it (issue 060).
+  const [typing, setTyping] = useState(false);
   const [sending, setSending] = useState(false);
   const chooser = useRef<HTMLInputElement>(null);
   const nextPicture = useRef(0);
@@ -362,7 +391,8 @@ function SessionScreen({ id, title, onBack }: { id: string; title: string; onBac
           <PhoneItem key={item.key} item={item} sid={id} />
         ))}
       </main>
-      <footer className="phone-composer" ref={composer}>
+      <footer className="phone-composer" ref={composer} data-keyboard={typing ? "" : undefined}>
+        {banner}
         {error && <p role="alert">{error}</p>}
         {pictures.length > 0 && (
           <ul className="phone-pictures" aria-label={t("composer.pictures")}>
@@ -400,6 +430,8 @@ function SessionScreen({ id, title, onBack }: { id: string; title: string; onBac
             ref={field}
             value={text}
             onChange={(e) => setText(e.target.value)}
+            onFocus={() => setTyping(true)}
+            onBlur={() => setTyping(false)}
             onPaste={(e) => {
               const pasted = pastedPictures(e.clipboardData.files);
               if (pasted.length === 0) return;

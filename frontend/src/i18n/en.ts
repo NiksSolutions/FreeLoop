@@ -1583,6 +1583,8 @@ export const en = {
   "phone.note": "From a phone a request can only be allowed or denied once; forms, plans, rules and settings wait for this computer.",
   "phone.session.earlier": "Earlier messages are on the computer.",
   "phone.loading": "Loading…",
+  "phone.unreachable": "Can't reach your computer. Check that Tailscale is connected on this phone and on the computer, and that Freeloop is running there.",
+  "phone.unreachable.retry": "Try again",
   "phone.tabs": "Views",
   "phone.needs": "Needs you",
   "phone.needs.none": "Nothing needs you right now.",

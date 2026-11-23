@@ -1417,6 +1417,8 @@ export const de = translationOf<typeof en>()({
   "phone.note": "Vom Telefon lässt sich eine Anfrage nur einmal erlauben oder ablehnen; Formulare, Pläne, Regeln und Einstellungen warten auf diesen Computer.",
   "phone.session.earlier": "Frühere Nachrichten sind auf dem Computer.",
   "phone.loading": "Wird geladen…",
+  "phone.unreachable": "Der Computer ist nicht erreichbar. Prüfen, ob Tailscale auf diesem Telefon und auf dem Computer verbunden ist und Freeloop dort läuft.",
+  "phone.unreachable.retry": "Erneut versuchen",
   "phone.tabs": "Ansichten",
   "phone.needs": "Zu erledigen",
   "phone.needs.none": "Gerade wartet nichts.",
