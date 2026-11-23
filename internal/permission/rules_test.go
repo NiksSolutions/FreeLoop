@@ -2,6 +2,7 @@ package permission
 
 import (
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"testing"
 )
@@ -136,6 +137,51 @@ func TestRuleFor(t *testing.T) {
 
 // On Windows a backslash in a rule's path is a separator, so src\** is src/**; elsewhere
 // it escapes, as path.Match has it (NFR-XPLAT-003).
+// A rule's path written with ./, as Claude Code's documentation writes Read(./.env),
+// matches what it names without it, for the broker and for a sandbox. Compared segment
+// by segment, the . matched no file, and a deny rule written so protected nothing.
+func TestARulePathWithDotSlashMatches(t *testing.T) {
+	root := filepath.FromSlash("/work/repo")
+	read := func(p string) Request {
+		return Request{Tool: "read_file", Kind: KindRead, Paths: []string{filepath.FromSlash(p)}}
+	}
+	for _, c := range []struct {
+		rule Rule
+		req  Request
+		want bool
+	}{
+		{Rule{Effect: Deny, Tool: "read_file", Path: "./.env"}, read("/work/repo/.env"), true},
+		{Rule{Effect: Deny, Tool: "read_file", Path: "./secrets/**"}, read("/work/repo/secrets/a/b"), true},
+		{Rule{Effect: Deny, Tool: "read_file", Path: ".//./secrets/*"}, read("/work/repo/secrets/a"), true},
+		{Rule{Effect: Deny, Tool: "read_file", Path: "./.env"}, read("/work/repo/sub/.env"), false},
+		{Rule{Effect: Deny, Tool: "read_file", Path: "./.env", Literal: true}, read("/work/repo/.env"), true},
+		{Rule{Effect: Allow, Tool: "read_file", Path: "./src/**"}, read("/work/repo/src/a.go"), true},
+		{Rule{Effect: Allow, Tool: "read_file", Path: "./"}, read("/work/repo/a.go"), false},
+		// A backslash is a separator on Windows only.
+		{Rule{Effect: Deny, Tool: "read_file", Path: `.\secrets\**`}, read("/work/repo/secrets/a"), runtime.GOOS == "windows"},
+	} {
+		if got := c.rule.Matches(c.req, root); got != c.want {
+			t.Errorf("%s on %v = %v, want %v", c.rule, c.req.Paths, got, c.want)
+		}
+	}
+	denied, _ := DeniedPathPatterns([]Rule{
+		{Effect: Deny, Tool: "read_file", Path: "./.env"},
+		{Effect: Deny, Tool: "read_file", Path: "./secrets/**"},
+		{Effect: Deny, Tool: "read_file", Path: "./key.txt", Literal: true},
+	}, "/repo")
+	for i, c := range []struct {
+		path string
+		want bool
+	}{{"/repo/.env", true}, {"/repo/secrets/a/b", true}, {"/repo/key.txt", true}} {
+		if got := regexp.MustCompile(denied[i]).MatchString(c.path); got != c.want {
+			t.Errorf("%s on %s = %v", denied[i], c.path, got)
+		}
+	}
+	if regexp.MustCompile(denied[0]).MatchString("/repo/sub/.env") {
+		t.Errorf("%s matches /repo/sub/.env", denied[0])
+	}
+}
+
 func TestRulePathSeparators(t *testing.T) {
 	for _, c := range []struct {
 		goos, pattern string

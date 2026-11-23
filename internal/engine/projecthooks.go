@@ -23,10 +23,15 @@ import (
 // checkout, runs none of its hooks until the user approves it in Settings, where
 // it waits with the app's other approvals; the session says so, since a guard
 // may be among them. A project with no hooks needs nothing, and untrusting one
-// ends the approval of what it holds.
+// ends the approval of what it holds. Its worktree scripts are approved the same
+// way, on their own mark (worktreescripts.go).
 
 // pendingProjectHooks is the PendingCommand kind of a project's hook set.
 const pendingProjectHooks = "project_hooks"
+
+// pendingProjectWorktree is the PendingCommand kind of a project's worktree scripts
+// (worktreescripts.go).
+const pendingProjectWorktree = "project_worktree"
 
 // projectHookSet is a project's hooks as one set: hooks.yaml, then its profiles'.
 func projectHookSet(pc projectConfig) []config.Hook {
@@ -86,13 +91,25 @@ func describeHooks(hooks []config.Hook) string {
 	return strings.Join(parts, "; ")
 }
 
-// projectHookItems lists every trusted project's hook set, for PendingCommands.
-func (e *Engine) projectHookItems() []PendingCommand {
+// projectList lists the projects, for what their files ask to be approved.
+func (e *Engine) projectList() []session.Project {
 	projects, err := e.store.ListProjects(context.Background())
 	if err != nil {
-		log.Printf("engine: projects' hooks: %v", err)
+		log.Printf("engine: projects' hooks and scripts: %v", err)
 		return nil
 	}
+	return projects
+}
+
+// projectItems lists every trusted project's hook set and worktree scripts, for
+// PendingCommands.
+func (e *Engine) projectItems() []PendingCommand {
+	projects := e.projectList()
+	return append(e.projectHookItems(projects), e.projectWorktreeItems(projects)...)
+}
+
+// projectHookItems lists every trusted project's hook set.
+func (e *Engine) projectHookItems(projects []session.Project) []PendingCommand {
 	var out []PendingCommand
 	for _, p := range projects {
 		if !p.Trusted {
@@ -116,23 +133,42 @@ func (e *Engine) projectHooksMark(p session.Project) (string, error) {
 	return e.approvalMark(fp)
 }
 
-// approveProjectHooks approves a project's hooks as they are now, as trusting it does.
-func (e *Engine) approveProjectHooks(p session.Project) error {
-	mark, err := e.projectHooksMark(p)
-	if err != nil || mark == "" {
-		return err
+// projectMarks are the marks approving a project's hooks and worktree scripts as its
+// files hold them now, read afresh.
+func (e *Engine) projectMarks(p session.Project) ([]string, error) {
+	var marks []string
+	for _, markOf := range []func(session.Project) (string, error){e.projectHooksMark, e.projectWorktreeMark} {
+		mark, err := markOf(p)
+		if err != nil {
+			return nil, err
+		}
+		if mark != "" {
+			marks = append(marks, mark)
+		}
 	}
-	return e.addApprovals([]string{mark})
+	return marks, nil
 }
 
-// revokeProjectHooks ends the approval of a project's hooks as they are now.
-func (e *Engine) revokeProjectHooks(p session.Project) error {
-	mark, err := e.projectHooksMark(p)
-	if err != nil || mark == "" || !slices.Contains(e.Config().CommandApprovals, mark) {
+// approveProjectCommands approves a project's hooks and worktree scripts as they are
+// now, as trusting it does.
+func (e *Engine) approveProjectCommands(p session.Project) error {
+	marks, err := e.projectMarks(p)
+	if err != nil {
+		return err
+	}
+	return e.addApprovals(marks)
+}
+
+// revokeProjectCommands ends the approval of a project's hooks and worktree scripts
+// as they are now.
+func (e *Engine) revokeProjectCommands(p session.Project) error {
+	marks, err := e.projectMarks(p)
+	approved := func(m string) bool { return slices.Contains(marks, m) }
+	if err != nil || !slices.ContainsFunc(e.Config().CommandApprovals, approved) {
 		return err
 	}
 	e.mu.Lock()
-	e.cfg.CommandApprovals = slices.DeleteFunc(slices.Clone(e.cfg.CommandApprovals), func(m string) bool { return m == mark })
+	e.cfg.CommandApprovals = slices.DeleteFunc(slices.Clone(e.cfg.CommandApprovals), approved)
 	e.mu.Unlock()
 	_, err = e.saveSettings(e.Config(), nil)
 	return err
@@ -156,7 +192,7 @@ func (e *Engine) adoptProjectHooks() {
 		return
 	}
 	var marks []string
-	for _, c := range e.projectHookItems() {
+	for _, c := range e.projectHookItems(e.projectList()) {
 		mark, err := e.approvalMark(c.Fingerprint)
 		if err != nil {
 			log.Printf("engine: adopt projects' hooks: %v", err)

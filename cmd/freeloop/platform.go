@@ -37,6 +37,10 @@ type platform struct {
 	// HideOnClose hides the last window rather than minimising it, while the app has
 	// to stay running: a Mac's Dock brings it back.
 	HideOnClose bool
+	// PageOrigin is the http origin the system's web view gives the app's own page,
+	// which its engine calls carry and which is then taken (netguard.RuntimeCallAllowed);
+	// empty where the page comes from Wails' wails: URL scheme.
+	PageOrigin string
 	// UpdateKind, ApplyUpdate and FinishUpdate replace this copy of the app with a
 	// release's file (SET-008): which kind of file, putting it in place, and
 	// clearing up once the new copy runs.

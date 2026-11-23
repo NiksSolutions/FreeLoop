@@ -35,7 +35,7 @@ import { pickLabel } from "./a11y.ts";
 import AttachedImages from "./AttachedImages.tsx";
 import { useDismiss } from "./useDismiss.ts";
 import { placeholder, tabAction } from "./composer.ts";
-import ToolView, { openSessionEvent } from "./ToolView.tsx";
+import ToolView, { noteApprovalTarget, openSessionEvent } from "./ToolView.tsx";
 import Tags from "./Tags.tsx";
 import { prepareImage, type PreparedImage } from "./imageprep.ts";
 import { addText, isPicture, type TextFile } from "./attach.ts";
@@ -156,6 +156,10 @@ export default function SessionView({ session, transcript, focus, prices, initia
     if (wasSplit.current !== split) setPanelOpen(!split && panelOpenInitially());
     wasSplit.current = split;
   }, [split]);
+  // Another pane becoming the active one gives the approval keys another card (GUI-017).
+  useEffect(() => {
+    if (active) noteApprovalTarget();
+  }, [active]);
   const togglePanel = () =>
     setPanelOpen((open) => {
       if (split) return !open;

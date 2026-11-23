@@ -69,7 +69,7 @@ The letters Y, A and N work only when no text field has focus. These work from a
 
 In Needs attention, J and K or the arrow keys choose which request the keys answer.
 
-> A new card ignores these keys for a moment after it appears, so a key you pressed for something else can't approve a call you haven't read.
+> A card ignores these keys for a moment after it becomes the one they answer, when it appears or the one before it is answered, so a key you pressed for something else can't approve a call you haven't read. A held key answers once, no key answers while a dialog such as the command palette is open, and a plan is answered only with its own buttons, in its session.
 
 ## Earlier prompts and completion in the message box
 

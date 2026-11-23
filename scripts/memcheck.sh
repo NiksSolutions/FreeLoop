@@ -6,7 +6,7 @@
 # (what Activity Monitor shows as Memory) of the app's own process and of the
 # WebKit processes that appeared with it, then counts the processes ten sessions
 # on the reference agent hold before and after the idle time (OQ-053). Exits 1
-# above the budget.
+# above the budget, and when a process could not be measured.
 #
 #   scripts/memcheck.sh [path to the app binary] [budget in MB]
 #
@@ -59,23 +59,44 @@ done
 
 sleep "$SETTLE"
 
-# footprint prints "Footprint: <n> KB|MB|GB" per process.
-mb() {
-  footprint "$@" 2>/dev/null | awk '/Footprint:/ && !/^Summary/ {
+# footprint prints "Footprint: <n> KB|MB|GB" per process, and skips one it
+# cannot find with a message and status 0. mb prints the total in MB only when
+# every process given was measured: an empty or failed measurement once read as
+# 0 MB, and the check passed on it.
+mb() { # process ids
+  want=$#
+  for p; do
+    set -- "$@" -p "$p"
+    shift
+  done
+  footprint "$@" 2>/dev/null | awk -v want="$want" '/Footprint:/ && !/^Summary/ {
     for (i = 1; i <= NF; i++) if ($i == "Footprint:") { v = $(i + 1); u = $(i + 2) }
     if (u == "KB") v /= 1024; else if (u == "GB") v *= 1024; else if (u == "B") v /= 1048576
-    t += v } END { printf "%.0f", t }'
+    t += v; got++ } END { if (want > 0 && got == want) printf "%.0f", t }'
 }
-app_mb=$(mb -p "$pid")
+# A measurement is a whole number of MB above zero; anything else is a failure,
+# never a pass.
+measured() { # what was measured, the measurement
+  case "$2" in
+  '' | *[!0-9]* | 0)
+    echo "could not measure $1 (footprint gave \"$2\"), so there is nothing to hold against the budget" >&2
+    exit 1
+    ;;
+  esac
+}
+app_mb=$(mb "$pid")
+measured "the app process" "$app_mb"
 if [ -n "$before" ]; then
   helpers=$(webkit | grep -vxF "$before" || true)
 else
   helpers=$(webkit || true)
 fi
-helper_args=""
-for h in $helpers; do helper_args="$helper_args -p $h"; done
-helper_mb=0
-[ -z "$helper_args" ] || helper_mb=$(mb $helper_args)
+# The window always starts WebKit processes of its own; finding none means their
+# share would be left out of the total.
+[ -n "$helpers" ] || { echo "found no WebKit process started with the app, so the window's memory cannot be measured" >&2; exit 1; }
+# shellcheck disable=SC2086 # one process id per word
+helper_mb=$(mb $helpers)
+measured "the WebKit processes" "$helper_mb"
 total=$((app_mb + helper_mb))
 
 echo "app process:        ${app_mb} MB"

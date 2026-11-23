@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { approvalHint, approvalShortcut, formLabel, optionLabel, bindingOf, bindingProblem, comboOf, isTextField, keyLabel, optionKind, pressed, setBindings } from "./shortcuts.ts";
+import { APPROVAL_GRACE_MS, ApprovalTarget, approvalHint, approvalKey, approvalShortcut, formLabel, optionLabel, bindingOf, bindingProblem, comboOf, isTextField, keyLabel, optionKind, pressed, setBindings } from "./shortcuts.ts";
 import { setPlatform } from "./platform.ts";
 import { setLanguage } from "./i18n.ts";
 
@@ -32,6 +32,49 @@ test("command forms work in text fields", () => {
   assert.equal(approvalShortcut(k("Backspace", { metaKey: true }), true), null);
   assert.equal(approvalShortcut(k("Enter", { metaKey: true, ctrlKey: true }), false), null);
   assert.equal(approvalShortcut(k("y", { metaKey: true }), false), null);
+});
+
+// GUI-006, GUI-017, GUI-002: the guard every approval key passes, in the conversation
+// and in Attention alike.
+const event = (key: string, more: Partial<{ metaKey: boolean; shiftKey: boolean; repeat: boolean; defaultPrevented: boolean; isComposing: boolean }> = {}) => ({
+  ...k(key, more),
+  repeat: false,
+  defaultPrevented: false,
+  isComposing: false,
+  ...more,
+});
+const at = (more: Partial<{ inField: boolean; covered: boolean; since: number; now: number }> = {}) => ({ inField: false, covered: false, since: 0, now: 10_000, ...more });
+
+test("an approval key names its answer, and is early within the grace period", () => {
+  assert.deepEqual(approvalKey(event("y"), at()), { kind: "allow_once", early: false });
+  assert.deepEqual(approvalKey(event("Enter", { metaKey: true }), at({ inField: true })), { kind: "allow_once", early: false });
+  assert.deepEqual(approvalKey(event("n"), at({ since: 10_000 - APPROVAL_GRACE_MS + 1 })), { kind: "reject", early: true });
+  assert.deepEqual(approvalKey(event("n"), at({ since: 10_000 - APPROVAL_GRACE_MS })), { kind: "reject", early: false });
+  assert.equal(approvalKey(event("x"), at()), null);
+  assert.equal(approvalKey(event("y"), at({ inField: true })), null);
+});
+
+test("a held key, a key taken or composing, and any key under a dialog answer nothing", () => {
+  assert.equal(approvalKey(event("y", { repeat: true }), at()), null);
+  assert.equal(approvalKey(event("y", { defaultPrevented: true }), at()), null);
+  assert.equal(approvalKey(event("y", { isComposing: true }), at()), null);
+  assert.equal(approvalKey(event("y"), at({ covered: true })), null);
+  assert.equal(approvalKey(event("Enter", { metaKey: true }), at({ covered: true, inField: true })), null);
+});
+
+test("the grace period runs from when one becomes what the keys answer, not from each redraw", () => {
+  const target = new ApprovalTarget<string>();
+  target.set("a", 1000);
+  // A note typed on the card redraws it: its time stands.
+  target.set("a", 1300);
+  assert.equal(target.since("a", 1350), 1000);
+  // Answering it makes the next one the target, from then.
+  target.set("b", 2000);
+  assert.equal(target.since("b", 2100), 2000);
+  // One the keys did not know they answer starts now.
+  assert.equal(target.since("c", 2500), 2500);
+  target.set(null, 3000);
+  assert.equal(target.since("c", 3100), 3100);
 });
 
 test("option kinds", () => {

@@ -216,6 +216,7 @@ export const en = {
   "pending.group.addresses": "Where things would be sent",
   "pending.kind.hook": "Hook ({event})",
   "pending.kind.projectHooks": "A trusted project's changed hooks",
+  "pending.kind.projectWorktree": "A trusted project's changed worktree scripts",
   "pending.kind.agent": "Agent",
   "pending.kind.optimizer": "Token optimizer",
   "pending.kind.mcp": "MCP server",
@@ -2110,6 +2111,8 @@ export const en = {
   "attention.waitingSince": "waiting since {ago}",
   "attention.input": "Input",
   "attention.savesRule": "Saves a rule",
+  "attention.planInSession": "A plan is approved or sent back in its session, where it can be read and commented on.",
+  "attention.reviewPlan": "Review the plan",
 
   // The Workflows page in Settings (Workflows.tsx); workflow, stage, skill and command
   // names are shown as given.
@@ -2757,6 +2760,7 @@ export const en = {
   // {file} is .freeloop/worktree.yaml; {port}, {root} and {worktree} are variables, as code.
   "worktreeScripts.intro":
     "Values here override the project's {file}; leave one empty to use the file's. Commands run in the worktree with the environment's variables and {port}, {root} and {worktree}: on this computer, or in the session's container in a Docker environment, where the main checkout's files are not available. Copies always come from the main checkout on this computer.",
+  "worktreeScripts.waiting": "The scripts in {file} changed since they were approved, so none of their commands run and nothing is copied until they are approved in Settings → Permissions.",
   "worktreeScripts.copy": "Copy from the main checkout",
   "worktreeScripts.copyHint": "(one path a line, such as .env)",
 

@@ -703,7 +703,7 @@ func (r Rule) matchPath(root, p string) bool {
 	// Both spelled without macOS's data volume name, which is another spelling of the
 	// same place (SEC-005).
 	p = environment.Unaliased(filepath.Clean(p))
-	pattern := environment.Unaliased(rulePath(goruntime.GOOS, r.Path, r.Literal))
+	pattern := environment.Unaliased(TrimDotSlash(rulePath(goruntime.GOOS, r.Path, r.Literal)))
 	if r.Literal {
 		if filepath.IsAbs(pattern) {
 			return environment.FoldPath(filepath.Clean(pattern)) == environment.FoldPath(p)
@@ -743,6 +743,21 @@ func rulePath(goos, pattern string, literal bool) string {
 		return strings.ReplaceAll(pattern, `\`, "/")
 	}
 	return pattern
+}
+
+// TrimDotSlash drops a leading ./ from a rule's path, as Claude Code's documentation
+// writes Read(./.env): compared segment by segment, the . matches no file, and a deny
+// rule written so would protect nothing. A path that is only ./ stays as it is, so it
+// never turns into a rule for every path.
+func TrimDotSlash(p string) string {
+	for {
+		rest, ok := strings.CutPrefix(p, "./")
+		rest = strings.TrimLeft(rest, "/")
+		if !ok || rest == "" {
+			return p
+		}
+		p = rest
+	}
 }
 
 // absSpellings returns an absolute pattern under each spelling of its
@@ -826,7 +841,7 @@ func DeniedPathPatterns(rules []Rule, root string) (read, write []string) {
 		if r.Effect != Deny || r.Path == "" {
 			continue
 		}
-		re := pathRegex(filepath.ToSlash(r.Path), root, r.Literal)
+		re := pathRegex(TrimDotSlash(filepath.ToSlash(r.Path)), root, r.Literal)
 		switch {
 		case covers(r, "read_file", "grep", "glob", "list_dir"):
 			read = append(read, re)

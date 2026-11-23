@@ -34,7 +34,8 @@ import (
 // cannot read. The app adds the mark when the user writes the command in the app
 // or approves it in Settings; a command edited in a file waits for approval. A
 // project's own hooks get their mark when the project is trusted, as one set,
-// and a set that changed since waits here too (projecthooks.go, SEC-006).
+// and a set that changed since waits here too (projecthooks.go, SEC-006), as do
+// its worktree scripts (worktreescripts.go).
 //
 // The same holds for what changes how much is asked or confined without running
 // anything itself (SEC-002, ENV-009, SEC-001): an allow rule, an environment's
@@ -490,10 +491,10 @@ func describePreset(p config.HarnessPreset) string {
 }
 
 // PendingCommands lists the commands from files waiting for the user's approval,
-// trusted projects' changed hooks among them.
+// trusted projects' changed hooks and worktree scripts among them.
 func (e *Engine) PendingCommands() []PendingCommand {
 	out := []PendingCommand{}
-	for _, c := range append(e.fileCommands(), e.projectHookItems()...) {
+	for _, c := range append(e.fileCommands(), e.projectItems()...) {
 		if !e.commandApproved(c.Fingerprint) {
 			out = append(out, c)
 		}
@@ -623,7 +624,7 @@ func (e *Engine) pendingIssues() []config.Issue {
 	var out []config.Issue
 	for _, c := range e.PendingCommands() {
 		msg := "%s does not run until you approve it in Settings"
-		if c.Kind != pendingHook && c.Kind != pendingAgent && c.Kind != pendingProjectHooks {
+		if c.Kind != pendingHook && c.Kind != pendingAgent && c.Kind != pendingProjectHooks && c.Kind != pendingProjectWorktree {
 			msg = "%s does not apply until you approve it in Settings"
 		}
 		out = append(out, config.Issue{File: c.Source, Message: fmt.Sprintf(msg, c.Runs), Approval: true})

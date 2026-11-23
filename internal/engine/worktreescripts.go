@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"path"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -31,6 +32,17 @@ import (
 // variables and secrets: on this computer in the worktree, or in the session's
 // container (scriptHost); an untrusted project runs nothing. Files are copied
 // on the host, because the main checkout is not in the container.
+//
+// A trusted project's .freeloop/worktree.yaml is approved as its hooks are
+// (projecthooks.go, SEC-006): trusting the project approves the file as it is then,
+// with a mark from approvalMark, and a file that differs since, from a pull, a branch
+// switch or anything else that writes the checkout, runs none of its commands and
+// copies nothing until the user approves it in Settings, where it waits with the
+// app's other approvals; the session says so. The copy list is part of what is
+// approved: the trust prompt lists it, and a longer one hands the agent, and a
+// container that cannot see the main checkout, files the repository ignores, such as
+// another .env. Scripts set in the app are the user's own and need no mark. A project
+// trusted before this check has no mark for its file and is asked once.
 
 // Ports: each worktree session gets portBlock ports from FirstPort up, the
 // lowest block no session that is not archived holds.
@@ -85,6 +97,9 @@ type ProjectScriptsInfo struct {
 	RepoError string                 `json:"repoError,omitempty"`
 	App       config.WorktreeScripts `json:"app"`
 	Effective config.WorktreeScripts `json:"effective"`
+	// RepoWaiting says the project's file differs from what was approved, so none of it
+	// applies until the user approves it in Settings.
+	RepoWaiting bool `json:"repoWaiting,omitempty"`
 }
 
 // repoScripts reads a project's .freeloop/worktree.yaml, if any.
@@ -126,12 +141,74 @@ func (e *Engine) ProjectScripts(ctx context.Context, projectID string) (ProjectS
 		}
 	}
 	if p.Trusted {
-		info.Effective = info.Repo.Over(info.App)
+		repo := info.Repo
+		if !e.projectWorktreeApproved(p, repo) {
+			info.RepoWaiting, repo = true, config.WorktreeScripts{}
+		}
+		info.Effective = repo.Over(info.App)
 	}
 	if info.Effective.Copy == nil {
 		info.Effective.Copy = []string{}
 	}
 	return info, nil
+}
+
+// projectWorktreeApproved reports whether a project's worktree.yaml may apply as it is.
+func (e *Engine) projectWorktreeApproved(p session.Project, repo config.WorktreeScripts) bool {
+	fp := config.ProjectWorktreeFingerprint(p.ID, p.Root, repo)
+	return fp == "" || e.commandApproved(fp)
+}
+
+// describeWorktreeScripts is what a worktree.yaml copies and runs, for an approval.
+func describeWorktreeScripts(w config.WorktreeScripts) string {
+	var parts []string
+	if len(w.Copy) > 0 {
+		parts = append(parts, "copy: "+strings.Join(w.Copy, ", "))
+	}
+	for _, f := range []struct{ name, cmd string }{{"setup", w.Setup}, {"run", w.Run}, {"archive", w.Archive}} {
+		if strings.TrimSpace(f.cmd) != "" {
+			parts = append(parts, f.name+": "+f.cmd)
+		}
+	}
+	return strings.Join(parts, "; ")
+}
+
+// worktreeFile is where a project's worktree scripts are, as Settings names it.
+func worktreeFile(root string) string {
+	return filepath.Join(root, ProjectDir, config.WorktreeFileName)
+}
+
+// projectWorktreeItems lists every trusted project's worktree scripts, for
+// PendingCommands.
+func (e *Engine) projectWorktreeItems(projects []session.Project) []PendingCommand {
+	var out []PendingCommand
+	for _, p := range projects {
+		if !p.Trusted {
+			continue
+		}
+		repo, err := e.repoScripts(p.Root)
+		if err != nil {
+			continue
+		}
+		if fp := config.ProjectWorktreeFingerprint(p.ID, p.Root, repo); fp != "" {
+			out = append(out, PendingCommand{Kind: pendingProjectWorktree, Source: worktreeFile(p.Root), Runs: describeWorktreeScripts(repo), Fingerprint: fp})
+		}
+	}
+	return out
+}
+
+// projectWorktreeMark is the mark approving a project's worktree scripts as its file
+// holds them now, read afresh; "" when it sets none.
+func (e *Engine) projectWorktreeMark(p session.Project) (string, error) {
+	repo, err := e.repoScripts(p.Root)
+	if err != nil {
+		return "", nil
+	}
+	fp := config.ProjectWorktreeFingerprint(p.ID, p.Root, repo)
+	if fp == "" {
+		return "", nil
+	}
+	return e.approvalMark(fp)
 }
 
 // SetProjectScripts records the worktree scripts set in the app for a
@@ -156,7 +233,8 @@ func (e *Engine) SetProjectScripts(ctx context.Context, projectID string, w conf
 	return e.store.SetProjectScripts(ctx, projectID, raw)
 }
 
-// scriptsFor returns the scripts that apply to a session's worktree.
+// scriptsFor returns the scripts that apply to a session's worktree, telling the
+// session when the project's own wait for approval.
 func (e *Engine) scriptsFor(ctx context.Context, ses session.Session) config.WorktreeScripts {
 	if ses.Worktree == "" || ses.ProjectID == "" {
 		return config.WorktreeScripts{}
@@ -164,6 +242,11 @@ func (e *Engine) scriptsFor(ctx context.Context, ses session.Session) config.Wor
 	info, err := e.ProjectScripts(ctx, ses.ProjectID)
 	if err != nil {
 		return config.WorktreeScripts{}
+	}
+	if info.RepoWaiting {
+		e.emit(ses.ID, event.Notice, event.NoticeData{Message: fmt.Sprintf(
+			"The worktree scripts in %s are not the ones approved when the project was trusted, so none of their commands run and nothing is copied until you approve them as they are now in Settings, Permissions: %s",
+			worktreeFile(ses.ProjectRoot), capText(describeWorktreeScripts(info.Repo)))})
 	}
 	return info.Effective
 }
@@ -400,6 +483,9 @@ func (e *Engine) RunWorktreeScript(ctx context.Context, sid string) (TerminalInf
 	}
 	run := e.scriptsFor(ctx, ses).Run
 	if run == "" {
+		if info, err := e.ProjectScripts(ctx, ses.ProjectID); err == nil && info.RepoWaiting && info.Repo.Run != "" {
+			return TerminalInfo{}, fmt.Errorf("the run command in %s changed since it was approved; approve it in Settings, Permissions", worktreeFile(ses.ProjectRoot))
+		}
 		return TerminalInfo{}, errors.New("the project has no run command; set one in its worktree scripts")
 	}
 	return e.openTerminal(ctx, sid, run)

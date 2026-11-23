@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -53,17 +54,24 @@ type Changes struct {
 }
 
 func gitRun(ctx context.Context, env environment.Environment, timeout time.Duration, args ...string) (environment.ExecResult, error) {
-	return gitRunOver(ctx, env, timeout, "", args...)
+	return gitRunWith(ctx, env, timeout, nil, args...)
 }
 
 // gitRunOver is gitRun for the few commands that must reach a repository, over
 // the transports listed: a colon-separated GIT_ALLOW_PROTOCOL, never ext or fd.
 func gitRunOver(ctx context.Context, env environment.Environment, timeout time.Duration, transports string, args ...string) (environment.ExecResult, error) {
+	return gitRunWith(ctx, env, timeout, map[string]string{"GIT_ALLOW_PROTOCOL": transports}, args...)
+}
+
+// gitRunWith is gitRun with more in git's environment.
+func gitRunWith(ctx context.Context, env environment.Environment, timeout time.Duration, more map[string]string, args ...string) (environment.ExecResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	vars := map[string]string{"GIT_EDITOR": "true"}
+	maps.Copy(vars, more)
 	res, err := env.Exec(ctx, environment.ExecSpec{
 		Argv:      gitArgv(env, args...),
-		Env:       gitEnvFor(env, map[string]string{"GIT_EDITOR": "true", "GIT_ALLOW_PROTOCOL": transports}),
+		Env:       gitEnvFor(env, vars),
 		MaxOutput: 1 << 20,
 		Timeout:   timeout,
 	})

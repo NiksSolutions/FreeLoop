@@ -7,8 +7,9 @@ on:
       - "docs/**"
       - "*.md"
   pull_request:
-  # Run from the Actions page: the macOS build and the real-app check. With dry_run, the
-  # release job builds what a release would hold and keeps it as an artifact.
+  # Run from the Actions page: the macOS build and the real-app check. With dry_run, also
+  # the real agents, and the release job builds what a release would hold and keeps it,
+  # unsigned, as an artifact.
   workflow_dispatch:
     inputs:
       dry_run:
@@ -27,8 +28,13 @@ permissions:
 # 2026-11-13, its minutes are free and the split stays for the time a push takes: the
 # tests on Linux and on Windows for every push that changes more than documents, the
 # macOS build, lint and real-app check on tags and from the Actions page, where the
-# Windows and Linux packages are built too (NFR-XPLAT-003), and the real agents weekly
-# and on tags (docs/ROADMAP.md, "From here to 0.1.0").
+# Windows and Linux packages are built too (NFR-XPLAT-003), and the real agents weekly,
+# on tags and in a dry run (docs/ROADMAP.md, "From here to 0.1.0").
+#
+# A release (SEC-012, SEC-021, NFR-SEC-004) is built only after every check has passed,
+# by jobs that restore no cache and check the modules against go.sum first; its
+# checksums are signed in a job that runs nothing but the signing tool, and the key
+# reaches only a tag's run (issue 065; docs/DEVELOPING.md, "Making a release").
 jobs:
   # Every commit of a pull request carries a Developer Certificate of Origin sign-off
   # by its author, as CONTRIBUTING.md asks (OQ-017).
@@ -223,8 +229,10 @@ jobs:
           for arch in amd64 arm64; do ARCH=$arch wails3 task windows:build:exe SHIPPED=1; done
           file bin/windows-*/Freeloop.exe || true
 
+  # The Mac on tags and from the Actions page: the build, the tests, lint and the real
+  # app in WebKit, and on tags the reproducibility check.
   build:
-    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     runs-on: macos-15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -246,45 +254,65 @@ jobs:
         run: make verify-deps
 
       - name: Engine and frontend tests
-        if: github.event_name != 'schedule'
         run: make test
 
       - name: Build app
-        if: github.event_name != 'schedule'
         run: make build
 
       - name: Lint
-        if: github.event_name != 'schedule'
         run: |
           go vet ./cmd/...
           make lint
 
       # The real interface in a real WebKit view, on scratch data (GUI-030).
       - name: The app works in WebKit
-        if: github.event_name != 'schedule'
         run: make check-app
 
       # What a failed check looked like: a picture of each, the app's log and the results.
       - name: Keep what the app check saw
-        if: failure() && github.event_name != 'schedule'
+        if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: appcheck
           path: bin/appcheck
           retention-days: 7
 
-      # Each preset's real agent on a stand-in model, a hostile repository included.
-      - name: Real agents hold the policy
-        if: github.event_name == 'schedule' || startsWith(github.ref, 'refs/tags/')
-        run: make verify-agents
-
       # Two clean builds are slow, so only for what becomes a release.
       - name: A tag builds reproducibly
         if: startsWith(github.ref, 'refs/tags/')
         run: make verify-repro
 
+  # Each preset's real agent on a stand-in model, a hostile repository included (HRN-007),
+  # weekly, on tags and in a dry run. A job of its own because the agents are programs
+  # from elsewhere: it neither restores nor saves a cache, so nothing they write can reach
+  # a job that builds release files, and its checkout keeps no token.
+  agents:
+    if: github.event_name == 'schedule' || startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.dry_run)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+
+      - name: Dependencies match their checksums
+        run: make verify-deps
+
+      - name: Real agents hold the policy
+        run: make verify-agents
+
   # The Windows installers and zips (amd64, arm64), cross-compiled on Linux, where NSIS
-  # is a package away; kept as an artifact the release job adds to the release.
+  # is a package away; kept as an artifact the release job adds to the release. Like every
+  # job that builds release files it restores no cache, which another job could have
+  # written, and checks the modules against go.sum first.
   package-windows:
     if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
@@ -294,12 +322,14 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
+          cache: false
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
+
+      - name: Dependencies match their checksums
+        run: make verify-deps
 
       - name: NSIS and zip
         run: sudo apt-get install -y --no-install-recommends nsis zip
@@ -317,7 +347,8 @@ jobs:
           retention-days: 7
 
   # The Linux AppImage and .deb, each architecture natively on its own runner, in the
-  # image from build/linux/Dockerfile as `make linux-package` does on a Mac.
+  # image from build/linux/Dockerfile as `make linux-package` does on a Mac. No cache, as
+  # for the Windows files.
   package-linux:
     if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     strategy:
@@ -334,12 +365,14 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
+          cache: false
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
+
+      - name: Dependencies match their checksums
+        run: make verify-deps
 
       - name: Install wails3
         run: make tools
@@ -356,42 +389,51 @@ jobs:
           path: bin/release
           retention-days: 7
 
-  # A tag v<version> makes a draft pre-release from what this commit builds, once every
-  # check above has passed. Nothing is published until someone reads the draft and
-  # presses Publish. A dry run from the Actions page builds the same files and keeps them
-  # as an artifact instead.
+  # A tag v<version> makes a release in three jobs, each starting once the one before has
+  # passed: `release` builds the Mac's files and puts every platform's under one
+  # SHA256SUMS, `sign` signs that list, and `publish` makes a draft pre-release of exactly
+  # the files it lists. `release` starts only once every check above has passed, the tests
+  # on Linux and Windows and the real agents included. Nothing is published until someone
+  # reads the draft and presses Publish. A dry run from the Actions page builds the same
+  # files and keeps them as an artifact, unsigned, instead.
   release:
-    needs: [build, package-windows, package-linux]
+    needs: [test, windows, build, agents, package-windows, package-linux]
     if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.dry_run)
     runs-on: macos-15
-    permissions:
-      contents: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
-        with:
-          go-version-file: go.mod
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Install wails3
-        run: make tools
-
       # A tag that is not the app's own version would ship a build that names another.
       - name: The tag is the app's version
+        id: version
         run: |
           version=$(sed -n 's/^const AppVersion = "\(.*\)"$/\1/p' internal/engine/updates.go)
+          test -n "$version" || { echo "no AppVersion in internal/engine/updates.go" >&2; exit 1; }
           echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
           if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
             echo "the tag $GITHUB_REF_NAME is not v$version, the version in internal/engine/updates.go" >&2
             exit 1
           fi
           test -f "docs/release-notes/$version.md" || { echo "docs/release-notes/$version.md is missing" >&2; exit 1; }
+
+      # No cache, as in the package jobs.
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+
+      - name: Dependencies match their checksums
+        run: make verify-deps
+
+      - name: Install wails3
+        run: make tools
 
       # With a Developer ID certificate in the repository's secrets, the app and the
       # disk image are signed with it and notarized (SEC-021); without, they are signed
@@ -428,6 +470,8 @@ jobs:
             echo "no notary credentials in the secrets: the disk image is signed and not notarized"
           fi
 
+      # `make release` ends with `make release-sign`, which has no key here and says NOT
+      # SIGNED: the sign job signs what this job keeps.
       - name: Build the Mac release files
         run: make frontend/node_modules release RELEASE_PLATFORMS=mac
 
@@ -445,32 +489,138 @@ jobs:
       - name: Add the Windows and Linux files
         run: |
           rm -f bin/release-windows/SHA256SUMS bin/release-linux/SHA256SUMS
-          cp bin/release-windows/* bin/release-linux/* bin/release/
+          # A file of the same name would be replaced without a word; refuse it.
+          for f in bin/release-windows/* bin/release-linux/*; do
+            if [ -e "bin/release/${f##*/}" ]; then
+              echo "$f has the name of a file already in bin/release" >&2
+              exit 1
+            fi
+            cp "$f" bin/release/
+          done
           make release-sums
           ls -l bin/release
 
-      # The project's signature over the version and the checksums, which a copy of the
-      # app checks before it updates itself in place (SEC-021, SET-008). A tag without
-      # the key fails: a release no copy can update to is not one to publish. The key
-      # is the secret RELEASE_SIGNING_KEY, the line `make release-key` wrote.
-      - name: Sign the checksums
-        env:
-          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
-          RELEASE_SIGNING_KEY_FILE: /nonexistent
-        run: make release-sign REQUIRE_SIGNATURE=${{ startsWith(github.ref, 'refs/tags/v') && '1' || '0' }}
-
-      - name: Keep the files of a dry run
-        if: github.event_name == 'workflow_dispatch'
+      # What the sign and publish jobs take, and what a dry run leaves to download.
+      - name: Keep the release files
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: release-${{ env.VERSION }}
           path: bin/release
+          if-no-files-found: error
           retention-days: 7
 
+  # The project's signature over the version and the checksums, which a copy of the app
+  # checks before it updates itself in place (SEC-021, SET-008). A job of its own that
+  # only checks out, takes the release job's files and runs freeloop-sign: no npm, no
+  # build of the app, no cache. The key, the secret RELEASE_SIGNING_KEY (the line `make
+  # release-key` wrote), reaches only the signing step of a tag's run, and that run fails
+  # without it: a release no copy can update to is not one to publish. A dry run, from
+  # whatever branch, gets no key and is not signed.
+  #
+  # FOR THE OWNER (issue 065): a protected environment is a repository setting this file
+  # cannot make. In Settings → Environments, make an environment `release` with yourself
+  # as a required reviewer and deployments limited to tags matching `v*`; move
+  # RELEASE_SIGNING_KEY into it as an environment secret and delete the repository
+  # secret; then add `environment: release` to this job. Naming an environment that does
+  # not exist would create it with no protection, so it is not named here yet.
+  sign:
+    needs: release
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.dry_run)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-${{ needs.release.outputs.version }}
+          path: bin/release
+
+      # Built before the key is in any step's environment.
+      - name: Build the signing tool
+        run: go build -o "$RUNNER_TEMP/freeloop-sign" ./cmd/freeloop-sign
+
+      # Signs, then checks the signature against the keys the app carries and every file
+      # against the list, as a copy of the app does before it updates.
+      - name: Sign the checksums
+        if: startsWith(github.ref, 'refs/tags/v') && !inputs.dry_run
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          if [ -z "$RELEASE_SIGNING_KEY" ]; then
+            echo "no RELEASE_SIGNING_KEY for this tag: a release no copy can update to is not one to publish" >&2
+            exit 1
+          fi
+          "$RUNNER_TEMP/freeloop-sign" sign -version "$VERSION" -dir bin/release
+          "$RUNNER_TEMP/freeloop-sign" verify -version "$VERSION" -dir bin/release
+
+      - name: A dry run is not signed
+        if: github.event_name == 'workflow_dispatch' && inputs.dry_run
+        run: |
+          (cd bin/release && sha256sum --check --strict --quiet SHA256SUMS)
+          echo "NOT SIGNED: a dry run gets no key; only a tag's run is signed"
+
+      - name: Keep the signature
+        if: startsWith(github.ref, 'refs/tags/v') && !inputs.dry_run
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-signature
+          path: bin/release/SHA256SUMS.sig
+          if-no-files-found: error
+          retention-days: 7
+
+  # The draft pre-release, from the release job's files and the sign job's signature,
+  # once both have passed. The only job that may write to the repository, to make the
+  # draft; it builds and installs nothing.
+  publish:
+    needs: [release, sign]
+    if: startsWith(github.ref, 'refs/tags/v') && !inputs.dry_run
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      # For the release notes.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-${{ needs.release.outputs.version }}
+          path: bin/release
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-signature
+          path: bin/release
+
+      # Every file SHA256SUMS lists is there with its checksum, and nothing else is but the
+      # list and its signature: the draft holds what was signed, no more and no less.
+      - name: The files are the ones signed
+        run: |
+          cd bin/release
+          test -s SHA256SUMS.sig || { echo "no SHA256SUMS.sig from the sign job" >&2; exit 1; }
+          sha256sum --check --strict --quiet SHA256SUMS
+          { sed 's/^[0-9a-f]\{64\}  //' SHA256SUMS; echo SHA256SUMS; echo SHA256SUMS.sig; } | LC_ALL=C sort > "$RUNNER_TEMP/listed"
+          find . -type f | sed 's|^\./||' | LC_ALL=C sort > "$RUNNER_TEMP/present"
+          if ! diff "$RUNNER_TEMP/listed" "$RUNNER_TEMP/present"; then
+            echo "the files above are in only one of SHA256SUMS (<) and the release folder (>)" >&2
+            exit 1
+          fi
+
       - name: Make a draft pre-release
-        if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.release.outputs.version }}
         run: |
           gh release create "$GITHUB_REF_NAME" --draft --prerelease --verify-tag \
             --title "Freeloop $VERSION" --notes-file "docs/release-notes/$VERSION.md" --generate-notes \

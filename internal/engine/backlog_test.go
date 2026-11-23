@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"testing"
 	"time"
@@ -128,6 +129,40 @@ func TestArchiveBacklog(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "backlog", "issues", "002-search.md")); err != nil {
 		t.Error("an open issue was moved")
+	}
+}
+
+// Archive takes a done issue's name literally: one named 0*.md is no pattern that takes
+// the open issues with it.
+func TestArchiveTakesNamesLiterally(t *testing.T) {
+	if goruntime.GOOS == "windows" {
+		t.Skip("Windows file names cannot hold *")
+	}
+	ctx := context.Background()
+	e, _ := queueEngine(t)
+	root := backlogRepo(t)
+	e.AddProject(ctx, root)
+	e.SetProjectTrust(ctx, root, true)
+	writeIssue(t, root, "0*", "title: A star\nstatus: done\ntype: afk")
+	gitIn(t, root, "add", "--", ":(literal)backlog/issues/0*.md")
+	gitIn(t, root, "commit", "-q", "-m", "a done issue")
+	res, err := e.ArchiveBacklog(ctx, root, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(res.Moved, ",") != "backlog/issues/0*.md" {
+		t.Errorf("moved %v", res.Moved)
+	}
+	for _, id := range []string{"001-store", "002-search"} {
+		if _, err := os.Stat(filepath.Join(root, "backlog", "issues", id+".md")); err != nil {
+			t.Errorf("the open issue %s was removed: %v", id, err)
+		}
+	}
+	if got := gitIn(t, root, "ls-files", "backlog/issues"); got != "backlog/issues/001-store.md\nbacklog/issues/002-search.md" {
+		t.Errorf("tracked after the archive: %q", got)
+	}
+	if st := gitIn(t, root, "status", "--porcelain"); st != "" {
+		t.Errorf("the archive left changes: %s", st)
 	}
 }
 

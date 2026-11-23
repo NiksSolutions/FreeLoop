@@ -17,6 +17,7 @@ import (
 	"maps"
 	"path/filepath"
 	"regexp"
+	"runtime/debug"
 	"slices"
 	"strings"
 	"sync"
@@ -197,7 +198,7 @@ func (s *session) start(ctx context.Context, sp environment.Spawner) (sdk.Initia
 		return sdk.InitializeResponse{}, err
 	}
 	s.proc = proc
-	s.conn = sdk.NewClientSideConnection(s, proc.Stdin(), proc.Stdout())
+	s.conn = sdk.NewClientSideConnection(guarded{s}, proc.Stdin(), proc.Stdout())
 	init, err := s.conn.Initialize(ctx, sdk.InitializeRequest{
 		ProtocolVersion: sdk.ProtocolVersionNumber,
 		// Forms (HRN-021): an agent's questions to the user, Claude Code's AskUserQuestion
@@ -930,6 +931,76 @@ func (s *session) ask(ctx context.Context, kind permission.Kind, title, path, co
 	return nil
 }
 
+// guarded answers the agent for a session. The protocol library runs each of the
+// agent's requests in a goroutine of its own with no recover, so a panic in a handler
+// would end the app and every session in it: here it is logged with its stack and
+// answered as an error (NFR-REL-002). A handler the session has and guarded lacks is
+// not offered to the agent at all (TestEveryHandlerIsGuarded).
+type guarded struct{ s *session }
+
+// recovered, deferred, turns a panic in the work for method into *err and a log line.
+func recovered(method string, err *error) {
+	if v := recover(); v != nil {
+		log.Printf("acp: %s panicked, and the app went on without it: %v\n%s", method, v, debug.Stack())
+		*err = fmt.Errorf("the client failed on %s", method)
+	}
+}
+
+func (g guarded) ReadTextFile(ctx context.Context, r sdk.ReadTextFileRequest) (_ sdk.ReadTextFileResponse, err error) {
+	defer recovered(sdk.ClientMethodFsReadTextFile, &err)
+	return g.s.ReadTextFile(ctx, r)
+}
+
+func (g guarded) WriteTextFile(ctx context.Context, r sdk.WriteTextFileRequest) (_ sdk.WriteTextFileResponse, err error) {
+	defer recovered(sdk.ClientMethodFsWriteTextFile, &err)
+	return g.s.WriteTextFile(ctx, r)
+}
+
+func (g guarded) RequestPermission(ctx context.Context, r sdk.RequestPermissionRequest) (_ sdk.RequestPermissionResponse, err error) {
+	defer recovered(sdk.ClientMethodSessionRequestPermission, &err)
+	return g.s.RequestPermission(ctx, r)
+}
+
+func (g guarded) SessionUpdate(ctx context.Context, n sdk.SessionNotification) (err error) {
+	defer recovered(sdk.ClientMethodSessionUpdate, &err)
+	return g.s.SessionUpdate(ctx, n)
+}
+
+func (g guarded) CreateTerminal(ctx context.Context, r sdk.CreateTerminalRequest) (_ sdk.CreateTerminalResponse, err error) {
+	defer recovered(sdk.ClientMethodTerminalCreate, &err)
+	return g.s.CreateTerminal(ctx, r)
+}
+
+func (g guarded) KillTerminal(ctx context.Context, r sdk.KillTerminalRequest) (_ sdk.KillTerminalResponse, err error) {
+	defer recovered(sdk.ClientMethodTerminalKill, &err)
+	return g.s.KillTerminal(ctx, r)
+}
+
+func (g guarded) TerminalOutput(ctx context.Context, r sdk.TerminalOutputRequest) (_ sdk.TerminalOutputResponse, err error) {
+	defer recovered(sdk.ClientMethodTerminalOutput, &err)
+	return g.s.TerminalOutput(ctx, r)
+}
+
+func (g guarded) ReleaseTerminal(ctx context.Context, r sdk.ReleaseTerminalRequest) (_ sdk.ReleaseTerminalResponse, err error) {
+	defer recovered(sdk.ClientMethodTerminalRelease, &err)
+	return g.s.ReleaseTerminal(ctx, r)
+}
+
+func (g guarded) WaitForTerminalExit(ctx context.Context, r sdk.WaitForTerminalExitRequest) (_ sdk.WaitForTerminalExitResponse, err error) {
+	defer recovered(sdk.ClientMethodTerminalWaitForExit, &err)
+	return g.s.WaitForTerminalExit(ctx, r)
+}
+
+func (g guarded) UnstableCreateElicitation(ctx context.Context, r sdk.UnstableCreateElicitationRequest) (_ sdk.UnstableCreateElicitationResponse, err error) {
+	defer recovered(sdk.ClientMethodElicitationCreate, &err)
+	return g.s.UnstableCreateElicitation(ctx, r)
+}
+
+func (g guarded) HandleExtensionMethod(ctx context.Context, method string, params json.RawMessage) (_ any, err error) {
+	defer recovered(method, &err)
+	return g.s.HandleExtensionMethod(ctx, method, params)
+}
+
 // ReadTextFile reads through the environment. Reads inside the project are
 // allowed by policy; outside it the broker asks.
 func (s *session) ReadTextFile(ctx context.Context, r sdk.ReadTextFileRequest) (sdk.ReadTextFileResponse, error) {
@@ -961,7 +1032,8 @@ func (s *session) ReadTextFile(ctx context.Context, r sdk.ReadTextFileRequest) (
 			start = min(*r.Line-1, len(lines))
 		}
 		end := len(lines)
-		if r.Limit != nil && *r.Limit > 0 && start+*r.Limit < end {
+		// Against what is left: start plus a limit near the largest int overflows.
+		if r.Limit != nil && *r.Limit > 0 && *r.Limit < end-start {
 			end = start + *r.Limit
 		}
 		content = strings.Join(lines[start:end], "\n")
@@ -983,6 +1055,10 @@ func (s *session) WriteTextFile(ctx context.Context, r sdk.WriteTextFileRequest)
 	}
 	return sdk.WriteTextFileResponse{}, s.env.FS().WriteFile(path, []byte(r.Content))
 }
+
+// maxTerminalOutput caps the output a terminal keeps, whatever outputByteLimit the
+// agent asks for: the output is held in memory until the agent reads it.
+const maxTerminalOutput = 1 << 20
 
 // terminal is one command the agent runs through the environment.
 type terminal struct {
@@ -1049,14 +1125,15 @@ func (s *session) CreateTerminal(ctx context.Context, r sdk.CreateTerminalReques
 		spec.Cwd = *r.Cwd
 	}
 	if r.OutputByteLimit != nil && *r.OutputByteLimit > 0 {
-		spec.MaxOutput = *r.OutputByteLimit
+		spec.MaxOutput = min(*r.OutputByteLimit, maxTerminalOutput)
 	}
 	spec.ReadOnly = readOnly
 	tctx, cancel := context.WithCancel(context.Background())
 	t := &terminal{cancel: cancel, done: make(chan struct{})}
 	go func() {
+		defer close(t.done)
+		defer recovered(sdk.ClientMethodTerminalCreate, &t.err)
 		t.res, t.err = s.env.Exec(tctx, spec)
-		close(t.done)
 	}()
 	s.mu.Lock()
 	s.next++

@@ -354,7 +354,8 @@ func convertRule(effect permission.Effect, raw, home string) ([]permission.Rule,
 		case strings.HasPrefix(p, "/"):
 			return strings.TrimPrefix(p, "/"), "Claude Code reads a leading / as the settings file's folder; Freeloop applies it to each project root."
 		}
-		return p, ""
+		// Read(./.env), as Claude Code's documentation writes it, is .env in the project.
+		return permission.TrimDotSlash(p), ""
 	}
 	switch tool {
 	case "Bash":

@@ -193,13 +193,14 @@ func ignoredFiles(ctx context.Context, host *environment.Local, paths []string) 
 		return nil, nil
 	}
 	// A name is only a name: a file called :(bogus) is otherwise a pathspec git dies on,
-	// and check-ignore has no literal mode. With ./ in front it is read as a path.
+	// and check-ignore has no literal mode: it refuses to run with GIT_LITERAL_PATHSPECS,
+	// so it gets gitPatterns. With ./ in front a name is read as a path.
 	var names strings.Builder
 	for _, p := range paths {
 		names.WriteString("./" + p + "\x00")
 	}
 	argv := gitArgv(host, "check-ignore", "-z", "--stdin")
-	res, err := host.Exec(ctx, environment.ExecSpec{Argv: argv, Env: gitEnvFor(host, nil), Timeout: time.Minute, MaxOutput: 128 << 20, Stdin: []byte(names.String()), SeparateStderr: true})
+	res, err := host.Exec(ctx, environment.ExecSpec{Argv: argv, Env: gitEnvFor(host, gitPatterns), Timeout: time.Minute, MaxOutput: 128 << 20, Stdin: []byte(names.String()), SeparateStderr: true})
 	switch {
 	case err != nil:
 		return nil, err

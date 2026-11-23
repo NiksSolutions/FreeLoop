@@ -4,7 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { EngineService, type AttentionItem, type PermissionRequest } from "./api.ts";
 import { currentOf, editPreview, moved, oldestFirst } from "./attentionview.ts";
 import { since } from "./board.ts";
-import { approvalShortcut, isTextField, optionKind } from "./shortcuts.ts";
+import { approvalKey, coveredByDialog, isTextField, optionKind } from "./shortcuts.ts";
+import { isPlan } from "./planView.ts";
 import { hookFailedText, lineDiff } from "./transcript.ts";
 import { McpFormView, useMcpForm } from "./McpForm.tsx";
 import { basename } from "./paths.ts";
@@ -102,7 +103,7 @@ export default function Attention({ items, onOpen, onContinued, onChanged, onErr
             <button onClick={() => onOpen(it.session.id)}>{t("attention.openSession")}</button>
           </header>
           {(it.requests ?? []).map((r) => (
-            <RequestView key={r.requestId} req={r} current={r.requestId === current} onError={onError} />
+            <RequestView key={r.requestId} req={r} current={r.requestId === current} onOpen={() => onOpen(it.session.id)} onError={onError} />
           ))}
           {it.stuck && (
             <div className="attention-error">
@@ -143,8 +144,9 @@ export default function Attention({ items, onOpen, onContinued, onChanged, onErr
   );
 }
 
-// RequestView answers one request. When current, the approval keys answer it.
-export function RequestView({ req, current, onError }: { req: PermissionRequest; current?: boolean; onError: (err: unknown) => void }) {
+// RequestView answers one request. When current, the approval keys answer it. A plan
+// is answered in its session, where it reads in full and its choices say what follows.
+export function RequestView({ req, current, onOpen, onError }: { req: PermissionRequest; current?: boolean; onOpen?: () => void; onError: (err: unknown) => void }) {
   // Answered requests leave the list on the next refresh; until then the
   // buttons stay disabled so a double click cannot answer a later request.
   const [busy, setBusy] = useState(false);
@@ -159,19 +161,25 @@ export function RequestView({ req, current, onError }: { req: PermissionRequest;
       onError(err);
     });
   };
+  const plan = isPlan(req);
   const box = useRef<HTMLDivElement>(null);
+  // The keys' grace period runs from when this became the request they answer.
+  const currentSince = useRef(0);
   useEffect(() => {
-    if (current) box.current?.scrollIntoView?.({ block: "nearest" });
+    if (!current) return;
+    currentSince.current = Date.now();
+    box.current?.scrollIntoView?.({ block: "nearest" });
   }, [current]);
-  // A form is answered by filling it in, not by a key.
+  // A form is answered by filling it in and a plan in its session, not by a key.
   useEffect(() => {
-    if (!current || busy || req.form) return;
+    if (!current || busy || req.form || plan) return;
     const onKey = (e: KeyboardEvent) => {
-      const kind = approvalShortcut(e, isTextField(e.target));
-      const option = kind && options.find((o) => optionKind(o.kind) === kind);
+      const now = Date.now();
+      const key = approvalKey(e, { inField: isTextField(e.target), covered: coveredByDialog(box.current), since: currentSince.current, now });
+      const option = key && options.find((o) => optionKind(o.kind) === key.kind);
       if (!option) return;
       e.preventDefault();
-      mcpForm.choose(option.optionId, option.kind, decide);
+      if (!key.early) mcpForm.choose(option.optionId, option.kind, decide);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -208,26 +216,35 @@ export function RequestView({ req, current, onError }: { req: PermissionRequest;
         </details>
       )}
       {req.form && <McpFormView form={req.form} state={mcpForm} idPrefix={`form-${req.requestId}`} />}
-      {!req.form && <input aria-label={t("tool.note")} placeholder={t("tool.notePlaceholder")} value={reason} onChange={(e) => setReason(e.target.value)} />}
-      <div className="approval-buttons">
-        {options.some((o) => o.kind === "allow_always") && (
-          <select value={scope} onChange={(e) => setScope(e.target.value)} aria-label={t("tool.alwaysScope")}>
-            <option value="session">{t("tool.alwaysSession")}</option>
-            <option value="global">{t("tool.alwaysGlobal")}</option>
-          </select>
-        )}
-        {options.map((o) => (
-          <button
-            key={o.optionId}
-            disabled={busy}
-            className={o.kind.startsWith("allow") ? "primary" : "danger"}
-            title={o.kind === "allow_always" ? t("attention.savesRule") : undefined}
-            onClick={() => mcpForm.choose(o.optionId, o.kind, decide)}
-          >
-            {req.form ? formLabel(o.kind) : optionLabel(o.kind, o.name)}
-          </button>
-        ))}
-      </div>
+      {plan ? (
+        <p className="row attention-plan">
+          <span className="muted">{t("attention.planInSession")}</span>
+          {onOpen && <button onClick={onOpen}>{t("attention.reviewPlan")}</button>}
+        </p>
+      ) : (
+        <>
+          {!req.form && <input aria-label={t("tool.note")} placeholder={t("tool.notePlaceholder")} value={reason} onChange={(e) => setReason(e.target.value)} />}
+          <div className="approval-buttons">
+            {options.some((o) => o.kind === "allow_always") && (
+              <select value={scope} onChange={(e) => setScope(e.target.value)} aria-label={t("tool.alwaysScope")}>
+                <option value="session">{t("tool.alwaysSession")}</option>
+                <option value="global">{t("tool.alwaysGlobal")}</option>
+              </select>
+            )}
+            {options.map((o) => (
+              <button
+                key={o.optionId}
+                disabled={busy}
+                className={o.kind.startsWith("allow") ? "primary" : "danger"}
+                title={o.kind === "allow_always" ? t("attention.savesRule") : undefined}
+                onClick={() => mcpForm.choose(o.optionId, o.kind, decide)}
+              >
+                {req.form ? formLabel(o.kind) : optionLabel(o.kind, o.name)}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }

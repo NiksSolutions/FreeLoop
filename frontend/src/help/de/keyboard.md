@@ -69,7 +69,7 @@ Die Buchstaben Y, A und N funktionieren nur, wenn kein Textfeld den Fokus hat. D
 
 In Braucht Aufmerksamkeit wählen J und K oder die Pfeiltasten, welche Anfrage die Tasten beantworten.
 
-> Eine neue Karte ignoriert diese Tasten kurz nach dem Erscheinen, sodass eine für etwas anderes gedrückte Taste keinen Aufruf freigeben kann, der noch nicht gelesen wurde.
+> Eine Karte ignoriert diese Tasten kurz, nachdem sie zu der geworden ist, die die Tasten beantworten, wenn sie erscheint oder die vorige beantwortet wurde, sodass eine für etwas anderes gedrückte Taste keinen Aufruf freigeben kann, der noch nicht gelesen wurde. Eine gehaltene Taste antwortet einmal, keine Taste antwortet, solange ein Dialog wie die Befehlspalette offen ist, und ein Plan wird nur mit seinen eigenen Schaltflächen beantwortet, in seiner Sitzung.
 
 ## Frühere Prompts und Vervollständigung im Nachrichtenfeld
 

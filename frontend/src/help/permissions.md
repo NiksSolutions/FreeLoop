@@ -67,4 +67,4 @@ The hook gets the event as JSON on standard input, and its exit code decides:
 
 In Settings → Policy, **Would this be allowed?** judges a command, edit, read or fetch without running it. Pick where, a mode and an action, enter the command, path or URL, and press **Check** to see the verdict and why.
 
-A hook, allow rule, environment, setting, token optimizer choice or MCP server address that arrived outside the app, such as from a restored backup or a hand edit, does nothing until you approve it under **Waiting for your approval** in Settings → Permissions. A trusted project's hooks wait again when they change. Approve only what you recognize. Deny rules need no approval and apply at once.
+A hook, allow rule, environment, setting, token optimizer choice or MCP server address that arrived outside the app, such as from a restored backup or a hand edit, does nothing until you approve it under **Waiting for your approval** in Settings → Permissions. A trusted project's hooks and worktree scripts (`.freeloop/worktree.yaml`) wait again when they change. Approve only what you recognize. Deny rules need no approval and apply at once.

@@ -1417,7 +1417,7 @@ await step("a session's header has the git mark", async () => {
 await step("a plan reads as a document and is reviewed in the panel", async () => {
   openSession("Check plan");
   await until("Check plan", () => activePane().querySelector(".session-titleline h2")?.textContent === "Check plan");
-  const pane = activePane();
+  let pane = activePane();
   const send = async (text) => {
     const box = await until("the message box", () => pane.querySelector(".composer textarea"));
     box.focus();
@@ -1431,7 +1431,7 @@ await step("a plan reads as a document and is reviewed in the panel", async () =
     el.dispatchEvent(new Event(el instanceof HTMLSelectElement ? "change" : "input", { bubbles: true }));
   };
   await send("[plan] tidy the code");
-  const card = await until("the plan", () => pane.querySelector(".plan-card"), 20000);
+  let card = await until("the plan", () => pane.querySelector(".plan-card"), 20000);
   check("a plan is formatted", card.querySelector("h1, h2, h3, h4")?.textContent === "The plan" && card.querySelectorAll("li").length === 2, card.innerHTML.slice(0, 120));
   const tool = card.closest("details");
   check("a plan is shown once, not as its input", !tool.querySelector(".tool-input") && !tool.textContent.includes("# The plan"));
@@ -1439,6 +1439,38 @@ await step("a plan reads as a document and is reviewed in the panel", async () =
   const menu = [...approval.querySelectorAll("select option")].map((o) => o.textContent);
   check("a plan's options say what follows", menu.join("|") === "Ask before edits|Accept edits", menu.join("|"));
   check("a plan is approved or sent back", withText("button", "Approve", approval) && withText("button", "Keep planning", approval));
+
+  // Issue 062 (GUI-043): a plan is answered only through its own controls. Past the
+  // grace period, ⌘↩ typed in its feedback box and Y outside a text field leave it waiting.
+  const key = (target, init) => target.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init }));
+  await sleep(600);
+  const feedback = approval.querySelector("textarea");
+  feedback.focus();
+  key(feedback, { key: "Enter", metaKey: true });
+  await sleep(1200);
+  check("⌘↩ in a plan's feedback box does not approve it", approval.isConnected, "the plan was decided");
+  feedback.blur();
+  key(document.body, { key: "y" });
+  await sleep(1200);
+  check("Y does not approve a plan", approval.isConnected, "the plan was decided");
+  // In Needs attention the plan offers its session instead of buttons, and no key answers it.
+  (await until("Needs attention", () => document.querySelector(".attention-link"), 8000)).click();
+  const planRow = await until("the plan in Needs attention", () => all(".page.attention .attention-item").find((s) => s.querySelector("h3")?.textContent === "Check plan")?.querySelector(".attention-request"), 8000);
+  check("a plan in Needs attention offers its session, not buttons", planRow.querySelectorAll(".approval-buttons button").length === 0 && withText("button", "Review the plan", planRow), planRow.textContent.slice(0, 160));
+  // The newest request is the last; J makes it the one the keys answer.
+  for (let i = 0; i < 10 && !planRow.classList.contains("attention-current"); i++) {
+    key(document.body, { key: "j" });
+    await sleep(50);
+  }
+  await sleep(600);
+  key(document.body, { key: "y" });
+  await sleep(1200);
+  check("Y in Needs attention does not approve a plan", planRow.isConnected && planRow.classList.contains("attention-current"), "the plan left Needs attention");
+  withText("button", "Review the plan", planRow).click();
+  await until("Check plan", () => activePane().querySelector(".session-titleline h2")?.textContent === "Check plan", 8000);
+  pane = activePane();
+  card = await until("the plan in its session", () => pane.querySelector(".plan-card"), 8000);
+  check("the plan still waits in its session", !!pane.querySelector(".plan-approval"));
 
   card.querySelector(".plan-review-link").click();
   const panel = await until("the Plan tab", () => document.querySelector("aside.panel .plan-panel"));
@@ -1508,6 +1540,59 @@ await step("an agent asks with a form", async () => {
   }
   check("the answers reach the agent", reply.textContent.includes("One by one (note: start with the backend)") && reply.textContent.includes("Tests, Types"), reply.textContent.slice(0, 200));
   check("the questions stay on the card", card.querySelectorAll(".agent-questions li").length === 2);
+});
+
+// Issue 062 (GUI-002, GUI-006): in Needs attention a key answers the current request
+// only. A second Y at once does not answer the next one as well, nor does a held key's
+// repeat; once the next has been current a moment, Y answers it.
+await step("a second key right after the first answers only one request", async () => {
+  const ask = async (title) => {
+    openSession(title);
+    await until(title, () => activePane().querySelector(".session-titleline h2")?.textContent === title);
+    const pane = activePane();
+    const box = await until("the message box", () => pane.querySelector(".composer textarea"));
+    box.focus();
+    type(box, "go");
+    await sleep(80);
+    (await until("Send", () => { const b = pane.querySelector(".composer-send"); return b && !b.disabled && b; })).click();
+    await until(`${title} to ask`, () => pane.querySelector(".approval-buttons button.primary"), 20000);
+  };
+  await ask("Check alpha");
+  await ask("Check beta");
+  document.activeElement?.blur();
+  (await until("Needs attention", () => document.querySelector(".attention-link"), 8000)).click();
+  const current = () => document.querySelector(".page.attention .attention-current");
+  await until("both requests", () => all(".page.attention .attention-request").length >= 2, 8000);
+  const y = (init = {}) => document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "y", bubbles: true, cancelable: true, ...init }));
+  const waits = (r) => r.isConnected && !r.querySelector(".approval-buttons button:disabled");
+  try {
+    const first = current();
+    await sleep(600);
+    y();
+    const next = await until("the next request to be current", () => { const c = current(); return c && c !== first && c; }, 15000);
+    await sleep(50);
+    y();
+    await sleep(1000);
+    check("a second Y right after the first does not answer the next request", waits(next), next.textContent.slice(0, 120));
+    y({ repeat: true });
+    await sleep(1000);
+    check("a held Y's repeat answers nothing", waits(next), next.textContent.slice(0, 120));
+    y();
+    const answered = await until("Y to answer it", () => !waits(next), 8000).catch(() => false);
+    check("Y answers the request once it has been current a moment", answered);
+  } finally {
+    // What the two sessions ask next is allowed from here, so their turns end.
+    let quiet = 0;
+    for (const end = Date.now() + 30000; Date.now() < end && quiet < 20; ) {
+      const allow = all(".page.attention .attention-request .approval-buttons button.primary:not(:disabled)").find((b) => b.textContent.trim() === "Allow once");
+      allow?.click();
+      quiet = allow ? 0 : quiet + 1;
+      await sleep(100);
+    }
+    openSession("Check alpha");
+    await until("Check alpha", () => activePane().querySelector(".session-titleline h2")?.textContent === "Check alpha");
+    await until("its turn to end", () => !withText(".composer-actions button", "Stop", activePane()), 20000).catch(() => {});
+  }
 });
 
 await step("the usage pane cycles through its views", async () => {

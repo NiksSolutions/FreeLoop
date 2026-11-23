@@ -3,7 +3,7 @@ import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { editMark, quietCommand, toolStatusLabel, visibleCommand } from "./a11y.ts";
 import { EngineService } from "./api.ts";
 import { McpFormView, useMcpForm } from "./McpForm.tsx";
-import { APPROVAL_GRACE_MS, approvalHint, approvalShortcut, formLabel, isTextField, optionKind, optionLabel } from "./shortcuts.ts";
+import { ApprovalTarget, approvalHint, approvalKey, coveredByDialog, formLabel, isTextField, optionKind, optionLabel } from "./shortcuts.ts";
 import { awaitingDecision, hookFailedText, lineDiff, phoneName, type Item, type PermissionOption, type ToolContent } from "./transcript.ts";
 import { planText } from "./planView.ts";
 import { agentQuestions } from "./forms.ts";
@@ -37,6 +37,16 @@ function decisionText(outcome: string, actor: string): string {
   return t("tool.decision.other", { outcome, actor: name });
 }
 
+// The approval keys answer the first waiting card of the active pane (GUI-017), and
+// its grace period runs from when it became that card.
+const keysTarget = new ApprovalTarget<Element>();
+
+// noteApprovalTarget looks again for the card the keys answer, after what can change
+// it: a card appearing or answered, another pane becoming the active one.
+export function noteApprovalTarget() {
+  keysTarget.set((document.querySelector(".pane-active") ?? document).querySelector(".approval"), Date.now());
+}
+
 export default function ToolView({ item, roots = [], onError }: { item: Extract<Item, { kind: "tool" }>; roots?: string[]; onError: (err: unknown) => void }) {
   const waiting = awaitingDecision(item);
   const [reason, setReason] = useState("");
@@ -52,35 +62,40 @@ export default function ToolView({ item, roots = [], onError }: { item: Extract<
   const choose = (o: PermissionOption) => mcpForm.choose(o.optionId, o.kind, decide);
   const offersAlways = item.permission?.options.some((o) => o.kind === "allow_always");
 
+  // A plan reads as a document, from either agent (GUI-043).
+  const plan = planText(item);
+
   // Shortcuts (GUI-006) go to the first waiting card on screen only.
   const box = useRef<HTMLDivElement>(null);
-  const shownAt = useRef(0);
   const decideNow = useEffectEvent((optionId: string) => decide(optionId));
+  // A waiting card that comes or goes can change the one the keys answer.
   useEffect(() => {
-    // A keypress never sends a form.
-    if (!waiting || form) return;
-    shownAt.current = Date.now();
+    if (!waiting) return;
+    noteApprovalTarget();
+    return noteApprovalTarget;
+  }, [waiting]);
+  useEffect(() => {
+    // A keypress never sends a form, nor decides a plan: each is answered through its
+    // own controls, which say what follows.
+    if (!waiting || form || plan !== null) return;
     const onKey = (e: globalThis.KeyboardEvent) => {
-      if (e.repeat || e.defaultPrevented || e.isComposing) return;
       // Only the first waiting card of the active pane (GUI-017).
       const pane = box.current?.closest(".pane");
       if (pane && !pane.classList.contains("pane-active")) return;
-      if ((pane ?? document).querySelector(".approval") !== box.current) return;
-      const kind = approvalShortcut(e, isTextField(e.target));
-      const opt = kind && item.permission?.options.find((o) => optionKind(o.kind) === kind);
+      if (!box.current || (pane ?? document).querySelector(".approval") !== box.current) return;
+      const now = Date.now();
+      const key = approvalKey(e, { inField: isTextField(e.target), covered: coveredByDialog(box.current), since: keysTarget.since(box.current, now), now });
+      const opt = key && item.permission?.options.find((o) => optionKind(o.kind) === key.kind);
       if (!opt) return;
       e.preventDefault();
-      if (Date.now() - shownAt.current < APPROVAL_GRACE_MS) return;
-      decideNow(opt.optionId);
+      if (!key.early) decideNow(opt.optionId);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [waiting, form, item.permission, reason, scope]);
+  }, [waiting, form, plan, item.permission]);
 
   // A token optimizer ran this command in a shorter form (HRN-019).
   const via = item.via ?? item.content.find((c) => c.via)?.via;
-  // A plan reads as a document, from either agent (GUI-043).
-  const plan = planText(item);
   // An agent's questions read as questions (HRN-021).
   const questions = plan === null ? agentQuestions(item.input) : null;
   // A closed card draws its line only, and what it holds once it is opened: a long

@@ -18,4 +18,5 @@ var thisPlatform = platform{
 	UpdateKind:   windows.UpdateKind,
 	ApplyUpdate:  windows.ApplyUpdate,
 	FinishUpdate: windows.FinishUpdate,
+	PageOrigin:   windows.PageOrigin,
 }

@@ -8,8 +8,18 @@ import { t } from "./i18n.ts";
 type ToolItem = Extract<Item, { kind: "tool" }>;
 
 export function planText(item: ToolItem): string | null {
-  if (item.toolKind !== "switch_mode" && item.tool !== "present_plan") return null;
-  const plan = (item.input as { plan?: unknown } | null)?.plan;
+  return planOf(item.toolKind, item.tool, item.input);
+}
+
+// isPlan reports a waiting request that is a plan, by the same kind and input as a
+// tool call's: it is answered in its session, where it can be read, never by a key.
+export function isPlan(req: { kind: string; tool: string; input?: unknown }): boolean {
+  return planOf(req.kind, req.tool, req.input) !== null;
+}
+
+function planOf(kind: string | undefined, tool: string, input: unknown): string | null {
+  if (kind !== "switch_mode" && tool !== "present_plan") return null;
+  const plan = (input as { plan?: unknown } | null | undefined)?.plan;
   return typeof plan === "string" && plan.trim() !== "" ? plan : null;
 }
 

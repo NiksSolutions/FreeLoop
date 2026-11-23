@@ -159,9 +159,50 @@ export function approvalChord(kind: ApprovalKind): string {
   return kind === "allow_once" ? chord("Enter") : kind === "allow_always" ? chord("Enter", true) : chord("Backspace", true);
 }
 
-// A card ignores shortcuts this long after it appears, so a key pressed
-// for something else cannot approve a call nobody has read.
+// A card ignores shortcuts this long after it becomes the one they answer, so a
+// key pressed for something else cannot approve a call nobody has read.
 export const APPROVAL_GRACE_MS = 400;
+
+// KeyPress is a key event as the approval keys read it.
+export interface KeyPress extends Keys {
+  repeat: boolean;
+  defaultPrevented: boolean;
+  isComposing: boolean;
+}
+
+// approvalKey is the guard every approval key passes, on the conversation's card and
+// in Attention alike (GUI-006, GUI-017). It names the answer a key press asks for, or
+// null: a held key's repeats, a key another handler took or one composing text, and
+// any key while a dialog covers what it would answer ask for none. A key pressed
+// within APPROVAL_GRACE_MS of the request becoming the one the keys answer is early:
+// the caller takes it, so it types nothing, and answers nothing.
+export function approvalKey(k: KeyPress, at: { inField: boolean; covered: boolean; since: number; now: number }): { kind: ApprovalKind; early: boolean } | null {
+  if (k.repeat || k.defaultPrevented || k.isComposing || at.covered) return null;
+  const kind = approvalShortcut(k, at.inField);
+  return kind && { kind, early: at.now - at.since < APPROVAL_GRACE_MS };
+}
+
+// ApprovalTarget remembers what the approval keys answer and since when: the grace
+// period runs from when a card or request becomes the one they answer, so a redraw,
+// such as a note being typed, does not start it again, and answering one starts it
+// for the next.
+export class ApprovalTarget<T> {
+  #of: T | null = null;
+  #at = 0;
+
+  // set says what the keys answer now; the time stands while that stays the same.
+  set(of: T | null, now: number) {
+    if (of === this.#of) return;
+    this.#of = of;
+    this.#at = now;
+  }
+
+  // since is when `of` became what the keys answer: now, if it was not that.
+  since(of: T, now: number): number {
+    this.set(of, now);
+    return this.#at;
+  }
+}
 
 export function approvalShortcut(k: Keys, inField: boolean): ApprovalKind | null {
   const primary = isMac ? k.metaKey : k.ctrlKey;
@@ -206,6 +247,12 @@ export function optionLabel(kind: string, name: string): string {
 export function isTextField(el: EventTarget | null): boolean {
   if (!(el instanceof HTMLElement)) return false;
   return el.isContentEditable || el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT";
+}
+
+// coveredByDialog reports a modal dialog open over el, such as the palette: the
+// approval keys answer nothing under one.
+export function coveredByDialog(el: Element | null): boolean {
+  return [...document.querySelectorAll('[aria-modal="true"]')].some((d) => !el || !d.contains(el));
 }
 
 // formLabel names a form's buttons (MCP-008, HRN-021): it answers, or it is skipped.

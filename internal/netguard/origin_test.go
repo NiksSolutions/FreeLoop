@@ -29,17 +29,46 @@ func TestRuntimeCallAllowed(t *testing.T) {
 		{"GET", "wails://wails.localhost", "", "wails.localhost", false, false},
 		{"OPTIONS", "http://localhost:41000", "", "wails.localhost", false, false},
 	} {
-		if got := RuntimeCallAllowed(c.method, c.origin, c.site, c.host, "client-1", c.served); got != c.want {
+		if got := RuntimeCallAllowed(c.method, c.origin, c.site, c.host, "client-1", "", c.served); got != c.want {
 			t.Errorf("%s from %q to %q (served %v) = %v", c.method, c.origin, c.host, c.served, got)
 		}
 	}
 	// As WebKit delivered a framed page's no-cors fetch to the packaged
 	// app: no origin, and a page cannot add the client header to one.
-	if RuntimeCallAllowed("POST", "", "", "localhost", "", false) {
+	if RuntimeCallAllowed("POST", "", "", "localhost", "", "", false) {
 		t.Error("a call without the client header was allowed")
 	}
-	if !RuntimeCallAllowed("POST", "", "", "localhost", "client-1", false) {
+	if !RuntimeCallAllowed("POST", "", "", "localhost", "client-1", "", false) {
 		t.Error("the app's own call was refused")
+	}
+}
+
+// NFR-XPLAT-003: on Windows WebView2 serves the app's page from http://wails.localhost
+// and Chromium puts that origin on every POST, so the platform names it and exactly it
+// is taken, from the page itself; elsewhere no http origin is.
+func TestRuntimeCallFromTheWindowsPage(t *testing.T) {
+	const page = "http://wails.localhost"
+	for _, c := range []struct {
+		origin, site, page string
+		want               bool
+	}{
+		{"http://wails.localhost", "", page, true},
+		{"http://wails.localhost", "same-origin", page, true},
+		{"http://wails.localhost", "same-site", page, false},
+		{"http://wails.localhost", "cross-site", page, false},
+		{"http://wails.localhost", "none", page, false},
+		{"http://wails.localhost.evil.example", "", page, false},
+		{"http://wails.localhost:1", "", page, false},
+		{"https://wails.localhost", "", page, false},
+		{"http://localhost:41000", "", page, false},
+		{"http://wails.localhost", "", "", false},
+	} {
+		if got := RuntimeCallAllowed("POST", c.origin, c.site, "wails.localhost", "client-1", c.page, false); got != c.want {
+			t.Errorf("from %q (Sec-Fetch-Site %q, the page at %q) = %v", c.origin, c.site, c.page, got)
+		}
+	}
+	if RuntimeCallAllowed("GET", page, "", "wails.localhost", "client-1", page, false) || RuntimeCallAllowed("POST", page, "", "wails.localhost", "", page, false) {
+		t.Error("a GET, or a call without the client header, was allowed from the Windows page")
 	}
 }
 

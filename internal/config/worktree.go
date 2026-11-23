@@ -45,6 +45,24 @@ func (w WorktreeScripts) Over(over WorktreeScripts) WorktreeScripts {
 	return w
 }
 
+// ProjectWorktreeFingerprint identifies a project's .freeloop/worktree.yaml as one
+// set, its copy list included: trusting the project approves exactly this, and a set
+// that differs waits for approval, as the project's hooks do (ProjectHooksFingerprint).
+// "" for a file that sets nothing, which needs nothing.
+func ProjectWorktreeFingerprint(projectID, root string, w WorktreeScripts) string {
+	if w.Empty() {
+		return ""
+	}
+	if len(w.Copy) == 0 {
+		w.Copy = nil
+	}
+	return commandFingerprint("project-worktree", struct {
+		Project string          `json:"project"`
+		Root    string          `json:"root"`
+		Scripts WorktreeScripts `json:"scripts"`
+	}{projectID, root, w})
+}
+
 // Validate reports the first entry that cannot work: a copy path must be
 // relative and stay inside the checkout.
 func (w WorktreeScripts) Validate() error {

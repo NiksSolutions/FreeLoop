@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { approveLabel, planBlocks, planChoices, planFeedback, planText, planVersions, quoteOf } from "./planView.ts";
+import { approveLabel, isPlan, planBlocks, planChoices, planFeedback, planText, planVersions, quoteOf } from "./planView.ts";
 import type { Item } from "./transcript.ts";
 import { setLanguage } from "./i18n.ts";
 
@@ -15,6 +15,16 @@ test("a plan is found by its kind and input, for either agent", () => {
   assert.equal(planText(tool({ input: { plan: "  " } })), null);
   assert.equal(planText(tool({ input: { plan: 3 } })), null);
   assert.equal(planText(tool({ input: null })), null);
+});
+
+// GUI-043, GUI-002: a waiting request is a plan by its kind and input, as a tool call
+// is, from either agent; no approval key answers one.
+test("a request is a plan by its kind and input", () => {
+  assert.equal(isPlan({ kind: "switch_mode", tool: "acp:switch_mode", input: { plan: "# Plan" } }), true);
+  assert.equal(isPlan({ kind: "switch_mode", tool: "present_plan", input: { plan: "# Plan" } }), true);
+  assert.equal(isPlan({ kind: "execute", tool: "shell", input: { plan: "# Plan" } }), false);
+  assert.equal(isPlan({ kind: "switch_mode", tool: "acp:switch_mode", input: { mode: "code" } }), false);
+  assert.equal(isPlan({ kind: "switch_mode", tool: "acp:switch_mode" }), false);
 });
 
 test("the versions say how each plan went", () => {

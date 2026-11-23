@@ -217,6 +217,7 @@ export const nl = translationOf<typeof en>()({
   "pending.group.addresses": "Waarheen dingen zouden worden gestuurd",
   "pending.kind.hook": "Hook-opdracht ({event})",
   "pending.kind.projectHooks": "Gewijzigde hook-opdrachten van een vertrouwd project",
+  "pending.kind.projectWorktree": "Gewijzigde worktree-scripts van een vertrouwd project",
   "pending.kind.agent": "Agent",
   "pending.kind.optimizer": "Token-optimalisator",
   "pending.kind.mcp": "MCP-server",
@@ -1885,6 +1886,8 @@ export const nl = translationOf<typeof en>()({
   "attention.waitingSince": "{ago} gevraagd",
   "attention.input": "Invoer",
   "attention.savesRule": "Slaat een regel op",
+  "attention.planInSession": "Een plan wordt in de eigen sessie goedgekeurd of teruggestuurd, waar het te lezen en te becommentariëren is.",
+  "attention.reviewPlan": "Plan bekijken",
 
   "workflows.intro":
     "Een werkstroom is een manier van werken in fasen. Elke fase is een slash-opdracht in een sessie: die stuurt een prompt die een vaardigheid noemt, wisselt de modus, of start een AFK-run, een review of een opruimronde. Elke tool-aanroep gaat nog steeds door het beleid; een AFK-run vraagt vooraf om de opdrachten die hij nodig heeft, en al het andere wat hij wil, wacht in ‘Vraagt aandacht’.",
@@ -2435,6 +2438,7 @@ export const nl = translationOf<typeof en>()({
   "worktreeScripts.edit": "Bewerken…",
   "worktreeScripts.intro":
     "Waarden hier gaan voor op {file} van het project; een leeg veld gebruikt de waarde uit het bestand. Opdrachten draaien in de worktree met de variabelen van de omgeving en {port}, {root} en {worktree}: op deze computer, of in een Docker-omgeving in de container van de sessie, waar de bestanden van de hoofdcheckout niet beschikbaar zijn. Kopieën komen altijd uit de hoofdcheckout op deze computer.",
+  "worktreeScripts.waiting": "De scripts in {file} zijn veranderd sinds ze zijn goedgekeurd, dus geen van hun opdrachten draait en er wordt niets gekopieerd tot ze zijn goedgekeurd in Instellingen → Toestemmingen.",
   "worktreeScripts.copy": "Uit de hoofdcheckout kopiëren",
   "worktreeScripts.copyHint": "(één pad per regel, zoals .env)",
 

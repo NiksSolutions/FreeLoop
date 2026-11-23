@@ -126,3 +126,48 @@ func TestClaudeImport(t *testing.T) {
 		t.Error("~/.claude.json changed")
 	}
 }
+
+// SET-003: Claude Code's documentation writes deny rules as Read(./.env). The import
+// writes them without the ./, and they deny reading .env and what is under secrets/; a
+// rule already saved with ./ in rules.yaml holds too.
+func TestImportedDotSlashRulesMatch(t *testing.T) {
+	ctx := context.Background()
+	home, dir := t.TempDir(), t.TempDir()
+	e, err := Open(Options{DataDir: dir, Secrets: secrets.NewMemory(), Home: home, Dev: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer e.Close()
+	os.MkdirAll(filepath.Join(home, ".claude"), 0o700)
+	os.WriteFile(filepath.Join(home, ".claude", "settings.json"), []byte(`{"permissions": {"deny": ["Read(./.env)", "Read(./secrets/**)"]}}`), 0o600)
+	p, err := e.PreviewClaudeImport(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var keys []string
+	for _, it := range p.Items {
+		keys = append(keys, it.Key)
+		if want := map[string]string{"deny Read(./.env)": "deny read_file(.env)", "deny Read(./secrets/**)": "deny read_file(secrets/**)"}[it.Label]; want == "" || !strings.Contains(it.Destination, want) {
+			t.Errorf("%s goes to %q", it.Label, it.Destination)
+		}
+	}
+	if _, err := e.ApplyClaudeImport(ctx, keys); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.AddRule(permission.Rule{Effect: permission.Deny, Tool: "read_file", Path: "./private/**"}); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	for _, path := range []string{".env", "secrets/a/b", "private/key"} {
+		c, err := e.CheckPolicy(ctx, PolicyQuery{ProjectRoot: root, Tool: "read", Path: path, Mode: "bypass"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.Outcome != string(permission.Denied) || c.Actor != permission.ActorRule {
+			t.Errorf("reading %s: %s by %s (%s)", path, c.Outcome, c.Actor, c.Reason)
+		}
+	}
+	if c, _ := e.CheckPolicy(ctx, PolicyQuery{ProjectRoot: root, Tool: "read", Path: "public/a", Mode: "bypass"}); c.Outcome != string(permission.Allowed) {
+		t.Errorf("reading public/a: %s by %s", c.Outcome, c.Actor)
+	}
+}

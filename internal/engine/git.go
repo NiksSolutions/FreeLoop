@@ -61,12 +61,20 @@ func safeGitOn(goos, systemRoot string) []string {
 	return out
 }
 
-// gitEnv is the environment of the app's git commands, with more added.
+// gitEnv is the environment of the app's git commands, with more added. Git reads
+// the paths it is given literally (GIT_LITERAL_PATHSPECS): otherwise a file an agent
+// named src/*.bak or :^x stands for other files too, and discarding it deletes them.
+// A call that needs git's patterns adds gitPatterns and says why.
 func gitEnv(more map[string]string) map[string]string {
-	out := map[string]string{"GIT_TERMINAL_PROMPT": "0", "GIT_CONFIG_NOSYSTEM": "1", "GIT_NO_LAZY_FETCH": "1", "GIT_ALLOW_PROTOCOL": ""}
+	out := map[string]string{"GIT_TERMINAL_PROMPT": "0", "GIT_CONFIG_NOSYSTEM": "1", "GIT_NO_LAZY_FETCH": "1", "GIT_ALLOW_PROTOCOL": "", "GIT_LITERAL_PATHSPECS": "1"}
 	maps.Copy(out, more)
 	return out
 }
+
+// gitPatterns, added to gitEnv, has git read pathspec magic and wildcards again. A
+// call with it names only the app's own paths, or keeps a name from being read as a
+// pattern some other way.
+var gitPatterns = map[string]string{"GIT_LITERAL_PATHSPECS": "0"}
 
 // gitEnvFor is gitEnv for git in env.
 func gitEnvFor(env environment.Environment, more map[string]string) map[string]string {

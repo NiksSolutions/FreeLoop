@@ -14,7 +14,7 @@ export const EVENTS: { id: string; label: PlainKey }[] = [
 const SETTINGS_GROUP: PlainKey = "pending.group.settings";
 
 const GROUPS: { title: PlainKey; kinds: string[] }[] = [
-  { title: "pending.group.commands", kinds: ["hook", "project_hooks", "agent", "optimizer", "mcp"] },
+  { title: "pending.group.commands", kinds: ["hook", "project_hooks", "project_worktree", "agent", "optimizer", "mcp"] },
   { title: "pending.group.rules", kinds: ["rule"] },
   { title: "pending.group.environments", kinds: ["environment"] },
   { title: SETTINGS_GROUP, kinds: ["setting"] },
@@ -23,6 +23,7 @@ const GROUPS: { title: PlainKey; kinds: string[] }[] = [
 
 const KINDS: Record<string, PlainKey> = {
   project_hooks: "pending.kind.projectHooks",
+  project_worktree: "pending.kind.projectWorktree",
   agent: "pending.kind.agent",
   optimizer: "pending.kind.optimizer",
   mcp: "pending.kind.mcp",

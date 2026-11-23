@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"testing"
 
@@ -214,5 +215,115 @@ func TestWorktreeConfigFilterIsRefused(t *testing.T) {
 	}
 	if _, err := os.Stat(marker); err == nil {
 		t.Fatal("the filter ran")
+	}
+}
+
+// A file's name is never read as a git pattern: discarding, staging or unstaging a
+// file an agent named src/*.bak, :^nothing or :!zz touches that file and no other.
+func TestFileNamesAreNotGitPatterns(t *testing.T) {
+	if goruntime.GOOS == "windows" {
+		t.Skip("Windows file names cannot hold * or :")
+	}
+	ctx := context.Background()
+	repo := gitRepo(t)
+	write := func(name, text string) {
+		t.Helper()
+		os.MkdirAll(filepath.Dir(filepath.Join(repo, name)), 0o755)
+		if err := os.WriteFile(filepath.Join(repo, name), []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	read := func(name string) string {
+		b, _ := os.ReadFile(filepath.Join(repo, name))
+		return string(b)
+	}
+	write("zz", "zz\n")
+	write(":!zz", "committed\n")
+	gitIn(t, repo, "add", "--", "zz", ":(literal):!zz")
+	gitIn(t, repo, "commit", "-q", "-m", "zz")
+	e := openTest(t, t.TempDir())
+	defer e.Close()
+	if _, err := e.SetProjectTrust(ctx, repo, true); err != nil {
+		t.Fatal(err)
+	}
+	ses, err := e.CreateSession(ctx, CreateSessionRequest{ProjectRoot: repo, ProviderID: DemoProviderID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	write("src/*.bak", "x")
+	write("src/u1.bak", "u1")
+	write("src/u2.bak", "u2")
+	write(":^nothing", "x")
+	write("a.txt", "changed")
+	write("zz", "changed")
+	write(":!zz", "changed")
+
+	if err := e.DiscardFile(ctx, ses.ID, "src/*.bak"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(repo, "src/*.bak")); !os.IsNotExist(err) {
+		t.Errorf("src/*.bak is still there: %v", err)
+	}
+	if read("src/u1.bak") != "u1" || read("src/u2.bak") != "u2" {
+		t.Error("discarding src/*.bak deleted the other .bak files")
+	}
+	if err := e.DiscardFile(ctx, ses.ID, ":^nothing"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(repo, ":^nothing")); !os.IsNotExist(err) {
+		t.Errorf(":^nothing is still there: %v", err)
+	}
+	if read("src/u1.bak") != "u1" || read("src/u2.bak") != "u2" {
+		t.Error("discarding :^nothing deleted the other untracked files")
+	}
+	if err := e.DiscardFile(ctx, ses.ID, ":!zz"); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(":!zz"); got != "committed\n" {
+		t.Errorf(":!zz after discard = %q", got)
+	}
+	if read("a.txt") != "changed" || read("zz") != "changed" {
+		t.Error("discarding :!zz threw away the changes of other files")
+	}
+
+	staged := func(name string) bool {
+		t.Helper()
+		c, err := e.Changes(ctx, ses.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f, _ := fileState(c, name)
+		return f.Staged
+	}
+	write("src/*.bak", "x")
+	write("src/u1.bak", "u1")
+	write("src/u2.bak", "u2")
+	write(":^nothing", "x")
+	if err := e.StageFiles(ctx, ses.ID, []string{"src/*.bak"}, true); err != nil {
+		t.Fatal(err)
+	}
+	if !staged("src/*.bak") || staged("src/u1.bak") || staged("src/u2.bak") {
+		t.Error("staging src/*.bak staged other files")
+	}
+	if err := e.StageFiles(ctx, ses.ID, []string{":^nothing"}, true); err != nil {
+		t.Fatal(err)
+	}
+	if !staged(":^nothing") || staged("a.txt") || staged("zz") || staged("src/u1.bak") {
+		t.Error("staging :^nothing staged other files")
+	}
+	if err := e.StageFiles(ctx, ses.ID, []string{"src/u1.bak"}, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.StageFiles(ctx, ses.ID, []string{"src/*.bak"}, false); err != nil {
+		t.Fatal(err)
+	}
+	if staged("src/*.bak") || !staged("src/u1.bak") || !staged(":^nothing") {
+		t.Error("unstaging src/*.bak unstaged other files")
+	}
+	if err := e.StageFiles(ctx, ses.ID, []string{":^nothing"}, false); err != nil {
+		t.Fatal(err)
+	}
+	if staged(":^nothing") || !staged("src/u1.bak") {
+		t.Error("unstaging :^nothing unstaged other files")
 	}
 }

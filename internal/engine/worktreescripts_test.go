@@ -5,14 +5,18 @@ import (
 	"os"
 	"path/filepath"
 	goruntime "runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/FinanceNik/Freeloop/internal/config"
+	"github.com/FinanceNik/Freeloop/internal/environment"
 	"github.com/FinanceNik/Freeloop/internal/event"
 	"github.com/FinanceNik/Freeloop/internal/provider/scripted"
+	"github.com/FinanceNik/Freeloop/internal/secrets"
+	"github.com/FinanceNik/Freeloop/internal/session"
 )
 
 // SES-016: a new worktree gets the ignored files it names and its setup
@@ -214,6 +218,7 @@ func TestScriptsRunInTheContainer(t *testing.T) {
 
 	// A container that never started has nothing to clean up.
 	os.WriteFile(filepath.Join(repo, ProjectDir, config.WorktreeFileName), []byte("archive: touch "+shPath(marker)+"-archive\n"), 0o644)
+	approveWorktreeScripts(t, e)
 	other, err := e.CreateSession(ctx, CreateSessionRequest{ProjectRoot: repo, ProviderID: DemoProviderID, EnvironmentID: "box", Worktree: true})
 	if err != nil {
 		t.Fatal(err)
@@ -230,5 +235,186 @@ func TestScriptsRunInTheContainer(t *testing.T) {
 	e.emit(other.ID, event.EnvHealth, map[string]string{"status": "healthy", "container": containerName(other.ID)})
 	if _, _, err := e.scriptHost(ctx, moved); err == nil {
 		t.Error("a worktree a container had would run its commands on the Mac")
+	}
+}
+
+// worktreeScriptsWaiting lists the trusted projects' worktree scripts waiting for approval.
+func worktreeScriptsWaiting(e *Engine) []PendingCommand {
+	return slices.DeleteFunc(e.PendingCommands(), func(c PendingCommand) bool { return c.Kind != pendingProjectWorktree })
+}
+
+// approveWorktreeScripts approves the worktree scripts a test changed after trusting.
+func approveWorktreeScripts(t *testing.T, e *Engine) {
+	t.Helper()
+	for _, c := range worktreeScriptsWaiting(e) {
+		if _, err := e.ApproveCommand(c.Fingerprint); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// SEC-003, SEC-006, SES-016 (issue 064): trusting a project approves its worktree
+// scripts as they are, its copy list included, as it does its hooks. Scripts changed
+// since, by a pull or a branch switch, run none of their commands and copy nothing; they
+// wait in Settings and the session says why, until approved as they are now.
+// Distrusting ends the approval.
+func TestChangedWorktreeScriptsWaitForApproval(t *testing.T) {
+	ctx := context.Background()
+	repo := gitRepo(t)
+	os.WriteFile(filepath.Join(repo, ".env"), []byte("SECRET=1\n"), 0o600)
+	marks := t.TempDir()
+	ran := func(what string) bool {
+		_, err := os.Stat(filepath.Join(marks, what))
+		return err == nil
+	}
+	write := func(name string) {
+		t.Helper()
+		os.MkdirAll(filepath.Join(repo, ProjectDir), 0o755)
+		if err := os.WriteFile(filepath.Join(repo, ProjectDir, config.WorktreeFileName), []byte("copy: [.env]\n"+
+			"setup: touch "+shPath(filepath.Join(marks, "setup-"+name))+"\n"+
+			"run: echo run "+name+"\n"+
+			"archive: touch "+shPath(filepath.Join(marks, "archive-"+name))+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e := openTest(t, t.TempDir())
+	defer e.Close()
+	create := func() session.Session {
+		t.Helper()
+		ses, err := e.CreateSession(ctx, CreateSessionRequest{ProjectRoot: repo, ProviderID: DemoProviderID, Worktree: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := e.waitSetup(ctx, ses.ID); err != nil {
+			t.Fatal(err)
+		}
+		return ses
+	}
+	copied := func(ses session.Session) bool {
+		_, err := os.Stat(filepath.Join(ses.Worktree, ".env"))
+		return err == nil
+	}
+
+	write("A")
+	if _, err := e.SetProjectTrust(ctx, repo, true); err != nil {
+		t.Fatal(err)
+	}
+	if w := worktreeScriptsWaiting(e); len(w) != 0 {
+		t.Fatalf("trusting left the scripts waiting: %+v", w)
+	}
+	a := create()
+	if !ran("setup-A") || !copied(a) {
+		t.Fatalf("the approved scripts: setup ran %v, .env copied %v", ran("setup-A"), copied(a))
+	}
+
+	// A pull changes them: nothing of the file runs or is copied, and Settings and the
+	// session say why.
+	write("B")
+	list := worktreeScriptsWaiting(e)
+	if len(list) != 1 || !strings.Contains(list[0].Runs, "setup-B") || !strings.Contains(list[0].Runs, ".env") || !strings.Contains(list[0].Source, filepath.Join(environment.Canonical(repo), ProjectDir, config.WorktreeFileName)) {
+		t.Fatalf("waiting = %+v", list)
+	}
+	if !slices.ContainsFunc(e.ConfigIssues(), func(i config.Issue) bool { return i.Approval && strings.Contains(i.Message, "setup-B") }) {
+		t.Error("the problems list does not name the waiting scripts")
+	}
+	b := create()
+	if ran("setup-B") || copied(b) {
+		t.Errorf("changed scripts ran unapproved: setup %v, .env copied %v", ran("setup-B"), copied(b))
+	}
+	evs, _ := e.Events(ctx, b.ID, 0, 0)
+	if !slices.ContainsFunc(evs, func(ev event.Event) bool {
+		return ev.Type == event.Notice && strings.Contains(string(ev.Data), "not the ones approved") && strings.Contains(string(ev.Data), "setup-B")
+	}) {
+		t.Error("the session does not say the project's worktree scripts wait for approval")
+	}
+	if info, _ := e.ProjectScripts(ctx, b.ProjectID); !info.RepoWaiting || info.Effective.Setup != "" || info.Effective.Run != "" || len(info.Effective.Copy) != 0 {
+		t.Errorf("scripts while waiting = %+v", info)
+	}
+	if _, err := e.RunWorktreeScript(ctx, b.ID); err == nil || !strings.Contains(err.Error(), "Settings") {
+		t.Errorf("the run command while waiting: %v", err)
+	}
+	e.runArchiveScript(ctx, a)
+	if ran("archive-A") || ran("archive-B") {
+		t.Error("an archive command ran unapproved")
+	}
+	// What the user set in the app is their own and still applies.
+	if err := e.SetProjectScripts(ctx, b.ProjectID, config.WorktreeScripts{Archive: "touch " + shPath(filepath.Join(marks, "archive-app"))}); err != nil {
+		t.Fatal(err)
+	}
+	e.runArchiveScript(ctx, a)
+	if !ran("archive-app") || ran("archive-B") {
+		t.Errorf("the app's own archive command ran %v, the file's %v", ran("archive-app"), ran("archive-B"))
+	}
+	e.SetProjectScripts(ctx, b.ProjectID, config.WorktreeScripts{})
+
+	// Approved as they are now, they run.
+	if _, err := e.ApproveCommand(list[0].Fingerprint); err != nil {
+		t.Fatal(err)
+	}
+	if w := worktreeScriptsWaiting(e); len(w) != 0 {
+		t.Fatalf("still waiting after approval: %+v", w)
+	}
+	c := create()
+	if !ran("setup-B") || !copied(c) {
+		t.Errorf("approved scripts: setup ran %v, .env copied %v", ran("setup-B"), copied(c))
+	}
+	e.runArchiveScript(ctx, a)
+	if !ran("archive-B") {
+		t.Error("the approved archive command did not run")
+	}
+
+	// Distrusting ends the approval; trusting again approves what is there then.
+	if _, err := e.SetProjectTrust(ctx, repo, false); err != nil {
+		t.Fatal(err)
+	}
+	write("C")
+	if _, err := e.SetProjectTrust(ctx, repo, true); err != nil {
+		t.Fatal(err)
+	}
+	write("B")
+	if w := worktreeScriptsWaiting(e); len(w) != 1 {
+		t.Errorf("B after distrust: waiting %+v", w)
+	}
+}
+
+// Issue 064: a project trusted before its worktree scripts needed approval is asked
+// once: they wait, are not approved by a new start, and once approved stay so.
+func TestWorktreeScriptsOfAnEarlierTrustAreAskedOnce(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	mem := secrets.NewMemory()
+	e := openFor(t, dir, mem)
+	defer func() { e.Close() }()
+	repo := gitRepo(t)
+	os.MkdirAll(filepath.Join(repo, ProjectDir), 0o755)
+	os.WriteFile(filepath.Join(repo, ProjectDir, config.WorktreeFileName), []byte("setup: npm install\n"), 0o644)
+	// Trusted by a version that approved no worktree scripts.
+	p, err := e.AddProject(ctx, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.Trusted = true
+	if err := e.store.UpdateProject(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	reopen := func() {
+		e.Close()
+		e = openFor(t, dir, mem)
+	}
+	reopen()
+	list := worktreeScriptsWaiting(e)
+	if len(list) != 1 || !strings.Contains(list[0].Runs, "npm install") {
+		t.Fatalf("waiting = %+v", list)
+	}
+	reopen()
+	if len(worktreeScriptsWaiting(e)) != 1 {
+		t.Fatal("a new start approved them")
+	}
+	if _, err := e.ApproveCommand(list[0].Fingerprint); err != nil {
+		t.Fatal(err)
+	}
+	reopen()
+	if w := worktreeScriptsWaiting(e); len(w) != 0 {
+		t.Errorf("asked again: %+v", w)
 	}
 }

@@ -6,7 +6,8 @@ import { EngineService, type ProjectScriptsInfo } from "./api.ts";
 // WorktreeScripts shows and edits a project's worktree scripts (SES-016)
 // under the new-session form's worktree option: what applies, where it
 // comes from, and the app's own values, which override the project's
-// .freeloop/worktree.yaml field by field.
+// .freeloop/worktree.yaml field by field. A file changed since it was approved
+// applies in nothing until approved in Settings, and says so.
 
 const FIELDS = [
   { key: "setup", label: "worktreeScripts.setup", hint: "worktreeScripts.setupHint" },
@@ -55,6 +56,7 @@ export default function WorktreeScripts({ projectId, onError }: { projectId: str
   return (
     <div className="worktree-scripts">
       {info.repoError && <p className="banner warn">{info.repoError}</p>}
+      {info.repoWaiting && <p className="banner warn">{tNodes("worktreeScripts.waiting", { file: <code>{".freeloop/worktree.yaml"}</code> })}</p>}
       {empty && !editing && (
         <p className="muted">
           {t("worktreeScripts.none")}{" "}

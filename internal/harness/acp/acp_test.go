@@ -1,11 +1,14 @@
 package acp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -601,5 +604,176 @@ func TestATerminalsVariablesAreTheRequests(t *testing.T) {
 		}
 	case <-ctx.Done():
 		t.Fatal("nothing ran")
+	}
+}
+
+// refAgent starts the reference agent in bypass mode on a project whose notes.txt holds
+// notes, in the environment wrap makes of the project's own.
+func refAgent(t *testing.T, notes string, wrap func(*environment.Local) environment.Environment) (harness.Session, *recorder) {
+	t.Helper()
+	home := t.TempDir()
+	root := filepath.Join(home, "repo")
+	os.MkdirAll(root, 0o755)
+	os.WriteFile(filepath.Join(root, "notes.txt"), []byte(notes), 0o644)
+	policy := permission.NewPolicy(home, filepath.Join(home, "appdata"))
+	local, err := environment.NewLocal(environment.LocalOptions{Root: root, Guard: policy.Guard(root), Shell: []string{"sh", "-c"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var env environment.Environment = local
+	if wrap != nil {
+		env = wrap(local)
+	}
+	rec := &recorder{}
+	broker := permission.NewBroker(policy, func(_ string, typ event.Type, data any) { rec.emit(typ, data) })
+	exe, _ := os.Executable()
+	h := Harness{Preset: config.HarnessPreset{ID: "ref", Name: "Reference", Command: exe, Env: map[string]string{acptest.EnvVar: "1"}}}
+	s, err := h.NewSession(context.Background(), harness.Params{SessionID: "ses", Env: env, Broker: broker, Mode: permission.ModeBypass, Emit: rec.emit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	return s, rec
+}
+
+// said is what the agent said last.
+func said(rec *recorder) string {
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	for i := len(rec.events) - 1; i >= 0; i-- {
+		if rec.events[i].Type == event.AgentMessageChunk {
+			var d struct{ Content struct{ Text string } }
+			json.Unmarshal(rec.events[i].Data, &d)
+			return d.Content.Text
+		}
+	}
+	return ""
+}
+
+// prompt sends text and fails the test unless the turn ends as turns do.
+func prompt(t *testing.T, s harness.Session, text string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if reason, err := s.Prompt(ctx, harness.Prompt{Text: text}); err != nil || reason != harness.StopEndTurn {
+		t.Fatalf("%s: %s, %v", text, reason, err)
+	}
+}
+
+// HRN-005, NFR-REL-002: a read whose line and limit add up past the largest number
+// returns the lines from its line on, which once overflowed and took the app down
+// with every session in it; a limit of zero or less reads to the end, as before.
+func TestAReadsLimitCannotOverflow(t *testing.T) {
+	s, rec := refAgent(t, "a\nb\nc\nd", nil)
+	for _, c := range []struct{ line, limit, want string }{
+		{"2", "9223372036854775807", "b\nc\nd"},
+		{"9223372036854775807", "9223372036854775807", ""},
+		{"2", "0", "b\nc\nd"},
+		{"2", "-1", "b\nc\nd"},
+		{"2", "-9223372036854775808", "b\nc\nd"},
+		{"2", "2", "b\nc"},
+		{"-", "2", "a\nb"},
+		{"-", "-", "a\nb\nc\nd"},
+	} {
+		prompt(t, s, "READ notes.txt "+c.line+" "+c.limit)
+		if got := said(rec); got != "read: "+c.want {
+			t.Errorf("line %s, limit %s: %q", c.line, c.limit, got)
+		}
+	}
+}
+
+// HRN-005: a terminal keeps at most 1 MB of output, whatever outputByteLimit the agent
+// asks for; a smaller limit is kept.
+func TestATerminalsOutputLimitIsCapped(t *testing.T) {
+	s, rec := refAgent(t, "", nil)
+	for _, c := range []struct{ limit, want string }{
+		{"9223372036854775807", "output: 1048576 bytes, truncated true"},
+		{"100", "output: 100 bytes, truncated true"},
+	} {
+		prompt(t, s, "RUN "+c.limit+" yes | head -c 3000000")
+		if got := said(rec); got != c.want {
+			t.Errorf("outputByteLimit %s: %q", c.limit, got)
+		}
+	}
+}
+
+// faulty is a project environment with a bug: it panics resolving a path that ends in
+// panic.txt and running a command that says PANIC.
+type faulty struct{ *environment.Local }
+
+func (f faulty) Resolve(path string) string {
+	if strings.HasSuffix(path, "panic.txt") {
+		panic("a bug in Resolve")
+	}
+	return f.Local.Resolve(path)
+}
+
+func (f faulty) Exec(ctx context.Context, spec environment.ExecSpec) (environment.ExecResult, error) {
+	if strings.Contains(strings.Join(spec.Argv, " "), "PANIC") {
+		panic("a bug in Exec")
+	}
+	return f.Local.Exec(ctx, spec)
+}
+
+// lockedBuffer is a log the handlers' goroutines can write while the test reads it.
+type lockedBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (l *lockedBuffer) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *lockedBuffer) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
+}
+
+// NFR-REL-002: a panic in a handler the client answers an agent with, which the
+// protocol library runs in a goroutine with no recover, is an error to the agent and a
+// line in the log with its stack; one in a terminal's command is logged too. The app
+// and the session go on.
+func TestAPanicInAHandlerIsAnError(t *testing.T) {
+	var logged lockedBuffer
+	log.SetOutput(&logged)
+	defer log.SetOutput(os.Stderr)
+	s, rec := refAgent(t, "hello", func(l *environment.Local) environment.Environment { return faulty{l} })
+	prompt(t, s, "READ panic.txt")
+	if got := said(rec); !strings.HasPrefix(got, "read failed: ") {
+		t.Errorf("the agent was told %q", got)
+	}
+	if l := logged.String(); !strings.Contains(l, "fs/read_text_file") || !strings.Contains(l, "a bug in Resolve") || !strings.Contains(l, "acp_test.go") {
+		t.Errorf("logged %q", l)
+	}
+	prompt(t, s, "RUN - echo PANIC")
+	if got := said(rec); !strings.HasPrefix(got, "output: 0 bytes") {
+		t.Errorf("the agent was told %q", got)
+	}
+	if l := logged.String(); !strings.Contains(l, "a bug in Exec") {
+		t.Errorf("logged %q", l)
+	}
+	prompt(t, s, "READ notes.txt")
+	if got := said(rec); got != "read: hello" {
+		t.Errorf("after the panics the agent was told %q", got)
+	}
+}
+
+// NFR-REL-002: every handler the session has for an agent's requests is guarded, since
+// the protocol library finds them on the value it is given and offers no other.
+func TestEveryHandlerIsGuarded(t *testing.T) {
+	for _, iface := range []reflect.Type{reflect.TypeFor[sdk.Client](), reflect.TypeFor[sdk.ClientExperimental](), reflect.TypeFor[sdk.ExtensionMethodHandler]()} {
+		for i := range iface.NumMethod() {
+			name := iface.Method(i).Name
+			if _, has := reflect.TypeFor[*session]().MethodByName(name); !has {
+				continue
+			}
+			if _, ok := reflect.TypeFor[guarded]().MethodByName(name); !ok {
+				t.Errorf("%s is not guarded", name)
+			}
+		}
 	}
 }

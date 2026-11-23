@@ -29,7 +29,15 @@ import (
 // listens on, compares them (served).
 //
 // Only POST is taken, because a GET can be sent by a mere image tag.
-func RuntimeCallAllowed(method, origin, fetchSite, host, clientID string, served bool) bool {
+//
+// pageOrigin is the origin of the app's own page where the system's web view gives it
+// an http one, as the platform names it (NFR-XPLAT-002): on Windows Wails serves the
+// page to WebView2 from http://wails.localhost, and Chromium puts that origin on every
+// POST. Exactly that origin is taken, and only from the page itself (Sec-Fetch-Site
+// absent or same-origin). Wails answers for every host that starts with wails.localhost,
+// so wails.localhost:1 or wails.localhost.evil.example reach the app too, but with an
+// origin of their own. It is empty on the other systems.
+func RuntimeCallAllowed(method, origin, fetchSite, host, clientID, pageOrigin string, served bool) bool {
 	if method != "POST" || clientID == "" {
 		return false
 	}
@@ -42,6 +50,9 @@ func RuntimeCallAllowed(method, origin, fetchSite, host, clientID string, served
 	}
 	if served {
 		return strings.EqualFold(u.Host, host)
+	}
+	if pageOrigin != "" && origin == pageOrigin {
+		return fetchSite == "" || fetchSite == "same-origin"
 	}
 	// The app's page is served from its own URL scheme in the desktop app.
 	return u.Scheme == "wails"

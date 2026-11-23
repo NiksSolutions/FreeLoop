@@ -48,7 +48,12 @@ func (e *Engine) shadowBase(sid string, host *environment.Local) []string {
 // shadowGit runs git on the session's checkpoint store with its folder as
 // the work tree. Hooks, fsmonitor and the user's identity stay out.
 func (e *Engine) shadowGit(ctx context.Context, host *environment.Local, sid string, timeout time.Duration, args ...string) (string, error) {
-	res, err := gitRun(ctx, host, timeout, append(e.shadowBase(sid, host), args...)...)
+	return e.shadowGitWith(ctx, host, sid, timeout, nil, args...)
+}
+
+// shadowGitWith is shadowGit with more in git's environment.
+func (e *Engine) shadowGitWith(ctx context.Context, host *environment.Local, sid string, timeout time.Duration, more map[string]string, args ...string) (string, error) {
+	res, err := gitRunWith(ctx, host, timeout, more, append(e.shadowBase(sid, host), args...)...)
 	if err != nil {
 		return "", err
 	}
@@ -71,7 +76,9 @@ func (e *Engine) snapshotExclusions(ctx context.Context, host *environment.Local
 	// a folder, which is what .claude/ as a rule needs.
 	folders := []string{".claude", ProjectDir}
 	ignored := ""
-	res, err := gitRun(ctx, host, 30*time.Second, append(e.shadowBase(sid, host), append([]string{"check-ignore", "--"}, folders...)...)...)
+	// check-ignore refuses to run with git's paths read literally, and these are the
+	// app's own (see gitEnv).
+	res, err := gitRunWith(ctx, host, 30*time.Second, gitPatterns, append(e.shadowBase(sid, host), append([]string{"check-ignore", "--"}, folders...)...)...)
 	// It exits 0 with some ignored and 1 with none.
 	if err == nil && res.ExitCode == 0 {
 		ignored = res.Output
@@ -105,7 +112,9 @@ func (e *Engine) snapshot(ctx context.Context, host *environment.Local, sid, mes
 	if _, err := e.shadowGit(ctx, host, sid, checkpointTimeout, "rm", "-r", "-q", "--cached", "--ignore-unmatch", "--", ".claude", ProjectDir); err != nil {
 		return "", err
 	}
-	if _, err := e.shadowGit(ctx, host, sid, checkpointTimeout, append([]string{"add", "-A", "--", "."}, e.snapshotExclusions(ctx, host, sid)...)...); err != nil {
+	// The exclusions are pathspec magic, and every path here is the app's own, so this
+	// add reads patterns (see gitEnv).
+	if _, err := e.shadowGitWith(ctx, host, sid, checkpointTimeout, gitPatterns, append([]string{"add", "-A", "--", "."}, e.snapshotExclusions(ctx, host, sid)...)...); err != nil {
 		return "", err
 	}
 	if err := e.dropNested(ctx, host, sid); err != nil {

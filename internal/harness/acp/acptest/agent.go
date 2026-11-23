@@ -2,6 +2,8 @@
 // it reports the MCP servers it was given, asks to edit notes.txt in its
 // working folder and edits it through the client when allowed, and when the
 // prompt says "terminal" runs a command through the client without asking.
+// A prompt "READ <path> <line> <limit>" or "RUN <outputByteLimit> <command>"
+// sends just that request, with the numbers as given, and says the answer.
 package acptest
 
 import (
@@ -10,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -197,6 +200,12 @@ func (a *agent) Prompt(ctx context.Context, r sdk.PromptRequest) (sdk.PromptResp
 	}
 	if strings.HasPrefix(text, "ASK") {
 		return a.ask(ctx, r.SessionId, say)
+	}
+	if strings.HasPrefix(text, "READ ") {
+		return a.read(ctx, r.SessionId, strings.Fields(text)[1:], say)
+	}
+	if strings.HasPrefix(text, "RUN ") {
+		return a.run(ctx, r.SessionId, text, say)
 	}
 	cwd, _ := os.Getwd()
 	path := filepath.Join(cwd, "notes.txt")
@@ -392,6 +401,54 @@ func (a *agent) ask(ctx context.Context, sid sdk.SessionId, say func(string)) (s
 		say("answer: declined")
 	default:
 		say("answer: cancelled")
+	}
+	return sdk.PromptResponse{StopReason: sdk.StopReasonEndTurn}, nil
+}
+
+// number is a line, limit or byte limit from a prompt; "-" is none.
+func number(s string) *int {
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return nil
+	}
+	return &n
+}
+
+// read reads a file through the client with the line and limit given, and says what
+// came back.
+func (a *agent) read(ctx context.Context, sid sdk.SessionId, args []string, say func(string)) (sdk.PromptResponse, error) {
+	for len(args) < 3 {
+		args = append(args, "-")
+	}
+	path := args[0]
+	if !filepath.IsAbs(path) {
+		cwd, _ := os.Getwd()
+		path = filepath.Join(cwd, path)
+	}
+	res, err := a.conn.ReadTextFile(ctx, sdk.ReadTextFileRequest{SessionId: sid, Path: path, Line: number(args[1]), Limit: number(args[2])})
+	if err != nil {
+		say("read failed: " + err.Error())
+	} else {
+		say("read: " + res.Content)
+	}
+	return sdk.PromptResponse{StopReason: sdk.StopReasonEndTurn}, nil
+}
+
+// run runs "RUN <outputByteLimit> <command>" through a client terminal and says how
+// much output came back.
+func (a *agent) run(ctx context.Context, sid sdk.SessionId, text string, say func(string)) (sdk.PromptResponse, error) {
+	f := strings.SplitN(text, " ", 3)
+	t, err := a.conn.CreateTerminal(ctx, sdk.CreateTerminalRequest{SessionId: sid, Command: "sh", Args: []string{"-c", f[2]}, OutputByteLimit: number(f[1])})
+	if err != nil {
+		say("terminal failed: " + err.Error())
+		return sdk.PromptResponse{StopReason: sdk.StopReasonEndTurn}, nil
+	}
+	a.conn.WaitForTerminalExit(ctx, sdk.WaitForTerminalExitRequest{SessionId: sid, TerminalId: t.TerminalId})
+	out, err := a.conn.TerminalOutput(ctx, sdk.TerminalOutputRequest{SessionId: sid, TerminalId: t.TerminalId})
+	if err != nil {
+		say("output failed: " + err.Error())
+	} else {
+		say(fmt.Sprintf("output: %d bytes, truncated %t", len(out.Output), out.Truncated))
 	}
 	return sdk.PromptResponse{StopReason: sdk.StopReasonEndTurn}, nil
 }

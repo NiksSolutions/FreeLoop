@@ -69,7 +69,7 @@ De letters Y, A en N werken alleen als geen tekstveld de focus heeft. Deze werke
 
 In Vraagt aandacht kiezen J en K of de pijltoetsen welk verzoek de toetsen beantwoorden.
 
-> Een nieuwe kaart negeert deze toetsen even nadat hij verschijnt, zodat een toets die voor iets anders werd ingedrukt geen aanroep kan goedkeuren die nog niet is gelezen.
+> Een kaart negeert deze toetsen even nadat hij de kaart is geworden die de toetsen beantwoorden, als hij verschijnt of de vorige is beantwoord, zodat een toets die voor iets anders werd ingedrukt geen aanroep kan goedkeuren die nog niet is gelezen. Een ingehouden toets antwoordt één keer, geen toets antwoordt zolang een dialoog zoals het opdrachtenpalet open is, en een plan wordt alleen met de eigen knoppen beantwoord, in de eigen sessie.
 
 ## Eerdere prompts en aanvullen in het berichtvak
 

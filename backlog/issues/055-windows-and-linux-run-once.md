@@ -11,6 +11,7 @@ OQ-045 says macOS, Windows and Linux work essentially the same before the reposi
 
 ## Acceptance
 - On each: install, first run, the demo to its end, a session on a real agent with one approval, a terminal tab, quit and reopen with the session there.
+- On Windows the window loads its data: the sidebar lists projects and sessions and Settings opens, so the engine takes the page's calls from `http://wails.localhost` (issue 066); the log has no "refused a runtime call".
 - The conversation follows its end while streaming and holds its place when scrolled up (Chromium anchors scrolling itself, which `drawOnce` was not written for); a PDF opens; the message box grows with its text.
 - What fails becomes an issue; what blocks a first session is fixed before 056.
 - If no machine is at hand: the README says in its first screen that Windows and Linux are untested, and OQ-045 gets a note that the repository went public that way.

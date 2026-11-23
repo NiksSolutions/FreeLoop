@@ -20,6 +20,9 @@ test("labels name a hook's event", () => {
   assert.equal(pendingLabel({ kind: "something-new", event: "" }), "Setting");
   assert.equal(pendingLabel({ kind: "project_hooks", event: "" }), "A trusted project's changed hooks");
   assert.equal(groupPending([{ kind: "project_hooks" }])[0].title, "Commands that would run");
+  // Issue 064: a trusted project's changed worktree scripts wait beside its changed hooks.
+  assert.equal(pendingLabel({ kind: "project_worktree", event: "" }), "A trusted project's changed worktree scripts");
+  assert.equal(groupPending([{ kind: "project_worktree" }])[0].title, "Commands that would run");
 });
 
 test("approving all says how many of what", () => {
@@ -44,5 +47,8 @@ test("what waits is told in the language in force (GUI-048)", () => {
     ["Regeln, die ohne Rückfrage erlauben würden", "Einstellungen"],
   );
   assert.match(approveAllQuestion([{ kind: "hook" }, { kind: "agent" }]), /^Alle 2 freigeben\?\n\nBefehle, die laufen würden: 2\n\n/);
+  assert.equal(pendingLabel({ kind: "project_worktree", event: "" }), "Geänderte Worktree-Skripte eines vertrauenswürdigen Projekts");
+  setLanguage("nl");
+  assert.equal(pendingLabel({ kind: "project_worktree", event: "" }), "Gewijzigde worktree-scripts van een vertrouwd project");
   setLanguage("en");
 });

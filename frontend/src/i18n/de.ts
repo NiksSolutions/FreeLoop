@@ -218,6 +218,7 @@ export const de = translationOf<typeof en>()({
   "pending.group.addresses": "Wohin etwas gesendet würde",
   "pending.kind.hook": "Hook-Befehl ({event})",
   "pending.kind.projectHooks": "Geänderte Hook-Befehle eines vertrauenswürdigen Projekts",
+  "pending.kind.projectWorktree": "Geänderte Worktree-Skripte eines vertrauenswürdigen Projekts",
   "pending.kind.agent": "Agent",
   "pending.kind.optimizer": "Token-Optimierer",
   "pending.kind.mcp": "MCP-Server",
@@ -1892,6 +1893,8 @@ export const de = translationOf<typeof en>()({
   "attention.waitingSince": "angefragt {ago}",
   "attention.input": "Eingabe",
   "attention.savesRule": "Speichert eine Regel",
+  "attention.planInSession": "Ein Plan wird in seiner Sitzung freigegeben oder zurückgegeben, wo er sich lesen und kommentieren lässt.",
+  "attention.reviewPlan": "Plan prüfen",
 
   "workflows.intro":
     "Ein Arbeitsablauf ist eine Arbeitsweise in Schritten. Jeder Schritt ist ein Slash-Befehl in einer Sitzung: Er sendet einen Prompt, der eine Fähigkeit nennt, wechselt den Modus oder startet einen AFK-Lauf, ein Review oder ein Aufräumen. Jeder Werkzeugaufruf geht weiterhin durch die Richtlinie; ein AFK-Lauf fragt vorab nach den Befehlen, die er brauchen wird, und alles andere, was er will, wartet unter „Braucht Aufmerksamkeit“.",
@@ -2441,6 +2444,7 @@ export const de = translationOf<typeof en>()({
   "worktreeScripts.edit": "Bearbeiten…",
   "worktreeScripts.intro":
     "Werte hier haben Vorrang vor {file} des Projekts; ein leeres Feld übernimmt den Wert aus der Datei. Befehle laufen im Worktree mit den Variablen der Umgebung und {port}, {root} und {worktree}: auf diesem Computer oder, in einer Docker-Umgebung, im Container der Sitzung, wo die Dateien des Haupt-Checkouts nicht verfügbar sind. Kopien kommen immer aus dem Haupt-Checkout auf diesem Computer.",
+  "worktreeScripts.waiting": "Die Skripte in {file} haben sich seit der Freigabe geändert, daher läuft keiner ihrer Befehle und nichts wird kopiert, bis sie in Einstellungen → Berechtigungen freigegeben sind.",
   "worktreeScripts.copy": "Aus dem Haupt-Checkout kopieren",
   "worktreeScripts.copyHint": "(ein Pfad pro Zeile, etwa .env)",
 

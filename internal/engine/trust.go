@@ -286,15 +286,15 @@ func (e *Engine) SetProjectTrust(ctx context.Context, root string, trusted bool)
 	if err != nil {
 		return ProjectInfo{}, err
 	}
-	// Trusting approves the project's hooks as they are now; distrusting ends
-	// that, so trusting again approves what is there then. Distrusting always
-	// goes ahead: an untrusted project runs no hooks anyway.
+	// Trusting approves the project's hooks and worktree scripts as they are now;
+	// distrusting ends that, so trusting again approves what is there then.
+	// Distrusting always goes ahead: an untrusted project runs neither anyway.
 	if trusted {
-		if err := e.approveProjectHooks(p); err != nil {
-			return ProjectInfo{}, fmt.Errorf("approve the project's hooks: %w", err)
+		if err := e.approveProjectCommands(p); err != nil {
+			return ProjectInfo{}, fmt.Errorf("approve the project's hooks and worktree scripts: %w", err)
 		}
-	} else if err := e.revokeProjectHooks(p); err != nil {
-		log.Printf("engine: end the approval of %s's hooks: %v", p.Root, err)
+	} else if err := e.revokeProjectCommands(p); err != nil {
+		log.Printf("engine: end the approval of %s's hooks and worktree scripts: %v", p.Root, err)
 	}
 	p.Trusted = trusted
 	if err := e.store.UpdateProject(ctx, p); err != nil {
