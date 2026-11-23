@@ -19,3 +19,4 @@ Found in issue 025 on a real iPhone: a screenshot or photo cannot be pasted or a
 
 ## Notes
 - 2026-11-22: done. `TestPhoneSendsPictures` and `TestPhoneBodyLimits` in `internal/remote/pictures_test.go`; the phone pass of `make check-app` attaches, pastes, removes and sends a picture and sees it, read back with the phone's key, beside "From the phone".
+- 2026-11-23: confirmed on the iPhone: a screenshot sent alone with the picture button arrived as a message from the phone, stored as one of the session's attachments, and Claude Code received the picture.

@@ -17,3 +17,4 @@ Found in issue 025 on a real iPhone, in the user's screenshot: with the keyboard
 
 ## Notes
 - 2026-11-22: done. `SessionScreen` in `PhoneApp.tsx` notes whether the reader is at the end from scrolls made at a settled size (the browser scrolls by itself while what the page shows changes size) and keeps the end in view on a resize of the window or the visual viewport, and on a resize of the conversation or the message box. The driver takes a `resize` message for the check.
+- 2026-11-23: the user confirmed it on the iPhone: with the keyboard open, the newest message stays above the message box.
