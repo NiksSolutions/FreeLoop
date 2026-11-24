@@ -116,3 +116,28 @@ func TestWindowsSecretsAreProtected(t *testing.T) {
 		t.Error("a relative %APPDATA% was taken")
 	}
 }
+
+// HFS+ passes over some default-ignorable code points in a name, so .g<U+200C>it is
+// .git there, as git's core.protectHFS reads it. The guard read it as another name and
+// let a write into .git through (issue 079).
+func TestIgnoredCodePointsDoNotHideProtectedNames(t *testing.T) {
+	home := environment.Canonical(t.TempDir())
+	p := NewPolicy(home, filepath.Join(home, "data"))
+	root := filepath.Join(home, "repo")
+	zwnj, zwj, bom := string(rune(0x200C)), string(rune(0x200D)), string(rune(0xFEFF))
+	for _, rel := range []string{".g" + zwnj + "it/config", "sub/.gi" + bom + "t/hooks/pre-commit", ".free" + zwj + "loop/hooks.yaml"} {
+		if p.writeRefusal(root, filepath.Join(root, filepath.FromSlash(rel))) == "" {
+			t.Errorf("%q is writable", rel)
+		}
+	}
+	if p.readRefusal(filepath.Join(home, ".s"+zwnj+"sh", "id_ed25519")) == "" {
+		t.Error("~/.s<U+200C>sh is readable")
+	}
+	if !p.actedOn(root, []string{filepath.Join(root, "sub", ".env"+zwj+"rc")}) {
+		t.Error("sub/.env<U+200D>rc is not acted on later")
+	}
+	r := Rule{Effect: Deny, Tool: "read_file", Path: "secrets/**"}
+	if !r.Matches(Request{Tool: "read_file", Kind: KindRead, Paths: []string{filepath.Join(root, "sec"+bom+"rets", "key")}}, root) {
+		t.Error("a deny rule missed sec<U+FEFF>rets/key")
+	}
+}

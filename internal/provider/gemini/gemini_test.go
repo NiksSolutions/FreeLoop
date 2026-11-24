@@ -203,10 +203,12 @@ func TestMadeUpIDsAndBudgets(t *testing.T) {
 		fmt.Fprintf(w, "data: %s\n\n", `{"candidates":[{"content":{"role":"model","parts":[{"functionCall":{"name":"read_file","args":{}}}]},"finishReason":"STOP"}]}`)
 	}))
 	defer srv.Close()
-	p := New(Options{BaseURL: srv.URL, APIKey: "k"})
 	req := provider.ChatRequest{Model: "gemini-3-pro", Messages: []provider.Message{{Role: provider.RoleUser, Parts: []provider.Part{{Type: provider.PartText, Text: "hi"}}}}}
 	var ids []string
-	for range 2 {
+	// Two responses of one provider, and one of another made after it, as after a
+	// restart: every ID differs (PRV-006).
+	p := New(Options{BaseURL: srv.URL, APIKey: "k"})
+	for _, p := range []*Provider{p, p, New(Options{BaseURL: srv.URL, APIKey: "k"})} {
 		ch, err := p.Stream(context.Background(), req)
 		if err != nil {
 			t.Fatal(err)
@@ -217,7 +219,7 @@ func TestMadeUpIDsAndBudgets(t *testing.T) {
 			}
 		}
 	}
-	if len(ids) != 2 || ids[0] == ids[1] {
+	if len(ids) != 3 || ids[0] == ids[1] || ids[2] == ids[0] || ids[2] == ids[1] {
 		t.Errorf("ids = %v", ids)
 	}
 	for model, want := range map[string]int32{"gemini-2.5-flash": 24576, "gemini-2.5-pro": 32768} {

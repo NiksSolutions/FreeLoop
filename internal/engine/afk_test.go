@@ -646,3 +646,113 @@ func TestAFKRunAtAChosenEffort(t *testing.T) {
 		}
 	}
 }
+
+// WFL-006: what an issue's session left is committed, or the run hears why not: a
+// commit git refuses (a signing key it cannot use), or one skipped since the
+// repository's own config names a program.
+func TestLeftoversThatCannotBeCommitted(t *testing.T) {
+	ctx := context.Background()
+	e := openTest(t, t.TempDir())
+	defer e.Close()
+	repo := gitRepo(t)
+	gitIn(t, repo, "config", "user.name", "t")
+	gitIn(t, repo, "config", "user.email", "t@t")
+	env, err := e.localEnv(repo, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	step := config.AFKStep{Issue: "001-x", Title: "X"}
+	leave := func(name string) {
+		if err := os.WriteFile(filepath.Join(repo, name), []byte(name+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	leave("one.txt")
+	if commit, note, err := e.commitLeftovers(ctx, env, step); err != nil || note == "" || commit != gitIn(t, repo, "rev-parse", "HEAD") {
+		t.Fatalf("left changes: %q %q %v", commit, note, err)
+	}
+
+	gitIn(t, repo, "config", "commit.gpgsign", "true")
+	gitIn(t, repo, "config", "user.signingkey", "no-such-key-for-a-test")
+	leave("two.txt")
+	if _, _, err := e.commitLeftovers(ctx, env, step); err == nil || !strings.Contains(err.Error(), "sign") {
+		t.Errorf("a commit git refused: %v", err)
+	}
+	gitIn(t, repo, "config", "--unset", "commit.gpgsign")
+
+	gitIn(t, repo, "config", "filter.x.clean", "cat")
+	if _, _, err := e.commitLeftovers(ctx, env, step); err == nil || !strings.Contains(err.Error(), "filter.x.clean") {
+		t.Errorf("a commit skipped: %v", err)
+	}
+	gitIn(t, repo, "config", "--remove-section", "filter.x")
+
+	gitIn(t, repo, "add", "-A")
+	gitIn(t, repo, "commit", "-qm", "the rest")
+	if commit, note, err := e.commitLeftovers(ctx, env, step); err != nil || note != "" || commit != gitIn(t, repo, "rev-parse", "HEAD") {
+		t.Errorf("nothing left: %q %q %v", commit, note, err)
+	}
+}
+
+// WFL-006: a leftover commit that fails stops the run with git's message, before the
+// next issue starts on the changes and pays for them.
+func TestAFKRunStopsWhenLeftoversCannotBeCommitted(t *testing.T) {
+	ctx := context.Background()
+	e, root := afkEngine(t)
+	// The agent's own commit fails too, so its changes are left.
+	gitIn(t, root, "config", "commit.gpgsign", "true")
+	gitIn(t, root, "config", "user.signingkey", "no-such-key-for-a-test")
+	run, err := e.StartAFK(ctx, AFKStart{ProjectRoot: root, Allow: []string{"git add *", "git commit *"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run = waitRun(t, e, run.ID)
+	if run.State != config.RunStopped || !strings.Contains(run.Reason, "001-store") || !strings.Contains(run.Reason, "sign") {
+		t.Fatalf("run = %+v", run)
+	}
+	if len(run.Steps) != 1 || run.Steps[0].State != config.StepFailed || run.Steps[0].ReviewID != "" {
+		t.Errorf("steps = %+v", run.Steps)
+	}
+}
+
+// OQ-040: a run's branch not merged into the project's checkout keeps a new run from
+// starting, which would read the backlog there, where that run's issues are still
+// open, and do them again. Gone, or merged, it does not.
+func TestAFKPlanNamesAnUnmergedRun(t *testing.T) {
+	ctx := context.Background()
+	e, root := afkEngine(t)
+	run, err := e.StartAFK(ctx, AFKStart{ProjectRoot: root, Allow: []string{"git add *", "git commit *"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run = waitRun(t, e, run.ID)
+	if run.Branch == "" {
+		t.Fatalf("run = %+v", run)
+	}
+	plan, err := e.PrepareAFK(ctx, root, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Unmerged != run.Branch || !strings.Contains(plan.Problem, run.Branch) {
+		t.Fatalf("plan with the run unmerged: unmerged %q, problem %q", plan.Unmerged, plan.Problem)
+	}
+	if _, err := e.StartAFK(ctx, AFKStart{ProjectRoot: root}); err == nil || !strings.Contains(err.Error(), run.Branch) {
+		t.Errorf("a run started over an unmerged one: %v", err)
+	}
+
+	// Gone: the user dropped it.
+	gitIn(t, root, "branch", "kept", run.Branch)
+	gitIn(t, root, "worktree", "remove", "--force", run.Worktree)
+	gitIn(t, root, "branch", "-D", run.Branch)
+	if plan, _ := e.PrepareAFK(ctx, root, ""); plan.Unmerged != "" {
+		t.Errorf("a deleted branch: %q", plan.Unmerged)
+	}
+	// Back, and merged.
+	gitIn(t, root, "branch", run.Branch, "kept")
+	if plan, _ := e.PrepareAFK(ctx, root, ""); plan.Unmerged != run.Branch {
+		t.Errorf("the branch back: %q", plan.Unmerged)
+	}
+	gitIn(t, root, "merge", "-q", "--no-ff", "--no-edit", run.Branch)
+	if plan, _ := e.PrepareAFK(ctx, root, ""); plan.Unmerged != "" || strings.Contains(plan.Problem, run.Branch) {
+		t.Errorf("a merged branch: %q, %q", plan.Unmerged, plan.Problem)
+	}
+}

@@ -212,6 +212,7 @@ func TestHandEditedRulesAreReloaded(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "rules.yaml"), []byte("version: 1\nrules:\n  - {effect: deny, tool: shell, command: \"rm *\"}\n  - {effect: bogus, tool: x}\n"), 0o600)
 	future := time.Now().Add(time.Second)
 	os.Chtimes(filepath.Join(dir, "rules.yaml"), future, future)
+	e.rules.reload() // as the config watch does once the file holds still
 	if rules := e.ListRules(""); len(rules) != 1 || rules[0].Effect != "deny" {
 		t.Errorf("rules = %+v", rules)
 	}
@@ -235,6 +236,7 @@ func TestBrokenRulesFileFailsClosedAndIsNotOverwritten(t *testing.T) {
 	bump := func() {
 		future := time.Now().Add(time.Duration(len(e.ConfigIssues())+1) * time.Second)
 		os.Chtimes(filepath.Join(dir, "rules.yaml"), future, future)
+		e.rules.reload() // as the config watch does once the file holds still
 	}
 	bump()
 	if rules := e.ListRules(""); len(rules) != 1 {

@@ -7,9 +7,12 @@ package mcp
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net"
 	"net/http"
 	"net/url"
@@ -105,10 +108,11 @@ func New(spawner environment.Spawner) *Manager {
 }
 
 // Start starts the server, or does nothing when it already runs with the
-// same configuration; a changed configuration restarts it. It returns once
-// the server's tools are listed or starting failed.
+// same configuration and secrets; a changed configuration, or a secret given a
+// new value, restarts it. It returns once the server's tools are listed or
+// starting failed.
 func (m *Manager) Start(ctx context.Context, l Launch) error {
-	id, fp := l.Config.ID, l.Config.Fingerprint()+fmt.Sprint(len(l.Env), len(l.Headers))
+	id, fp := l.Config.ID, l.Config.Fingerprint()+valuesHash(l.Env, l.Headers)
 	m.mu.Lock()
 	if s, ok := m.servers[id]; ok && s.fingerprint == fp && (s.status.State == Running || s.status.State == Starting) {
 		m.mu.Unlock()
@@ -382,6 +386,21 @@ func render(res *sdk.CallToolResult) string {
 		parts = append(parts, string(b))
 	}
 	return strings.Join(parts, "\n")
+}
+
+// valuesHash hashes the resolved secrets a server starts with, so a rotated key
+// restarts it (MCP-005). The configuration's own fingerprint leaves values out,
+// since it is written to mcp.yaml; this one is kept in memory only, and holds no
+// value, only a hash of them all.
+func valuesHash(sets ...map[string]string) string {
+	h := sha256.New()
+	for _, m := range sets {
+		for _, k := range slices.Sorted(maps.Keys(m)) {
+			fmt.Fprintf(h, "%d:%s%d:%s", len(k), k, len(m[k]), m[k])
+		}
+		h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 func merge(a, b map[string]string) map[string]string {

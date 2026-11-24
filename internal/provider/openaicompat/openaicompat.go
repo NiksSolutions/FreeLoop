@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync/atomic"
 
@@ -92,7 +93,7 @@ type Provider struct {
 	key     string
 	headers map[string]string
 	client  *http.Client
-	calls   atomic.Int64 // for synthesized tool-call IDs
+	calls   provider.CallIDs // for synthesized tool-call IDs
 	// noStreamUsage is set once the server has refused stream_options.
 	noStreamUsage atomic.Bool
 }
@@ -419,7 +420,7 @@ func (p *Provider) Stream(ctx context.Context, req provider.ChatRequest) (<-chan
 	if err != nil {
 		return nil, err
 	}
-	turn := p.calls.Add(1)
+	turn := p.calls.Response()
 
 	ch := make(chan provider.Event, 64)
 	go func() {
@@ -441,7 +442,7 @@ func (p *Provider) Stream(ctx context.Context, req provider.ChatRequest) (<-chan
 
 		newCall := func(id string) *callAcc {
 			if id == "" {
-				id = fmt.Sprintf("call_%d_%d", turn, len(calls))
+				id = "call_" + turn + strconv.Itoa(len(calls))
 			}
 			c := &callAcc{id: id}
 			calls = append(calls, c)

@@ -189,6 +189,14 @@ func (e *Engine) SaveMCPServer(req SaveMCPServerRequest) (MCPServerInfo, error) 
 		return MCPServerInfo{}, err
 	}
 	e.loadMCP()
+	// A secret given a new value keeps its reference, and so the fingerprint, which
+	// leaves values out: loadMCP left the server running on the old value. Started
+	// again, it restarts when what it runs with changed, and only then (MCP-005).
+	if st := e.mcp.Status(s.ID).State; len(req.Secrets) > 0 && (st == mcp.Running || st == mcp.Starting) {
+		if err := e.StartMCPServer(context.Background(), s.ID); err != nil {
+			log.Printf("engine: MCP server %s: %s", s.ID, e.redactText(err.Error()))
+		}
+	}
 	return e.mcpInfo(s), nil
 }
 

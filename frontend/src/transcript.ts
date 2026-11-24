@@ -76,6 +76,17 @@ export function apply(tr: Transcript, incoming: readonly TranscriptEvent[]): App
   return { transcript: extend(tr, added, lastSeq), missingAfter: null };
 }
 
+// MISSED is the engine's marker for events its bus dropped because the window fell
+// behind (engine.Missed): it names no session and has no seq, so any transcript the
+// window holds may lack its last events, and the session list its last states.
+export const MISSED = "events_missed";
+
+// splitMissed takes the markers out of a batch and says whether there was one.
+export function splitMissed(batch: readonly TranscriptEvent[]): { events: TranscriptEvent[]; missed: boolean } {
+  const events = batch.filter((ev) => ev.type !== MISSED);
+  return { events, missed: events.length !== batch.length };
+}
+
 function extend(tr: Transcript, added: TranscriptEvent[], lastSeq: number): Transcript {
   if (added.length === 0) return tr;
   // The shared array is appended to only by the newest transcript, and never when empty
@@ -763,6 +774,10 @@ function newFold(): Fold {
         break;
       case "session_status":
         status = d.status ?? status;
+        // The engine says a session runs before its turn starts, while it snapshots the
+        // files (SES-014), and Stop is offered from then; one at rest ends it.
+        if (status === "running") running = true;
+        else if (status === "idle" || status === "error" || status === "archived") running = false;
         break;
       case "git_state":
         git = { repo: !!d.repo, branch: d.branch ?? "", head: d.head ?? "", dirty: d.dirty ?? 0, baseCommit: d.baseCommit ?? "" };

@@ -37,10 +37,17 @@ import (
 
 const (
 	// A phone's key goes unused for this long before it stops working; use renews it.
-	keyLife   = 90 * 24 * time.Hour
-	pairLife  = 5 * time.Minute
+	keyLife  = 90 * 24 * time.Hour
+	pairLife = 5 * time.Minute
+	// pairTries is how many wrong codes one code takes (SEC-020); then a new code
+	// replaces it, and the window stays open.
 	pairTries = 5
-	maxBody   = 64 << 10
+	// After a wrong code no code is looked at for pairPause, doubled with each wrong
+	// code of the window up to pairPauseMax: a guesser can neither try many nor
+	// replace the code faster than the user can type it, and cannot close the window.
+	pairPause    = time.Second
+	pairPauseMax = time.Minute
+	maxBody      = 64 << 10
 	// maxPictureBody is what a message with pictures may be (issue 058): ten pictures at
 	// the store's limit, base64 encoded, beside a message of maxBody.
 	maxPictureBody = int64(engine.MaxImages)*(4*(store.MaxAttachment+2)/3+64) + maxBody
@@ -90,8 +97,12 @@ type Server struct {
 type pairing struct {
 	code    string
 	expires time.Time
-	tries   int
-	claim   *claim
+	// tries counts the wrong codes sent against this code, wrong those of the window,
+	// and no code is looked at before calm.
+	tries int
+	wrong int
+	calm  time.Time
+	claim *claim
 }
 
 type claim struct {
@@ -175,6 +186,9 @@ type Status struct {
 type PairingStatus struct {
 	Code    string    `json:"code"`
 	Expires time.Time `json:"expires"`
+	// Wrong counts the wrong codes sent in this window; the code shown is a new one
+	// after every pairTries of them.
+	Wrong int `json:"wrong"`
 	// Phone is the phone that sent the code, waiting for the user's answer.
 	Phone string `json:"phone,omitempty"`
 	Login string `json:"login,omitempty"`
@@ -197,7 +211,7 @@ func (s *Server) Status() Status {
 	defer s.mu.Unlock()
 	st := Status{RemoteState: s.state, Listening: s.ln != nil, Error: s.listErr, Devices: []Device{}}
 	if p := s.openPairing(); p != nil {
-		st.Pairing = &PairingStatus{Code: groups(p.code), Expires: p.expires}
+		st.Pairing = &PairingStatus{Code: groups(p.code), Expires: p.expires, Wrong: p.wrong}
 		if p.claim != nil && p.claim.answer == "" {
 			st.Pairing.Phone, st.Pairing.Login = p.claim.name, p.claim.login
 		}
@@ -220,18 +234,28 @@ func (s *Server) openPairing() *pairing {
 var codeEncoding = base32.NewEncoding("0123456789ABCDEFGHJKMNPQRSTVWXYZ").WithPadding(base32.NoPadding)
 
 // StartPairing opens a pairing window and returns its code: 20 characters, 100
-// bits, good for one phone, five minutes and five wrong tries.
+// bits, good for one phone and five minutes. A code takes five wrong tries, and is
+// then replaced by a new one for the rest of the window.
 func (s *Server) StartPairing() (PairingStatus, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.ln == nil {
 		return PairingStatus{}, errors.New("the phone server is not running")
 	}
+	s.pairing = &pairing{code: newCode(), expires: s.now().Add(pairLife)}
+	return PairingStatus{Code: groups(s.pairing.code), Expires: s.pairing.expires}, nil
+}
+
+// newCode is a pairing code: 20 characters of codeEncoding, 100 bits.
+func newCode() string {
 	b := make([]byte, 13)
 	rand.Read(b)
-	code := codeEncoding.EncodeToString(b)[:20]
-	s.pairing = &pairing{code: code, expires: s.now().Add(pairLife)}
-	return PairingStatus{Code: groups(code), Expires: s.pairing.expires}, nil
+	return codeEncoding.EncodeToString(b)[:20]
+}
+
+// pause is how long no code is looked at after the window's wrong-th wrong code.
+func pause(wrong int) time.Duration {
+	return min(pairPause<<min(wrong-1, 8), pairPauseMax)
 }
 
 // AnswerPairing is the user's answer, on this computer, to the phone waiting in the
@@ -564,10 +588,19 @@ func (s *Server) pair(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "another phone is already waiting for this code"})
 		return
 	}
+	if wait := p.calm.Sub(s.now()); wait > 0 {
+		// Not looked at, so it is no try: a guesser gets no more by sending faster.
+		w.Header().Set("Retry-After", strconv.Itoa(int((wait+time.Second-1)/time.Second)))
+		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "wrong codes were sent just now; wait a moment, then send the code Freeloop shows"})
+		return
+	}
 	if subtle.ConstantTimeCompare([]byte(normalCode(body.Code)), []byte(p.code)) != 1 {
 		p.tries++
+		p.wrong++
+		p.calm = s.now().Add(pause(p.wrong))
 		if p.tries >= pairTries {
-			s.pairing = nil
+			// The code has had its tries; the window goes on with a new one.
+			p.code, p.tries = newCode(), 0
 		}
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "that code is not the one Freeloop shows"})
 		return

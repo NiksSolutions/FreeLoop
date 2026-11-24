@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/FinanceNik/Freeloop/internal/config"
+	"github.com/FinanceNik/Freeloop/internal/permission"
 	"github.com/FinanceNik/Freeloop/internal/secrets"
 )
 
@@ -104,5 +105,107 @@ func TestUnreadableConfigIsKept(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(filepath.Join(dir, config.FileName)); string(b) != string(broken) {
 		t.Error("the broken file was rewritten")
+	}
+}
+
+// SET-001, issue 081: a hand-edited file applies only once it reads the same on two
+// polls in a row, so a save caught half done (an editor that truncates the file, then
+// writes it) never applies, not even to a permission check between polls; and a
+// rules.yaml with errors never shrinks the deny rules in force.
+func TestAHalfSavedFileIsNotApplied(t *testing.T) {
+	dir := t.TempDir()
+	e, err := Open(Options{DataDir: dir, Secrets: secrets.NewMemory(), Home: t.TempDir(), WatchInterval: -1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer e.Close()
+	w := e.newConfigWatch()
+	write := func(rel, body string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, rel), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	denies := func() []string {
+		rules, _ := e.rules.Rules("")
+		out := []string{}
+		for _, r := range rules {
+			if r.Effect == permission.Deny {
+				out = append(out, r.Command)
+			}
+		}
+		slices.Sort(out)
+		return out
+	}
+
+	full := "version: 1\nrules:\n  - {effect: deny, tool: shell, command: \"git push *\"}\n  - {effect: deny, tool: shell, command: \"rm *\"}\n"
+	write(config.RulesFileName, full)
+	e.reloadChanged(w)
+	if got := denies(); len(got) != 0 {
+		t.Fatalf("applied on the first poll that saw it: %v", got)
+	}
+	e.reloadChanged(w)
+	if got := denies(); len(got) != 2 {
+		t.Fatalf("not applied on the second: %v", got)
+	}
+
+	// The editor truncates the file, a poll comes, and then it writes.
+	write(config.RulesFileName, "")
+	if got := denies(); len(got) != 2 {
+		t.Errorf("a check between polls read the empty file: %v", got)
+	}
+	e.reloadChanged(w)
+	if got := denies(); len(got) != 2 {
+		t.Errorf("the empty file applied: %v", got)
+	}
+	write(config.RulesFileName, full+"  - {effect: deny, tool: shell, command: \"curl *\"}\n")
+	e.reloadChanged(w)
+	if got := denies(); len(got) != 2 {
+		t.Errorf("applied while still changing: %v", got)
+	}
+	e.reloadChanged(w)
+	if got := denies(); len(got) != 3 {
+		t.Errorf("the finished file did not apply: %v", got)
+	}
+
+	// A file with errors keeps every deny rule in force, and the broker fails closed.
+	write(config.RulesFileName, "version: 1\nrules:\n  - {effect: deny, tool: shell, command: \"rm *\"}\n  - {effect: deny, tool: shell, comand: typo}\n")
+	e.reloadChanged(w)
+	e.reloadChanged(w)
+	if got := denies(); !slices.Equal(got, []string{"curl *", "git push *", "rm *"}) {
+		t.Errorf("deny rules after a file with errors: %v", got)
+	}
+	if _, err := e.rules.Rules(""); err == nil {
+		t.Error("the broker is not told that rules.yaml has errors")
+	}
+
+	// A config.yaml cut short is valid, and would bring the defaults back for a poll.
+	write(config.FileName, "version: 1\nui:\n  theme: light\n  fontSize: 16\n")
+	e.reloadChanged(w)
+	e.reloadChanged(w)
+	if e.Config().UI.Theme != "light" {
+		t.Fatalf("theme = %q", e.Config().UI.Theme)
+	}
+	write(config.FileName, "version: 1\n")
+	e.reloadChanged(w)
+	write(config.FileName, "version: 1\nui:\n  theme: dark\n  fontSize: 16\n")
+	e.reloadChanged(w)
+	if e.Config().UI.Theme != "light" {
+		t.Errorf("a half-saved config.yaml applied: theme %q", e.Config().UI.Theme)
+	}
+	e.reloadChanged(w)
+	if e.Config().UI.Theme != "dark" {
+		t.Errorf("the saved config.yaml did not apply: theme %q", e.Config().UI.Theme)
+	}
+
+	// A file deleted applies once it stays deleted.
+	os.Remove(filepath.Join(dir, config.RulesFileName))
+	e.reloadChanged(w)
+	if got := denies(); len(got) != 3 {
+		t.Errorf("a deletion applied on the first poll: %v", got)
+	}
+	e.reloadChanged(w)
+	if got := denies(); len(got) != 0 {
+		t.Errorf("the deletion did not apply: %v", got)
 	}
 }

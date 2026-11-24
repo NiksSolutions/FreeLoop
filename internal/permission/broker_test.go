@@ -673,3 +673,38 @@ func TestTwoAnswersUnderOneIDAreRefused(t *testing.T) {
 		t.Error("the refusal was not recorded")
 	}
 }
+
+// An external agent's read, search or think request that names no path was allowed as
+// a read inside the project, whatever its tool read, with rules or without (issue 079).
+// Its tool runs in its own process and names what it touches only if it chooses to, so
+// with no path there is nothing to say it stays inside: the user decides. A call the
+// app runs itself, such as the built-in to-do list, is allowed as before, and so is an
+// agent's read that names a file inside.
+func TestAnAgentsReadThatNamesNothingAsks(t *testing.T) {
+	b, _, _, root := setup(t)
+	tools := map[Kind]string{KindRead: "read_file", KindSearch: "grep", KindThink: "acp:think"}
+	for _, broken := range []bool{false, true} {
+		rules := &memRules{}
+		if broken {
+			rules.err = errors.New("rules.yaml: bad YAML")
+		}
+		b.SetRules(rules, rules)
+		for kind, tool := range tools {
+			agents := Request{SessionID: "s", Tool: tool, Kind: kind, External: true}
+			for _, mode := range []Mode{ModeAsk, ModeAcceptEdits, ModePlan, ModeAuto} {
+				if d, decided := b.evaluate(Context{Mode: mode, Root: root}, agents); decided {
+					t.Errorf("broken rules %v: %s naming nothing in %s mode: %+v", broken, kind, mode, d)
+				}
+			}
+			named := agents
+			named.Paths = []string{filepath.Join(root, "a.go")}
+			if d, decided := b.evaluate(Context{Mode: ModeAsk, Root: root}, named); !decided || d.Outcome != Allowed {
+				t.Errorf("broken rules %v: %s naming a file inside: %+v, %v", broken, kind, d, decided)
+			}
+			own := Request{SessionID: "s", Tool: "todo_write", Kind: kind}
+			if d, decided := b.evaluate(Context{Mode: ModeAsk, Root: root}, own); !decided || d.Outcome != Allowed {
+				t.Errorf("broken rules %v: the app's own %s naming nothing: %+v, %v", broken, kind, d, decided)
+			}
+		}
+	}
+}

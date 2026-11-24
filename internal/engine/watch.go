@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"log"
+	"maps"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -21,7 +22,7 @@ func (e *Engine) watch(interval time.Duration) {
 	defer e.watching.Done()
 	t := time.NewTicker(interval)
 	defer t.Stop()
-	last := config.Fingerprint(e.dataDir)
+	w := e.newConfigWatch()
 	for {
 		select {
 		case <-e.quit:
@@ -31,16 +32,47 @@ func (e *Engine) watch(interval time.Duration) {
 		// Each step on its own (NFR-REL-007): one that keeps failing leaves the others.
 		e.safely("watching agent files", e.watchAgents)
 		e.safely("the idle stop", func() { e.stopIdle(time.Now()) })
-		e.safely("reloading config files", func() { e.reloadChanged(&last) })
+		e.safely("releasing transcripts", func() { e.releaseTranscripts(time.Now()) })
+		e.safely("reloading config files", func() { e.reloadChanged(w) })
 	}
 }
 
-// reloadChanged rereads the config files that changed since the fingerprint last, and
-// moves it on first, so a file whose reload fails is not read again every round.
-func (e *Engine) reloadChanged(last *map[string]string) {
+// configWatch is what the watch has seen of the config files: the fingerprint each
+// was last applied at, and each one's on the poll before.
+type configWatch struct {
+	applied, seen map[string]string
+}
+
+func (e *Engine) newConfigWatch() *configWatch {
 	now := config.Fingerprint(e.dataDir)
-	changed := config.Changed(*last, now)
-	*last = now
+	return &configWatch{applied: now, seen: maps.Clone(now)}
+}
+
+// reloadChanged rereads the config files that changed since they were applied and
+// read the same on this poll as on the one before. An editor that truncates a file
+// and then writes it can be caught between the two, and a file half written would
+// apply for a poll: an empty rules.yaml has no deny rules, a cut config.yaml turns
+// local-only mode off. With the poll every second, an edit applies within two. The
+// fingerprint applied moves on first, so a file whose reload fails is not read again
+// every round.
+func (e *Engine) reloadChanged(w *configWatch) {
+	now := config.Fingerprint(e.dataDir)
+	before := w.seen
+	w.seen = now
+	var changed []string
+	for _, f := range config.Changed(w.applied, now) {
+		was, wasThere := before[f]
+		is, isThere := now[f]
+		if was != is || wasThere != isThere {
+			continue
+		}
+		changed = append(changed, f)
+		if isThere {
+			w.applied[f] = is
+		} else {
+			delete(w.applied, f)
+		}
+	}
 	if len(changed) == 0 {
 		return
 	}

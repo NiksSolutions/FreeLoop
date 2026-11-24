@@ -177,3 +177,34 @@ func TestWorktreesRootFor(t *testing.T) {
 		t.Errorf("windows, another data folder: %q", got)
 	}
 }
+
+// SES-010: a session whose creation fails after its worktree was made leaves neither
+// the worktree nor its branch behind.
+func TestAFailedCreateSessionRemovesItsWorktree(t *testing.T) {
+	ctx := context.Background()
+	repo := gitRepo(t)
+	e := openTest(t, t.TempDir())
+	defer e.Close()
+	withScript(e, "one")
+	if _, err := e.AddProject(ctx, repo); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.SetProjectTrust(ctx, repo, true); err != nil {
+		t.Fatal(err)
+	}
+	// The store refuses the session after the worktree is added: its ID is not one
+	// the store makes.
+	if _, err := e.CreateSession(ctx, CreateSessionRequest{Title: "Doomed", ProjectRoot: repo, ProviderID: "one", Model: "m", Worktree: true, id: "not-a-session"}); err == nil {
+		t.Fatal("the store took a session it should refuse")
+	}
+	if out := gitIn(t, repo, "branch", "--list", BranchPrefix+"*"); out != "" {
+		t.Errorf("its branch is left: %s", out)
+	}
+	if out := gitIn(t, repo, "worktree", "list", "--porcelain"); strings.Count(out, "worktree ") != 1 {
+		t.Errorf("its worktree is left:\n%s", out)
+	}
+	dirs, _ := filepath.Glob(filepath.Join(e.worktreesRoot(), "*", "doomed-*"))
+	if len(dirs) != 0 {
+		t.Errorf("its folder is left: %v", dirs)
+	}
+}

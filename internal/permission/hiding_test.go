@@ -160,3 +160,35 @@ func TestLongChainsStayCheap(t *testing.T) {
 		t.Errorf("env after %d wrappers in bypass mode: %+v, %v", maxWrappers, d, decided)
 	}
 }
+
+// An execute request whose command the client could not read, an external agent's given
+// in a shape it does not know, showed a shell deny rule nothing to compare, so an allow
+// rule for every command and bypass mode let it past `deny shell(git push *)` (issue
+// 079). While such a rule exists it is unseen: nothing that only a rule or the mode
+// allows lets it run. With none, it is decided as before.
+func TestAnExecuteWithNoCommandIsUnseen(t *testing.T) {
+	home := environment.Canonical(t.TempDir())
+	root := filepath.Join(home, "repo")
+	b := NewBroker(NewPolicy(home, filepath.Join(home, "data")), nil)
+	allowAll := Rule{Effect: Allow, Tool: "shell", Scope: ScopeGlobal}
+	for _, command := range []string{"", " \t"} {
+		for _, m := range modesToTry {
+			req := Request{Tool: "shell", Kind: KindExecute, Command: command, Contained: m.contained}
+			b.SetRules(fixedRules{{Effect: Deny, Tool: "shell", Command: "git push *", Scope: ScopeGlobal}, allowAll}, nil)
+			d, decided := b.evaluate(Context{Mode: m.mode, Root: root}, req)
+			switch {
+			case decided && d.Outcome == Allowed:
+				t.Errorf("%q in %s mode (%s) was allowed: %s, %s", command, m.mode, m.contained, d.Actor, d.Reason)
+			case m.mode == ModeBypass && (!decided || d.Outcome != Denied):
+				t.Errorf("%q in bypass mode (%s): %+v, %v", command, m.contained, d, decided)
+			}
+			b.SetRules(fixedRules{allowAll}, nil)
+			d, decided = b.evaluate(Context{Mode: m.mode, Root: root}, req)
+			if m.mode != ModePlan || m.contained != "" {
+				if !decided || d.Outcome != Allowed {
+					t.Errorf("no deny rule: %q in %s mode (%s): %+v, %v", command, m.mode, m.contained, d, decided)
+				}
+			}
+		}
+	}
+}

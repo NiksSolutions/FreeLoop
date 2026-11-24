@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { commandFrom, commandOutcome, costAmount, defaultAllow, issueCostLine, issueStep, runCostLine, runLine, stepLabel, waitingStep } from "./afk.ts";
+import { commandFrom, commandOutcome, costAmount, defaultAllow, issueCostLine, issueStep, planProblem, runCostLine, runLine, stepLabel, waitingStep } from "./afk.ts";
+import { setLanguage } from "./i18n.ts";
 
 test("a run offers to allow what would ask, never what is denied", () => {
   const cmds = [
@@ -61,4 +62,21 @@ test("a run's cost in one line, and an issue's", () => {
   // An agent that names no model adds no empty name.
   assert.equal(runCostLine({ ...rc, planning: part(0, false), issues: part(6.22, true, "", "sonnet") }), "Issues $6.22 + unpriced on sonnet · Reviews unpriced on b · total $1.28 + unpriced");
   assert.equal(runCostLine({ ...rc, planning: part(0, false), reviews: part(0, false), issues: part(1, false, "") }), "Issues $1.00 · total $1.28 + unpriced");
+});
+
+// OQ-040: the last run's branch, not merged yet, keeps a new run from starting, and the
+// dialog says so in the window's language, naming the branch; any other problem is the
+// engine's, as given.
+test("a run's branch not merged yet is said in each language", () => {
+  const plan = { problem: "Merge freeloop/afk-1-abc first …", unmerged: "freeloop/afk-1-abc" };
+  const said: string[] = [];
+  for (const lang of ["en", "de", "nl"] as const) {
+    setLanguage(lang);
+    said.push(planProblem(plan));
+  }
+  setLanguage("en");
+  for (const text of said) assert.ok(text.includes("freeloop/afk-1-abc"), text);
+  assert.equal(new Set(said).size, 3);
+  assert.match(said[0], /^Merge freeloop\/afk-1-abc first/);
+  assert.equal(planProblem({ problem: "No AFK issue is ready: each is done, blocked, or for a person.", unmerged: "" }), "No AFK issue is ready: each is done, blocked, or for a person.");
 });

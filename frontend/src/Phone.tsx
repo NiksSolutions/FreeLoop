@@ -176,6 +176,11 @@ export default function Phone({ config, onSaved, onError }: Props) {
               </p>
             )}
             <p className="muted">{t("phone.pair.until", { time: new Date(pairing.expires).toLocaleTimeString(locale(), { timeStyle: "short" }) })}</p>
+            {pairing.wrong > 0 && (
+              <p className="error-text" role="status">
+                {t("phone.pair.wrong", { count: pairing.wrong })}
+              </p>
+            )}
             {pairing.phone ? (
               <div className="phone-confirm" role="alertdialog" aria-label={t("phone.pair.confirmTitle")}>
                 <p>{pairing.login ? t("phone.pair.askLogin", { phone: pairing.phone, login: pairing.login }) : t("phone.pair.ask", { phone: pairing.phone })}</p>

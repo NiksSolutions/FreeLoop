@@ -146,6 +146,9 @@ type AFKPlan struct {
 	// Held says why the run's first issue would wait now, such as its agent's
 	// limit (SES-025); empty when it would start.
 	Held string `json:"held"`
+	// Unmerged is the branch of the project's last run when it is not merged into the
+	// branch the project's checkout is on; Problem then says to merge it first (OQ-040).
+	Unmerged string `json:"unmerged"`
 	// ModelSet is the workflow's model set, which the dialog starts from, with why
 	// a row's model cannot be had, by row (WFL-014).
 	ModelSet            *config.ModelSet  `json:"modelSet"`
@@ -323,10 +326,17 @@ func (e *Engine) PrepareAFK(ctx context.Context, root, workflowID string) (AFKPl
 	if next, ok := backlog.NextAFK(info.Issues, nil); ok {
 		plan.Next = &next
 	}
+	unmerged := ""
+	if plan.Problem == "" && !info.Uncommitted {
+		unmerged = e.unmergedRun(ctx, project)
+	}
 	switch {
 	case plan.Problem != "":
 	case info.Uncommitted:
 		plan.Problem = fmt.Sprintf("Commit %s first: the run works on a branch from the last commit, and would not see what is not committed.", w.BacklogDir())
+	case unmerged != "":
+		plan.Unmerged = unmerged
+		plan.Problem = fmt.Sprintf("Merge %s first, after your QA, or delete it: a new run starts from your checkout, where the last run's issues are still open, and would do them again.", unmerged)
 	case plan.Next == nil:
 		plan.Problem = "No AFK issue is ready: each is done, blocked, or for a person."
 	}
@@ -357,6 +367,40 @@ func (e *Engine) PrepareAFK(ctx context.Context, root, workflowID string) (AFKPl
 		add(c, "project-more")
 	}
 	return plan, nil
+}
+
+// unmergedRun is the branch of the project's last run that has one, when the branch
+// is still there and not merged into the branch the project's checkout is on: a new
+// run's worktree starts from that checkout, where the last run's issues are still
+// open, so it would do them again (OQ-040: the user merges after QA). Empty when
+// git cannot say.
+func (e *Engine) unmergedRun(ctx context.Context, project session.Project) string {
+	all, err := e.runs()
+	if err != nil {
+		return ""
+	}
+	branch := ""
+	for _, r := range all.Runs {
+		if r.ProjectID == project.ID && r.Branch != "" {
+			branch = r.Branch
+		}
+	}
+	if branch == "" {
+		return ""
+	}
+	env, err := e.projectGit(ctx, project)
+	if err != nil {
+		return ""
+	}
+	// By its full name, so a branch named like an option or a tag is still this one.
+	ref := "refs/heads/" + branch
+	if _, ok := git(ctx, env, "rev-parse", "--verify", "--quiet", ref); !ok {
+		return ""
+	}
+	if _, code, ok := gitCode(ctx, env, "merge-base", "--is-ancestor", ref, "HEAD"); ok && code == 1 {
+		return branch
+	}
+	return ""
 }
 
 // afkProfile is the profile a run's sessions use: id when it exists, else the
@@ -827,7 +871,12 @@ func (e *Engine) finishIssue(ctx context.Context, id, sid string, w config.Workf
 		stop("its session "+why, fmt.Sprintf("%s's session %s; see the session for more.", s.Issue, why))
 		return
 	}
-	commit, note := e.commitLeftovers(ctx, env, *s)
+	commit, note, err := e.commitLeftovers(ctx, env, *s)
+	if err != nil {
+		// The next issue would start on these changes, and commit them as its own.
+		stop("what its session left could not be committed: "+err.Error(), fmt.Sprintf("What %s's session left could not be committed: %s", s.Issue, err))
+		return
+	}
 	e.stopFinished(sid)
 	// Then a second agent reviews it, before the next issue changes the worktree it
 	// reads (WFL-006).
@@ -941,26 +990,46 @@ func withProblem(problem string) string {
 }
 
 // commitLeftovers commits what an issue's session left uncommitted and returns the
-// commit the issue ends at, with a note when it committed.
-func (e *Engine) commitLeftovers(ctx context.Context, env environment.Environment, s config.AFKStep) (string, string) {
+// commit the issue ends at, with a note when it committed. A commit that fails, or
+// is skipped because the repository's config names programs, is an error with git's
+// message or the reason: the next issue's session would start on these changes, and
+// they would end up in its commit (WFL-006).
+func (e *Engine) commitLeftovers(ctx context.Context, env environment.Environment, s config.AFKStep) (string, string, error) {
 	note := ""
-	if blocked(ctx, env) == "" {
-		if out, ok := git(ctx, env, "status", "--porcelain"); ok && strings.TrimSpace(out) != "" {
-			msg := fmt.Sprintf("%s: %s", s.Issue, s.Title)
-			before, _ := git(ctx, env, "rev-parse", "--verify", "--quiet", "HEAD")
-			if _, err := gitOK(ctx, env, "add", "--all"); err == nil {
-				if _, err := gitOK(ctx, env, "commit", "--quiet", "-m", msg); err == nil {
-					note = "Its session left changes uncommitted; the run committed them."
-					// The issue's work, so its session's (GUI-051).
-					if s.SessionID != "" {
-						e.committed(ctx, s.SessionID, env, strings.TrimSpace(before), true)
-					}
-				}
+	// Not even git status, which can run a content filter, in a repository whose config
+	// names programs; its worktree could not have been made so, so something changed it.
+	if why := blocked(ctx, env); why != "" {
+		return "", "", errors.New(why)
+	}
+	out, err := gitOK(ctx, env, "status", "--porcelain")
+	if err != nil {
+		return "", "", fmt.Errorf("git status: %w", err)
+	}
+	if strings.TrimSpace(out) != "" {
+		msg := fmt.Sprintf("%s: %s", s.Issue, s.Title)
+		before, _ := git(ctx, env, "rev-parse", "--verify", "--quiet", "HEAD")
+		if _, err := gitOK(ctx, env, "add", "--all"); err != nil {
+			return "", "", fmt.Errorf("git add: %w", err)
+		}
+		// Status also lists what add does not stage, such as a submodule's own changes,
+		// and its output carries git's warnings: only what is staged is committed.
+		_, code, ok := gitCode(ctx, env, "diff", "--cached", "--quiet")
+		if !ok || code > 1 {
+			return "", "", errors.New("git could not say what was staged")
+		}
+		if code == 1 {
+			if _, err := gitOK(ctx, env, "commit", "--quiet", "-m", msg); err != nil {
+				return "", "", fmt.Errorf("git commit: %w", err)
+			}
+			note = "Its session left changes uncommitted; the run committed them."
+			// The issue's work, so its session's (GUI-051).
+			if s.SessionID != "" {
+				e.committed(ctx, s.SessionID, env, strings.TrimSpace(before), true)
 			}
 		}
 	}
 	head, _ := git(ctx, env, "rev-parse", "HEAD")
-	return strings.TrimSpace(head), note
+	return strings.TrimSpace(head), note, nil
 }
 
 // followReview follows the review of the current issue; once it has answered, or

@@ -14,9 +14,10 @@ import (
 )
 
 // ruleStore holds the rules in force (SEC-002): global rules from
-// rules.yaml, reloaded when the file changes, and per-session rules, which
-// live in each session's transcript as the persisted rule of a
-// permission_decided event.
+// rules.yaml, and per-session rules, which live in each session's transcript as the
+// persisted rule of a permission_decided event. A hand edit of rules.yaml applies when
+// the config watch has seen the file hold still (SET-001), so a check never reads it
+// half saved; the app's own changes apply at once.
 type ruleStore struct {
 	dir    string
 	report func([]config.Issue)
@@ -45,7 +46,8 @@ func newRuleStore(dir string, report func([]config.Issue)) *ruleStore {
 	return s
 }
 
-// reloadLocked rereads rules.yaml when its modification time changed.
+// reloadLocked rereads rules.yaml, unless force is false and its modification time is
+// the same as when it was last read.
 func (s *ruleStore) reloadLocked(force bool) {
 	mod := config.RulesModTime(s.dir)
 	if !force && mod.Equal(s.mod) {
@@ -62,9 +64,14 @@ func (s *ruleStore) reloadLocked(force bool) {
 	}()
 	switch {
 	case errors.Is(err, config.ErrRulesInvalid):
-		// Keep the valid rules, and the last good ones if nothing parsed.
+		// Keep the valid rules, and the last good ones if nothing parsed. A deny
+		// rule in force stays while the file has errors, which may be a save caught
+		// half done: no deny rule lapses with a broken file.
 		if rules != nil {
-			s.global = rules
+			kept := slices.DeleteFunc(slices.Clone(s.global), func(g permission.Rule) bool {
+				return g.Effect != permission.Deny || slices.ContainsFunc(rules, func(r permission.Rule) bool { return sameRule(r, g) })
+			})
+			s.global = append(rules, kept...)
 		}
 		s.broken = fmt.Errorf("%s has errors; fix the file (see the problems listed in the app) before rules change: %w", config.RulesFileName, err)
 	case err != nil:
@@ -89,11 +96,17 @@ func (s *ruleStore) pending(r permission.Rule) bool {
 	return r.Effect == permission.Allow && r.Scope != permission.ScopeSession && s.approved != nil && !s.approved(r)
 }
 
-// fileRules returns what rules.yaml says.
+// fileRules returns what rules.yaml says now, for approving what it holds: a hand
+// edit the watch has not applied yet counts, as an approval must not go by an older
+// copy. It applies nothing. A file that cannot be read, or holds no valid rule, gives
+// the rules in force.
 func (s *ruleStore) fileRules() []permission.Rule {
+	rules, _, err := config.LoadRules(s.dir)
+	if err == nil || (errors.Is(err, config.ErrRulesInvalid) && rules != nil) {
+		return rules
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.reloadLocked(false)
 	return slices.Clone(s.global)
 }
 
@@ -106,7 +119,6 @@ func (s *ruleStore) all(sid string) ([]permission.Rule, error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.reloadLocked(false)
 	out := append(slices.Clone(s.global), scoped...)
 	if s.broken != nil {
 		scopedErr = s.broken
@@ -119,7 +131,6 @@ func (s *ruleStore) all(sid string) ([]permission.Rule, error) {
 func (s *ruleStore) withGlobal(scoped []permission.Rule, scopedErr error) ([]permission.Rule, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.reloadLocked(false)
 	if s.broken != nil {
 		scopedErr = s.broken
 	}
@@ -144,6 +155,7 @@ func (s *ruleStore) AddRule(sid string, r permission.Rule) error {
 		s.session[sid] = append(s.session[sid], r)
 		return nil
 	case permission.ScopeGlobal:
+		// A hand edit not applied yet is not written over.
 		s.reloadLocked(false)
 		if s.broken != nil {
 			return s.broken
@@ -165,10 +177,10 @@ func sameRule(a, b permission.Rule) bool {
 	return a.Effect == b.Effect && a.Tool == b.Tool && a.Command == b.Command && a.Path == b.Path && a.Literal == b.Literal
 }
 
-// reload rereads rules.yaml if it changed on disk.
+// reload rereads rules.yaml, which the config watch saw change and hold still.
 func (s *ruleStore) reload() {
 	s.mu.Lock()
-	s.reloadLocked(false)
+	s.reloadLocked(true)
 	s.mu.Unlock()
 }
 

@@ -71,7 +71,18 @@ type runtime struct {
 	// stopped is set once stop began: nothing starts on this runtime
 	// again, and a caller that fetched it earlier fetches a new one.
 	stopped bool
-	cancel  context.CancelFunc
+	// replace is set with stopped when the stop does not end the session (its idle
+	// time ran out, its agent exited): a prompt that meets the runtime starts a new
+	// one rather than asking to be sent again.
+	replace bool
+	// halted makes the second of two stops wait for the first.
+	halted sync.Once
+	// starting is set while the turn's checkpoint is taken, before the agent has
+	// the prompt; a stop then leaves saying so to the turn, in stopWhy, so it
+	// follows the message.
+	starting bool
+	stopWhy  string
+	cancel   context.CancelFunc
 	// closeEgress stops the session's proxy to its listed hosts (ENV-010).
 	closeEgress func()
 	// handoff goes with the session's first prompt (HRN-012).
@@ -83,9 +94,13 @@ type runtime struct {
 	done  chan struct{} // closed when the current prompt and queue finish
 }
 
-func (r *runtime) stop() {
+// stop ends the runtime: its turn, its queue, its agent and its environment. It
+// returns how many queued prompts it dropped; a second call waits for the first to
+// finish.
+func (r *runtime) stop() (dropped int) {
 	r.mu.Lock()
 	r.stopped = true
+	dropped = len(r.queue)
 	r.queue = nil
 	if r.cancel != nil {
 		r.cancel()
@@ -95,6 +110,12 @@ func (r *runtime) stop() {
 	if done != nil {
 		<-done
 	}
+	r.halted.Do(r.halt)
+	return dropped
+}
+
+// halt closes what the runtime started, once its turn has let go.
+func (r *runtime) halt() {
 	if r.hs != nil {
 		r.hs.Close()
 	}
@@ -129,6 +150,11 @@ func (e *Engine) runtimeFor(ctx context.Context, sid string) (*runtime, error) {
 	if r, ok := e.runtimes[sid]; ok {
 		e.mu.Unlock()
 		return r, nil
+	}
+	// Nothing new starts while the app quits.
+	if e.closing {
+		e.mu.Unlock()
+		return nil, errClosing
 	}
 	// One start per session at a time: a second caller waits for the
 	// first and then finds its runtime, so a session's container starts
@@ -509,34 +535,67 @@ func (e *Engine) enqueue(ctx context.Context, sid string, q queued) (PromptResul
 		return PromptResult{}, errors.New("empty message")
 	}
 	r, err := e.runtimeFor(ctx, sid)
-	if errors.Is(err, store.ErrNotFound) {
-		return PromptResult{}, err
-	}
 	if err != nil {
-		e.emit(sid, event.Error, event.ErrorData{Message: err.Error()})
-		e.emit(sid, event.SessionStatus, event.SessionStatusData{Status: string(session.StatusError)})
-		return PromptResult{}, err
+		return PromptResult{}, e.startFailed(sid, err)
 	}
 	if ses, err := e.store.GetSession(ctx, sid); err == nil && ses.Title == defaultTitle {
 		if t := titleFrom(text); t != "" {
 			e.emit(sid, event.SessionInfoUpdate, map[string]string{"title": t})
 		}
 	}
+	res, replace, err := e.start(r, q)
+	// A runtime stopped for its idle time or its agent exiting is replaced, once: a
+	// scheduled, AFK or phone prompt has nobody to send it again. One stopped for an
+	// archive or a delete is not, and none while the app quits.
+	if replace {
+		if e.isClosing() {
+			return PromptResult{}, errClosing
+		}
+		e.retire(r)
+		if r, err = e.runtimeFor(ctx, sid); err != nil {
+			return PromptResult{}, e.startFailed(sid, err)
+		}
+		res, _, err = e.start(r, q)
+	}
+	return res, err
+}
+
+// startFailed records a session that could not start, as an error in it, and returns
+// err. An unknown session has nowhere to record it, and a start refused because the
+// app quits leaves the session as it was.
+func (e *Engine) startFailed(sid string, err error) error {
+	if errors.Is(err, store.ErrNotFound) || errors.Is(err, errClosing) || e.isClosing() {
+		return err
+	}
+	e.emit(sid, event.Error, event.ErrorData{Message: err.Error()})
+	e.emit(sid, event.SessionStatus, event.SessionStatusData{Status: string(session.StatusError)})
+	return err
+}
+
+func (e *Engine) isClosing() bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.closing
+}
+
+// start runs q on r, or queues it behind the turn running there. A stopped runtime
+// takes nothing, and replace says whether a new one should.
+func (e *Engine) start(r *runtime, q queued) (res PromptResult, replace bool, err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.stopped {
-		return PromptResult{}, errStopped
+		return PromptResult{}, r.replace, errStopped
 	}
 	if r.busy {
 		r.queue = append(r.queue, q)
-		return PromptResult{Queued: true}, nil
+		return PromptResult{Queued: true}, false, nil
 	}
 	r.busy = true
 	r.done = make(chan struct{})
 	ctx, cancel := context.WithCancel(context.Background())
 	r.cancel, r.turn = cancel, ctx
 	go e.run(r, q, ctx)
-	return PromptResult{}, nil
+	return PromptResult{}, false, nil
 }
 
 // run works through a prompt and then the queue. Each prompt's cancel
@@ -544,43 +603,58 @@ func (e *Engine) enqueue(ctx context.Context, sid string, q queued) (PromptResul
 // Cancel can never fall between the two.
 func (e *Engine) run(r *runtime, q queued, ctx context.Context) {
 	for {
-		e.checkpoint(r)
-		p := harness.Prompt{Text: q.text, Via: q.via}
-		if !q.noMentions {
-			p = e.embedMentions(r.sid, r.env, q.text)
-			p.Via = q.via
-		}
-		p.Images = q.images
+		// The checkpoint runs under the turn's context, so Stop does not wait for it.
 		r.mu.Lock()
-		if r.handoff != nil {
-			p.Resources = append([]harness.Resource{*r.handoff}, p.Resources...)
-			r.handoff = nil
-		}
+		r.starting = true
 		r.mu.Unlock()
-		p.Resources = append(p.Resources, q.inline...)
-		p.Resources = append(p.Resources, e.readResources(ctx, r, q.refs)...)
-		err := e.promptSafely(r, ctx, p)
-		if err != nil {
-			log.Printf("engine: prompt: %s", e.redactText(err.Error()))
+		e.checkpoint(ctx, r)
+		r.mu.Lock()
+		r.starting = false
+		stopped, why := ctx.Err() != nil, r.stopWhy
+		r.stopWhy = ""
+		r.mu.Unlock()
+		var err error
+		if stopped {
+			e.stoppedBeforeStart(r.sid, q, why)
+		} else {
+			p := harness.Prompt{Text: q.text, Via: q.via}
+			if !q.noMentions {
+				p = e.embedMentions(r.sid, r.env, q.text)
+				p.Via = q.via
+			}
+			p.Images = q.images
+			r.mu.Lock()
+			if r.handoff != nil {
+				p.Resources = append([]harness.Resource{*r.handoff}, p.Resources...)
+				r.handoff = nil
+			}
+			r.mu.Unlock()
+			p.Resources = append(p.Resources, q.inline...)
+			p.Resources = append(p.Resources, e.readResources(ctx, r, q.refs)...)
+			if err = e.promptSafely(r, ctx, p); err != nil {
+				log.Printf("engine: prompt: %s", e.redactText(err.Error()))
+			}
 		}
 		r.mu.Lock()
 		r.cancel()
 		r.cancel = nil
 		// The agent is gone. Drop the runtime, so the next message starts it again
-		// and asks it to load the session (NFR-REL-002).
+		// and asks it to load the session (NFR-REL-002). It takes no prompt from here:
+		// one that meets it starts the new one.
 		if errors.Is(err, harness.ErrAgentExited) {
 			dropped := len(r.queue)
 			r.queue = nil
 			r.busy = false
+			r.stopped, r.replace = true, true
 			r.idleSince = time.Now()
 			close(r.done)
 			r.mu.Unlock()
 			msg := "The agent stopped. Your next message starts it again."
 			if dropped > 0 {
-				msg = fmt.Sprintf("The agent stopped, so %d queued messages were not sent. Your next message starts it again.", dropped)
+				msg = fmt.Sprintf("The agent stopped, so %d queued %s not sent. Your next message starts it again.", dropped, plural(dropped, "message was", "messages were"))
 			}
 			e.emit(r.sid, event.Notice, event.NoticeData{Message: msg})
-			e.goSafely("stopping a session's agent", func() { e.stopRuntime(r.sid) })
+			e.goSafely("stopping a session's agent", func() { e.retire(r) })
 			return
 		}
 		// Queued prompts would fail the same way until the user signs in. The notice
@@ -627,6 +701,31 @@ func (e *Engine) promptSafely(r *runtime, ctx context.Context, p harness.Prompt)
 	return err
 }
 
+// stoppedBeforeStart records a turn stopped while its checkpoint was taken, before
+// the agent had the message: as an agent stopped at once would record it, the message,
+// why it stopped and the turn's end as cancelled, so what waits for the turn to end (a
+// queued task, an AFK step) sees it end.
+func (e *Engine) stoppedBeforeStart(sid string, q queued, why string) {
+	e.emit(sid, event.TurnStarted, struct{}{})
+	e.emit(sid, event.UserMessageChunk, event.MessageChunk{Content: event.ContentBlock{Type: "text", Text: q.text}, Via: q.via})
+	for _, img := range q.images {
+		e.emit(sid, event.UserMessageChunk, event.MessageChunk{Content: event.ContentBlock{Type: "image", URI: event.AttachmentURI(img.Name), MimeType: img.MediaType}})
+	}
+	if why != "" {
+		e.emit(sid, event.Notice, event.NoticeData{Message: why})
+	}
+	e.emit(sid, event.TurnEnded, event.TurnEndedData{StopReason: string(harness.StopCancelled)})
+	e.emit(sid, event.SessionStatus, event.SessionStatusData{Status: string(session.StatusIdle)})
+}
+
+// unsent is what a notice adds for n queued prompts dropped.
+func unsent(n int) string {
+	if n == 0 {
+		return ""
+	}
+	return fmt.Sprintf(" %d queued %s not sent.", n, plural(n, "message was", "messages were"))
+}
+
 // release ends something other than a turn that held the session busy (a
 // rewind), starting the queued prompts if any.
 func (e *Engine) release(r *runtime) {
@@ -655,7 +754,8 @@ func (e *Engine) Cancel(sid string) error {
 
 // stopTurn cancels a session's running turn and drops its queued prompts,
 // saying in the transcript why, since an agent reports every stop the same
-// way.
+// way, and how many queued prompts were not sent. A turn stopped before its agent
+// had the prompt says it after the prompt.
 func (e *Engine) stopTurn(sid, why string) {
 	e.mu.Lock()
 	r, ok := e.runtimes[sid]
@@ -664,13 +764,19 @@ func (e *Engine) stopTurn(sid, why string) {
 		return
 	}
 	r.mu.Lock()
+	why += unsent(len(r.queue))
+	dropped := len(r.queue) > 0
 	r.queue = nil
 	running := r.cancel != nil
 	if running {
 		r.cancel()
 	}
+	later := running && r.starting
+	if later {
+		r.stopWhy = why
+	}
 	r.mu.Unlock()
-	if running {
+	if (running || dropped) && !later {
 		e.emit(sid, event.Notice, event.NoticeData{Message: why})
 	}
 }

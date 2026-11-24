@@ -1056,8 +1056,11 @@ func (e *Engine) CreateSession(ctx context.Context, req CreateSessionRequest) (s
 		Worktree: worktree, WorktreeBranch: worktreeBranch, ParentID: req.parent, PortBase: portBase,
 	})
 	if err != nil {
-		if worktree != "" {
-			e.removeWorktree(ctx, session.Session{ProjectID: project.ID, Worktree: worktree})
+		// The worktree and branch made for it go too; a shared one is another session's.
+		if worktree != "" && req.shareWorktree == nil {
+			if derr := e.discardWorktree(ctx, project, worktree, worktreeBranch); derr != nil {
+				log.Printf("engine: a session that was not created left its worktree: %v", derr)
+			}
 		}
 		return session.Session{}, err
 	}

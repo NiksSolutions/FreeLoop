@@ -306,7 +306,8 @@ func (s *Server) call(ctx context.Context, method string, raw json.RawMessage) (
 }
 
 // wait returns a session's events after p.After once it has new ones, or
-// when the timeout (default 30 s, at most 5 min) runs out with none.
+// when the timeout (default 30 s, at most 5 min) runs out with none, or the engine
+// closes. One the bus dropped is read when the bus says it dropped some.
 func (s *Server) wait(ctx context.Context, p waitP) ([]event.Event, error) {
 	timeout := time.Duration(p.TimeoutMs) * time.Millisecond
 	if timeout <= 0 {
@@ -322,9 +323,14 @@ func (s *Server) wait(ctx context.Context, p waitP) ([]event.Event, error) {
 	deadline := time.After(timeout)
 	for {
 		select {
-		case ev := <-ch:
-			if ev.SID == p.ID && ev.Seq > p.After {
-				return s.e.Events(ctx, p.ID, p.After, engine.MaxEventsPage)
+		case ev, open := <-ch:
+			if !open {
+				return []event.Event{}, nil
+			}
+			if ev.Type == engine.Missed || (ev.SID == p.ID && ev.Seq > p.After) {
+				if evs, err := s.e.Events(ctx, p.ID, p.After, engine.MaxEventsPage); err != nil || len(evs) > 0 {
+					return evs, err
+				}
 			}
 		case <-ctx.Done():
 			return nil, ctx.Err()

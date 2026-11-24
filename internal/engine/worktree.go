@@ -106,6 +106,23 @@ func (e *Engine) addWorktree(ctx context.Context, p session.Project, title, star
 	return environment.Canonical(path), branch, nil
 }
 
+// discardWorktree removes a worktree and the branch made with it, for a session
+// whose creation failed after addWorktree: no session has it, nothing has run in it,
+// and removeWorktree, which keeps the branch and wants a session's, would leave both.
+func (e *Engine) discardWorktree(ctx context.Context, p session.Project, path, branch string) error {
+	env, err := e.projectGit(ctx, p)
+	if err != nil {
+		return err
+	}
+	if _, err := gitOK(ctx, env, "worktree", "remove", "--force", path); err != nil {
+		return fmt.Errorf("remove the worktree %s: %w", path, err)
+	}
+	if _, err := gitOK(ctx, env, "branch", "-D", branch); err != nil {
+		return fmt.Errorf("delete the branch %s: %w", branch, err)
+	}
+	return nil
+}
+
 // removeWorktree removes a session's worktree when it holds no uncommitted
 // work; its branch, and so its commits, stay. It reports whether it did.
 func (e *Engine) removeWorktree(ctx context.Context, ses session.Session) (bool, error) {

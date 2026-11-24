@@ -192,6 +192,51 @@ func TestMCPServersInSessions(t *testing.T) {
 	}
 }
 
+// MCP-005: a secret given a new value under MCP reaches a running server at once,
+// which restarts with it; a secret removed changes the configuration, so the server
+// stops and asks again.
+func TestMCPChangedSecretRestartsTheServer(t *testing.T) {
+	ctx := context.Background()
+	e := openTest(t, t.TempDir())
+	defer e.Close()
+	exe, _ := os.Executable()
+	info, err := e.SaveMCPServer(SaveMCPServerRequest{
+		Server:  config.MCPServer{ID: "test", Name: "Test", Transport: "stdio", Command: exe, Env: map[string]string{"FREELOOP_MCP_TEST_SERVER": "1"}, Enabled: true},
+		Secrets: map[string]string{"TOKEN": "tok-old-0123456789"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info, err = e.ApproveMCPServer(ctx, "test", info.Fingerprint); err != nil || info.Status.State != mcp.Running {
+		t.Fatalf("approve = %+v, %v", info, err)
+	}
+	echo := func() string {
+		t.Helper()
+		res, err := e.mcp.Call(ctx, "test", "echo", []byte(`{"text":"key"}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.Text
+	}
+	if got := echo(); got != "echo: key tok-old-0123456789" {
+		t.Fatalf("echo = %q", got)
+	}
+
+	srv, _ := e.mcpServer("test")
+	info, err = e.SaveMCPServer(SaveMCPServerRequest{Server: srv, Secrets: map[string]string{"TOKEN": "tok-new-9876543210"}})
+	if err != nil || info.NeedsApproval || info.Status.State != mcp.Running {
+		t.Fatalf("saved with a new value = %+v, %v", info, err)
+	}
+	if got := echo(); got != "echo: key tok-new-9876543210" {
+		t.Errorf("after the new value, echo = %q", got)
+	}
+
+	info, err = e.SaveMCPServer(SaveMCPServerRequest{Server: srv, RemoveSecrets: []string{"TOKEN"}})
+	if err != nil || !info.NeedsApproval || info.Status.State == mcp.Running {
+		t.Errorf("saved without the secret = %+v, %v", info, err)
+	}
+}
+
 func TestMCPToolNames(t *testing.T) {
 	if got := mcpToolName("github", "create.issue"); got != "mcp__github__create_issue" {
 		t.Errorf("name = %q", got)

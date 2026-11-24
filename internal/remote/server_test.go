@@ -151,6 +151,68 @@ func pairPhone(t *testing.T, s *Server, p *phone) {
 	}
 }
 
+// SEC-020: one code takes at most five wrong tries and is then replaced by a new one,
+// and wrong codes are slowed, each pause longer than the one before, rather than
+// closing the window: anything that reaches the port could otherwise keep the user
+// from ever pairing, without knowing the code. While a pause lasts no code is looked
+// at, the right one included. Settings says how many wrong codes were tried.
+func TestWrongPairingCodesDoNotCloseTheWindow(t *testing.T) {
+	_, s, p := started(t)
+	var skew atomic.Int64
+	s.now = func() time.Time { return time.Now().Add(time.Duration(skew.Load())) }
+	defer func() { s.now = time.Now }()
+	try := func(code string) (*http.Response, map[string]any) {
+		return p.do("POST", "/api/pair", map[string]string{"code": code, "name": "Mine"}, nil)
+	}
+	ps, err := s.StartPairing()
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := ps.Code
+	last := 0
+	for i := range pairTries {
+		if resp, _ := try("AAAA-BBBB-CCCC-DDDD-EEEE"); resp.StatusCode != http.StatusForbidden {
+			t.Fatalf("wrong code %d: %d", i+1, resp.StatusCode)
+		}
+		resp, out := try(first)
+		wait, _ := strconv.Atoi(resp.Header.Get("Retry-After"))
+		if resp.StatusCode != http.StatusTooManyRequests || wait < 1 || out["error"] == nil {
+			t.Fatalf("a try during the pause after wrong code %d: %d %v, wait %q", i+1, resp.StatusCode, out, resp.Header.Get("Retry-After"))
+		}
+		if wait <= last && wait < int(pairPauseMax/time.Second) {
+			t.Errorf("the pause after wrong code %d is %ds, after the one before %ds", i+1, wait, last)
+		}
+		last = wait
+		skew.Add(int64(time.Duration(wait) * time.Second))
+	}
+	st := s.Status()
+	if st.Pairing == nil {
+		t.Fatalf("%d wrong codes closed the window", pairTries)
+	}
+	if st.Pairing.Code == first || st.Pairing.Wrong != pairTries {
+		t.Errorf("after %d wrong codes: code %s (was %s), wrong %d", pairTries, st.Pairing.Code, first, st.Pairing.Wrong)
+	}
+	// The first code took its five: even the right one no longer pairs.
+	if resp, _ := try(first); resp.StatusCode != http.StatusForbidden {
+		t.Errorf("the replaced code: %d", resp.StatusCode)
+	}
+	if resp, _ := try(st.Pairing.Code); resp.StatusCode != http.StatusTooManyRequests {
+		t.Errorf("the new code during a pause: %d", resp.StatusCode)
+	}
+	skew.Add(int64(pairPauseMax))
+	if resp, out := try(st.Pairing.Code); resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("the new code: %d %v", resp.StatusCode, out)
+	}
+	if st := s.Status(); st.Pairing == nil || st.Pairing.Phone != "Mine" || st.Pairing.Wrong != pairTries+1 {
+		t.Errorf("after the new code: %+v", st.Pairing)
+	}
+	// A new window starts with no wrong codes.
+	s.CancelPairing()
+	if ps, _ := s.StartPairing(); ps.Wrong != 0 {
+		t.Errorf("a new window: %+v", ps)
+	}
+}
+
 // GUI-052: only a phone paired with a code and the user's yes on this computer gets
 // in, from the expected host, not over Funnel, and not with a page elsewhere's post.
 func TestPhoneMustBePairedOnThisComputer(t *testing.T) {
@@ -175,16 +237,9 @@ func TestPhoneMustBePairedOnThisComputer(t *testing.T) {
 		t.Errorf("over Funnel: %d", resp.StatusCode)
 	}
 
-	// No window open, then wrong codes close it.
+	// No window open: refused. Wrong codes are TestWrongPairingCodesDoNotCloseTheWindow's.
 	if resp, _ := p.do("POST", "/api/pair", map[string]string{"code": "x"}, nil); resp.StatusCode != http.StatusForbidden {
 		t.Errorf("no window: %d", resp.StatusCode)
-	}
-	s.StartPairing()
-	for i := 0; i < pairTries; i++ {
-		p.do("POST", "/api/pair", map[string]string{"code": "AAAA-BBBB-CCCC-DDDD-EEEE"}, nil)
-	}
-	if st := s.Status(); st.Pairing != nil {
-		t.Errorf("the window stayed open after %d wrong codes", pairTries)
 	}
 	// A post without the app's header, as a form elsewhere sends, is refused.
 	ps, _ := s.StartPairing()

@@ -798,10 +798,8 @@ func (s *session) RequestPermission(ctx context.Context, r sdk.RequestPermission
 		}
 	}
 	command := ""
-	if in, ok := r.ToolCall.RawInput.(map[string]any); ok {
-		if c, ok := in["command"].(string); ok && kind == permission.KindExecute {
-			command = c
-		}
+	if kind == permission.KindExecute {
+		command = agentCommand(r.ToolCall.RawInput)
 	}
 	var options []permission.Option
 	for _, o := range r.Options {
@@ -822,9 +820,11 @@ func (s *session) RequestPermission(ctx context.Context, r sdk.RequestPermission
 			}
 		}
 	}
+	// The agent runs this call itself and names what it touches only if it chooses to:
+	// a read that names nothing is not taken to stay in the project (External).
 	d := s.p.Broker.Request(ctx, permission.Context{Mode: s.Mode(), Root: s.env.Root()}, permission.Request{
 		SessionID: s.p.SessionID, ToolCallID: string(r.ToolCall.ToolCallId), Tool: toolName(string(kind)), Kind: kind,
-		Title: title, Input: input, Paths: paths, Command: judged, Options: options, RewrittenReadOnly: readOnly,
+		Title: title, Input: input, Paths: paths, Command: judged, Options: options, RewrittenReadOnly: readOnly, External: true,
 	})
 	pick := func(kinds ...sdk.PermissionOptionKind) (sdk.RequestPermissionResponse, error) {
 		if d.OptionID != "" {
@@ -877,6 +877,33 @@ func (s *session) RequestPermission(ctx context.Context, r sdk.RequestPermission
 		return pick(sdk.PermissionOptionKindRejectOnce, sdk.PermissionOptionKindRejectAlways)
 	}
 	return sdk.RequestPermissionResponse{Outcome: sdk.NewRequestPermissionOutcomeCancelled()}, nil
+}
+
+// agentCommand is the line an agent's execute request says it runs: its input's
+// command, given as one string (Claude Code, Gemini CLI) or as the words of one
+// (Codex), each word then quoted as a shell reads it, as for terminal/create. Any other
+// shape is "", which the broker counts as hiding its command from a shell deny rule
+// (issue 079).
+func agentCommand(raw any) string {
+	in, ok := raw.(map[string]any)
+	if !ok {
+		return ""
+	}
+	switch c := in["command"].(type) {
+	case string:
+		return c
+	case []any:
+		words := make([]string, 0, len(c))
+		for _, w := range c {
+			s, ok := w.(string)
+			if !ok {
+				return ""
+			}
+			words = append(words, shellWord(s))
+		}
+		return strings.Join(words, " ")
+	}
+	return ""
 }
 
 // covered reports whether a just-approved request of one of these kinds

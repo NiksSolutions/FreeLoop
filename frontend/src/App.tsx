@@ -28,7 +28,7 @@ import {
 import { bySession, createBatcher, foldSessions, mergeList } from "./eventBatch.ts";
 import { newest } from "./newest.ts";
 import { heldSessions, ingestHeld, letGo, LET_GO_MS } from "./heldTranscripts.ts";
-import { emptyTranscript, transcriptFrom, withEarlier, type Transcript, type TranscriptEvent } from "./transcript.ts";
+import { emptyTranscript, splitMissed, transcriptFrom, withEarlier, type Transcript, type TranscriptEvent } from "./transcript.ts";
 import { hitLabel, snippetParts } from "./search.ts";
 import { formatCost, type PriceEntry } from "./cost.ts";
 import { windowSession } from "./windows.ts";
@@ -524,6 +524,22 @@ export default function App() {
       });
   };
 
+  // resync follows the engine's word that its bus dropped events for the window (issue
+  // 081), which no later event may show: each held session reads what came after its last
+  // event, a transcript about to be let go is dropped, since it may lack its end, and the
+  // list, the attention view and the day's usage are read again.
+  const resync = () => {
+    const kept = Object.fromEntries(Object.entries(transcriptsRef.current).filter(([sid]) => heldRef.current.has(sid)));
+    if (Object.keys(kept).length !== Object.keys(transcriptsRef.current).length) {
+      transcriptsRef.current = kept;
+      setTranscripts(kept);
+    }
+    heldRef.current.forEach(catchUp);
+    refreshSessions();
+    scheduleAttention();
+    refreshToday();
+  };
+
   // readEarlier reads what came before a session's held start, a page at a time back to
   // its first event, and puts it in front once all of it is in, so the view is folded and
   // drawn again once and not for each page (issue 046). It stops if the session is let
@@ -663,7 +679,9 @@ export default function App() {
   });
   // One batch per frame (NFR-PERF-001): the engine's events are gathered and applied
   // with one update per piece of state.
-  const engineBatch = useEffectEvent((batch: TranscriptEvent[]) => {
+  const engineBatch = useEffectEvent((all: TranscriptEvent[]) => {
+    const { events: batch, missed } = splitMissed(all);
+    if (missed) resync();
     const counting = probe();
     if (counting) counting.events += batch.length;
     ingestMany(bySession(batch));

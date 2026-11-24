@@ -55,9 +55,26 @@ func (e *Engine) holdsWork(sid string) bool {
 	return false
 }
 
+// transcriptIdle is how long the transcript of a session without a runtime stays open
+// after its last read: reading it again soon costs no new scan of the file.
+const transcriptIdle = time.Minute
+
+// releaseTranscripts closes the transcripts of sessions without a runtime that were
+// not read or written for transcriptIdle (OQ-053): viewing, exporting or counting a
+// session must not hold its file open until quit. The config watch calls it on every
+// poll.
+func (e *Engine) releaseTranscripts(now time.Time) {
+	e.store.ReleaseUnused(now.Add(-transcriptIdle), func(sid string) bool {
+		e.mu.Lock()
+		defer e.mu.Unlock()
+		_, running := e.runtimes[sid]
+		return running
+	})
+}
+
 // forgetRuntimeState lets go of what the engine kept for a session whose runtime
-// stopped for being idle: its open transcript file, its stuck watch and the
-// record of what its model calls last said. Each is made again on use.
+// stopped for being idle, or which was deleted: its open transcript file, its stuck
+// watch and the record of what its model calls last said. Each is made again on use.
 func (e *Engine) forgetRuntimeState(sid string) {
 	e.store.Release(sid)
 	e.stuck.mu.Lock()

@@ -152,3 +152,29 @@ func TestCloseEndsClients(t *testing.T) {
 		t.Fatal("Close waited for connected clients")
 	}
 }
+
+// Issue 081: a call waiting for events returns when the engine closes, rather than
+// spinning on the closed subscription until its timeout.
+func TestWaitReturnsWhenTheEngineCloses(t *testing.T) {
+	e, err := engine.Open(engine.Options{DataDir: t.TempDir(), Secrets: secrets.NewMemory(), Home: t.TempDir(), Dev: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ses, err := e.CreateSession(t.Context(), engine.CreateSessionRequest{ProjectRoot: t.TempDir(), ProviderID: engine.DemoProviderID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{e: e}
+	done := make(chan struct{})
+	go func() {
+		s.wait(t.Context(), waitP{ID: ses.ID, After: 1 << 30, TimeoutMs: 300000})
+		close(done)
+	}()
+	time.Sleep(100 * time.Millisecond)
+	e.Close()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the wait went on after the engine closed")
+	}
+}

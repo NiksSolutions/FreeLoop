@@ -1575,6 +1575,11 @@ export const en = {
   "phone.pair.open": "On your phone, scan the QR code with the camera, open the address below, or open the phone app and type the code.",
   "phone.pair.qr": "QR code of the address below",
   "phone.pair.until": "Open until {time}.",
+  // Wrong codes sent to the open pairing window, by anyone (SEC-020).
+  "phone.pair.wrong": {
+    one: "{count} wrong code was sent for this pairing. If not from your phone, something that reaches Freeloop's port is guessing; after five wrong tries a new code replaces the one shown.",
+    other: "{count} wrong codes were sent for this pairing. If not from your phone, something that reaches Freeloop's port is guessing; after five wrong tries a new code replaces the one shown.",
+  },
   "phone.pair.confirmTitle": "A phone asks to pair",
   "phone.pair.ask": "Pair “{phone}”? It will see your sessions, send messages and allow requests once.",
   "phone.pair.askLogin": "Pair “{phone}” ({login})? It will see your sessions, send messages and allow requests once.",
@@ -1607,6 +1612,11 @@ export const en = {
   "phone.pair.button": "Pair",
   "phone.pair.confirm": "Now confirm on your computer.",
   "phone.pair.refused": "The computer refused. Start again there if that was a mistake.",
+  // On the phone, after wrong codes: {count} seconds until a code is looked at again.
+  "phone.pair.wait": {
+    one: "Wrong codes were sent just now. Wait {count} second, then send the code Freeloop shows now.",
+    other: "Wrong codes were sent just now. Wait {count} seconds, then send the code Freeloop shows now.",
+  },
   "phone.request.allowOnce": "Allow once",
   "phone.request.deny": "Deny",
   "phone.request.leavesSandbox": "This runs outside the sandbox.",
@@ -2213,6 +2223,8 @@ export const en = {
   // {reason} is the engine's, as given, such as an agent's limit.
   "afk.dialog.held": "Its first issue would wait: {reason}. Pick a profile on another agent to start now.",
   "afk.dialog.queuePaused": "The queue is paused: the run's issues wait until you resume it on the Queue page.",
+  // {branch} is the last run's branch, not merged into the checkout yet (OQ-040).
+  "afk.dialog.unmerged": "Merge {branch} first, after your QA, or delete it: a new run starts from your checkout, where the last run's issues are still open, and would do them again.",
   "afk.dialog.worktree": "The run works in a git worktree and branch of its own; your checkout stays as it is until you merge the branch from the Diff tab.",
   "afk.dialog.mode": "Its sessions start in {mode} mode.",
   "afk.dialog.profileIssues": "Profile for the issues",

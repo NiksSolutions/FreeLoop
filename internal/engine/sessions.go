@@ -60,19 +60,35 @@ func (e *Engine) RenameSession(ctx context.Context, sid, title string) error {
 // stopRuntime cancels a session's turn and queue, waits for it and its git
 // refreshes, and forgets the live session. A start in progress is waited
 // for first, so it cannot install a runtime after the stop.
-func (e *Engine) stopRuntime(sid string) {
+func (e *Engine) stopRuntime(sid string) { e.stopRuntimeOf(sid, nil) }
+
+// retire stops r, which its session may have replaced already: a runtime started
+// since is left alone. It returns once r has stopped, whoever stops it.
+func (e *Engine) retire(r *runtime) { e.stopRuntimeOf(r.sid, r) }
+
+// stopRuntimeOf stops the session's runtime, or only r when r is given. Queued
+// prompts it drops are said in the session.
+func (e *Engine) stopRuntimeOf(sid string, only *runtime) {
 	if lock, ok := e.startLocks.Load(sid); ok {
 		lock.(*sync.Mutex).Lock()
 		defer lock.(*sync.Mutex).Unlock()
 	}
 	e.mu.Lock()
-	r, ok := e.runtimes[sid]
-	delete(e.runtimes, sid)
-	e.mu.Unlock()
-	if ok {
-		r.stop()
-		r.jobs.Wait()
+	r := e.runtimes[sid]
+	if r != nil && (only == nil || r == only) {
+		delete(e.runtimes, sid)
 	}
+	if only != nil {
+		r = only
+	}
+	e.mu.Unlock()
+	if r == nil {
+		return
+	}
+	if n := r.stop(); n > 0 {
+		e.emit(sid, event.Notice, event.NoticeData{Message: "The session stopped, so" + unsent(n)})
+	}
+	r.jobs.Wait()
 }
 
 // stopIfIdle stops a session's runtime unless a turn holds it, checking
@@ -94,7 +110,8 @@ func (e *Engine) stopIdleRuntime(sid string, cutoff time.Time) bool {
 		e.mu.Unlock()
 		return false
 	}
-	r.stopped = true
+	// A prompt that fetched it before this starts a new one.
+	r.stopped, r.replace = true, true
 	delete(e.runtimes, sid)
 	r.mu.Unlock()
 	e.mu.Unlock()
@@ -200,7 +217,12 @@ func (e *Engine) DeleteSession(ctx context.Context, sid string) error {
 	e.mu.Unlock()
 	e.startLocks.Delete(sid)
 	e.rules.forget(sid)
-	return e.store.DeleteSession(ctx, sid)
+	if err := e.store.DeleteSession(ctx, sid); err != nil {
+		return err
+	}
+	// After the store's delete, so no event of the session's makes them again.
+	e.forgetRuntimeState(sid)
+	return nil
 }
 
 // SetModel switches a built-in session to another model, on the same or

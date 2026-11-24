@@ -182,6 +182,42 @@ func (s *Store) Release(sid string) {
 	}
 }
 
+// ReleaseUnused releases the open transcripts last read or written before before,
+// except those of the sessions keep names, and returns how many it released. A
+// session only viewed, exported or counted would otherwise hold its file and its table
+// of offsets until quit (OQ-053); the engine calls this on its watch and keeps the
+// sessions it runs. keep is called without the store's lock.
+func (s *Store) ReleaseUnused(before time.Time, keep func(sid string) bool) int {
+	s.mu.Lock()
+	var idle []string
+	for sid, t := range s.files {
+		if t.used.Load() < before.UnixNano() {
+			idle = append(idle, sid)
+		}
+	}
+	s.mu.Unlock()
+	n := 0
+	for _, sid := range idle {
+		if keep != nil && keep(sid) {
+			continue
+		}
+		s.mu.Lock()
+		t, ok := s.files[sid]
+		// Not if it was used since.
+		if ok = ok && t.used.Load() < before.UnixNano(); ok {
+			delete(s.files, sid)
+		}
+		s.mu.Unlock()
+		if ok {
+			if err := t.close(); err != nil {
+				log.Printf("store: release session %s: %v", sid, err)
+			}
+			n++
+		}
+	}
+	return n
+}
+
 // IsOpen says whether a session's transcript file is open.
 func (s *Store) IsOpen(sid string) bool {
 	s.mu.Lock()
@@ -491,6 +527,7 @@ func (s *Store) transcript(ctx context.Context, sid string) (*transcript, error)
 	s.mu.Lock()
 	for {
 		if t, ok := s.files[sid]; ok {
+			t.used.Store(time.Now().UnixNano())
 			s.mu.Unlock()
 			return t, nil
 		}
@@ -521,6 +558,7 @@ func (s *Store) transcript(ctx context.Context, sid string) (*transcript, error)
 	if err != nil {
 		return nil, err
 	}
+	t.used.Store(time.Now().UnixNano())
 	s.files[sid] = t
 	return t, nil
 }

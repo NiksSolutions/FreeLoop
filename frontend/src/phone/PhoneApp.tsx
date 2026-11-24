@@ -5,7 +5,7 @@ import { createBatcher } from "../eventBatch.ts";
 import { apply, viewOf, emptyTranscript, phoneName, transcriptFrom, type Item, type Transcript, type TranscriptEvent } from "../transcript.ts";
 import { MAX_IMAGES, room } from "../images.ts";
 import { prepareImage } from "../imageprep.ts";
-import { api, followSession, followSummary, Unpaired, type Picture, type PhoneRequest, type Summary } from "./api.ts";
+import { api, followSession, followSummary, SlowDown, Unpaired, type Picture, type PhoneRequest, type Summary } from "./api.ts";
 import { applicationServerKey, deviceName, onceOptions, pairCode, pastedPictures, pushBody, sessionFromHash, pushSupported, toolCommand } from "./phone.ts";
 
 // The phone app (GUI-052): what needs the user, the sessions, one session live with
@@ -150,7 +150,7 @@ function Pairing({ onPaired }: { onPaired: () => void }) {
           });
         ask().catch((err) => setError(String(err.message ?? err)));
       })
-      .catch((err) => setError(String(err.message ?? err)));
+      .catch((err) => setError(err instanceof SlowDown ? t("phone.pair.wait", { count: err.seconds }) : String(err.message ?? err)));
   };
   return (
     <main className="phone-pair">

@@ -13,8 +13,8 @@ import (
 	"iter"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
-	"sync/atomic"
 
 	"google.golang.org/genai"
 
@@ -45,9 +45,8 @@ type Provider struct {
 	id     string
 	client *genai.Client
 	err    error
-	// turns numbers responses, so IDs made up for calls are unique in a
-	// session's history.
-	turns atomic.Int64
+	// ids makes up IDs for calls, unique in a session's history.
+	ids provider.CallIDs
 }
 
 // New returns a provider for opts. Without an API key every call fails: the
@@ -292,7 +291,7 @@ func (p *Provider) run(seq iter.Seq2[*genai.GenerateContentResponse, error], sen
 	var usage provider.Usage
 	var finish genai.FinishReason
 	calls := 0
-	turn := p.turns.Add(1)
+	turn := p.ids.Response()
 	// add appends text to the last part when it is of the same kind, so a
 	// streamed reply becomes one part; a signature stays with its part.
 	add := func(typ provider.PartType, text string, sig []byte) {
@@ -343,7 +342,7 @@ func (p *Provider) run(seq iter.Seq2[*genai.GenerateContentResponse, error], sen
 				fc := part.FunctionCall
 				id := fc.ID
 				if id == "" {
-					id = fmt.Sprintf("%s%d-%d", madeUp, turn, calls)
+					id = madeUp + turn + strconv.Itoa(calls)
 				}
 				args, _ := json.Marshal(fc.Args)
 				if fc.Args == nil {

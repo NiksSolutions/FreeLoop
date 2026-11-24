@@ -709,11 +709,9 @@ func shellDenyRule(r Rule) bool {
 // showing it: a program built when it runs or read from a shell's input ("$a push",
 // "echo git push | sh"), or the subcommand of a program a rule names, built, renamed or
 // spelled by a glob that may be the rule's word ("git $sub", "git -c alias.p=push p",
-// "git pu*h").
+// "git pu*h"). No line at all hides everything: an execute request whose client could
+// not read its command, such as an external agent's in a shape it does not know.
 func hidesFromDenyRules(rules []Rule, cmd string) bool {
-	if cmd == "" {
-		return false
-	}
 	var patterns [][]string
 	for _, r := range rules {
 		if f := strings.Fields(denyPattern(r.Command)); shellDenyRule(r) && len(f) > 0 {
@@ -722,6 +720,9 @@ func hidesFromDenyRules(rules []Rule, cmd string) bool {
 	}
 	if len(patterns) == 0 {
 		return false
+	}
+	if strings.TrimSpace(cmd) == "" {
+		return true
 	}
 	_, unseen := commandsOf(cmd, 0)
 	return slices.ContainsFunc(unseen, func(u string) bool {

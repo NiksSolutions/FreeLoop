@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/FinanceNik/Freeloop/internal/event"
@@ -33,6 +34,9 @@ type transcript struct {
 	// from before opens it again.
 	closed bool
 	search indexer // guarded by mu
+	// used is when the transcript was last fetched to be read or written, in Unix
+	// nanoseconds, for ReleaseUnused.
+	used atomic.Int64
 }
 
 // offsetStride is how many events lie between two entries of a transcript's table.

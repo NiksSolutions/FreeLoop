@@ -3,7 +3,7 @@
 // page's own storage and sent as a header on every call, streams included, and never
 // as a cookie, which the browser would send to every port of the same host (SEC-020).
 import type { TranscriptEvent } from "../transcript.ts";
-import { parseSSE, reconnectDelay, whileShown, type PhoneOption, type Shown, type SSEMessage } from "./phone.ts";
+import { parseSSE, reconnectDelay, retryAfter, whileShown, type PhoneOption, type Shown, type SSEMessage } from "./phone.ts";
 
 const KEY = "freeloop.phone.key";
 
@@ -13,6 +13,16 @@ function authHeaders(): Record<string, string> {
 }
 
 export class Unpaired extends Error {}
+
+// SlowDown is the server looking at no pairing code for a while after wrong ones
+// (SEC-020); seconds is how long.
+export class SlowDown extends Error {
+  seconds: number;
+  constructor(seconds: number) {
+    super("wrong codes were sent just now");
+    this.seconds = seconds;
+  }
+}
 
 export interface PhoneSession {
   id: string;
@@ -64,6 +74,7 @@ async function call<T>(method: "GET" | "POST", path: string, body?: unknown): Pr
     localStorage.removeItem(KEY);
     throw new Unpaired();
   }
+  if (r.status === 429) throw new SlowDown(retryAfter(r.headers.get("Retry-After")));
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error((j as { error?: string }).error ?? r.statusText);
   return j as T;

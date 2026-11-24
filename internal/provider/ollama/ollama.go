@@ -15,9 +15,9 @@ import (
 	"net"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 
 	"github.com/FinanceNik/Freeloop/internal/provider"
 )
@@ -40,7 +40,7 @@ type Provider struct {
 	id     string
 	base   string
 	client *http.Client
-	calls  atomic.Int64
+	calls  provider.CallIDs
 
 	mu   sync.Mutex
 	caps map[string]provider.ModelCaps
@@ -287,7 +287,7 @@ func (p *Provider) Stream(ctx context.Context, req provider.ChatRequest) (<-chan
 	if err != nil {
 		return nil, err
 	}
-	turn := p.calls.Add(1)
+	turn := p.calls.Response()
 
 	ch := make(chan provider.Event, 64)
 	go func() {
@@ -336,7 +336,7 @@ func (p *Provider) Stream(ctx context.Context, req provider.ChatRequest) (<-chan
 			for _, tc := range c.Message.ToolCalls {
 				id := tc.ID
 				if id == "" {
-					id = fmt.Sprintf("call_%d_%d", turn, len(calls))
+					id = "call_" + turn + strconv.Itoa(len(calls))
 				}
 				args := tc.Function.Arguments
 				if len(args) == 0 || string(args) == "null" {

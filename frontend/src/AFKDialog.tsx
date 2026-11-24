@@ -1,6 +1,6 @@
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { EngineService, modeName, type AFKPlan, type AFKRun, type ModelChoice, type Profile, type ProfileEfforts, type ProfileModels } from "./api.ts";
-import { commandFrom, commandOutcome, defaultAllow } from "./afk.ts";
+import { commandFrom, commandOutcome, defaultAllow, planProblem } from "./afk.ts";
 import { fromSetNote, keptEffort, modelOffered } from "./modelChoice.ts";
 import ModelSelect from "./ModelSelect.tsx";
 import { t } from "./i18n.ts";
@@ -107,7 +107,7 @@ export default function AFKDialog({ root, workflowId, profiles, startedBy, fromS
             </p>
             {plan.problem && (
               <p className="error-text" role="alert">
-                {plan.problem}
+                {planProblem(plan)}
               </p>
             )}
             {plan.held && profileId === plan.profileId && (

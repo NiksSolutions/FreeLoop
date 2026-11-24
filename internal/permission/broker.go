@@ -100,6 +100,12 @@ type Request struct {
 	// LeavesSandbox asks to run a command outside the sandbox: no rule covers
 	// it, so it always reaches the user.
 	LeavesSandbox bool `json:"leavesSandbox,omitempty"`
+	// External says an external agent runs the call itself, in its own process, and
+	// Paths are only what it chose to name: its tool may read more. A caller that runs
+	// the call itself knows what it reads. So an external read, search or think that
+	// names no path is not known to stay inside the project, and the read policy does
+	// not allow it.
+	External bool `json:"external,omitempty"`
 	// HookFailed says which guard hook failed and how, when that is why the call
 	// is put to the user although a rule or the mode would have allowed it
 	// (EXT-005).
@@ -450,6 +456,11 @@ func (b *Broker) decide(pc Context, req Request, rules []Rule, rulesErr error) (
 		}
 	}
 
+	// A read inside the project is allowed. An external agent's that names no path may
+	// read anything, so it is not one (issue 079).
+	readInside := (req.Kind.reads() || req.Kind == KindThink) && !outside && (len(req.Paths) > 0 || !req.External) &&
+		!b.policy.secret(pc.Root, req.Paths)
+
 	if r := match(Deny); r != nil {
 		return byRule(r)
 	}
@@ -457,7 +468,7 @@ func (b *Broker) decide(pc Context, req Request, rules []Rule, rulesErr error) (
 	// ask for everything except reads inside the project.
 	if rulesErr != nil {
 		switch {
-		case (req.Kind.reads() || req.Kind == KindThink) && !outside && !b.policy.secret(pc.Root, req.Paths):
+		case readInside:
 			return allow(ActorPolicy, "reads inside the project are allowed")
 		case pc.Mode == ModePlan && req.Kind.writes():
 			// No rule is needed to know a mode refuses this.
@@ -474,9 +485,10 @@ func (b *Broker) decide(pc Context, req Request, rules []Rule, rulesErr error) (
 	rewrittenHidesPath := req.Kind == KindExecute && req.RewrittenReadOnly && !rewrittenReadOnly
 
 	// A command whose program or subcommand is built when it runs, renamed, or read from
-	// a shell's input cannot be compared with a deny rule that might apply to it, so no
-	// allow rule approves it, and bypass mode refuses it: bypass asks no one, and a deny
-	// rule wins at every scope (SEC-003).
+	// a shell's input cannot be compared with a deny rule that might apply to it, nor can
+	// a request that does not say its command (issue 079), so no allow rule approves it,
+	// and bypass mode refuses it: bypass asks no one, and a deny rule wins at every scope
+	// (SEC-003).
 	unseen := req.Kind == KindExecute && hidesFromDenyRules(rules, req.Command)
 	// The sandbox needs no approval, so nothing but a shell deny rule stands between the
 	// model and a command there, and the rule reads a line that may hide its command:
@@ -490,6 +502,9 @@ func (b *Broker) decide(pc Context, req Request, rules []Rule, rulesErr error) (
 		// a sandbox has not chosen to let the model walk out of it.
 		if req.LeavesSandbox {
 			return Decision{}, false
+		}
+		if unseen && strings.TrimSpace(req.Command) == "" {
+			return deny(ActorPolicy, "the request does not say which command it runs, so your deny rules cannot be checked against it")
 		}
 		if unseen {
 			return deny(ActorPolicy, "the command builds, renames or reads from its input what it runs, so your deny rules cannot be checked against it")
@@ -530,7 +545,7 @@ func (b *Broker) decide(pc Context, req Request, rules []Rule, rulesErr error) (
 		return allow(ActorMode, "accept-edits mode allows edits inside the project")
 	}
 
-	if (req.Kind.reads() || req.Kind == KindThink) && !outside && !b.policy.secret(pc.Root, req.Paths) {
+	if readInside {
 		return allow(ActorPolicy, "reads inside the project are allowed")
 	}
 	return Decision{}, false

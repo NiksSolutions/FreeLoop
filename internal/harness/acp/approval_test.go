@@ -412,3 +412,112 @@ func TestAnAgentThatIgnoresCancelIsStopped(t *testing.T) {
 		t.Errorf("a late request was shown: %+v", p)
 	}
 }
+
+// agentRequests is a session in mode with the broker it asks, for the requests an agent
+// sends with session/request_permission.
+func agentRequests(t *testing.T, mode permission.Mode, rules []permission.Rule) (*session, *permission.Broker, string) {
+	t.Helper()
+	home := environment.Canonical(t.TempDir())
+	root := filepath.Join(home, "repo")
+	os.MkdirAll(root, 0o755)
+	policy := permission.NewPolicy(home, filepath.Join(home, "appdata"))
+	env, err := environment.NewLocal(environment.LocalOptions{Root: root, Guard: policy.Guard(root)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	broker := permission.NewBroker(policy, func(string, event.Type, any) {})
+	saved := &savedRules{rules: rules}
+	broker.SetRules(saved, saved)
+	return &session{p: harness.Params{SessionID: "x", Broker: broker, Emit: func(event.Type, any) {}}, env: env, mode: mode, terms: map[string]*terminal{}}, broker, root
+}
+
+var allowOrNot = []sdk.PermissionOption{
+	{OptionId: "ok", Kind: sdk.PermissionOptionKindAllowOnce, Name: "ok"},
+	{OptionId: "no", Kind: sdk.PermissionOptionKindRejectOnce, Name: "no"},
+}
+
+// answered runs an agent's request and says whether the user was asked, answering "no"
+// if so, and which option the agent got.
+func answered(t *testing.T, s *session, broker *permission.Broker, tc sdk.ToolCallUpdate) (asked bool, option string) {
+	t.Helper()
+	got := make(chan sdk.RequestPermissionResponse, 1)
+	go func() {
+		res, err := s.RequestPermission(context.Background(), sdk.RequestPermissionRequest{ToolCall: tc, Options: allowOrNot})
+		if err != nil {
+			t.Error(err)
+		}
+		got <- res
+	}()
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case res := <-got:
+			if res.Outcome.Selected == nil {
+				return asked, ""
+			}
+			return asked, string(res.Outcome.Selected.OptionId)
+		case <-deadline:
+			t.Fatal("the request neither settled nor asked")
+		case <-time.After(time.Millisecond):
+		}
+		if p := broker.Pending(); len(p) == 1 && !asked {
+			asked = true
+			if err := broker.Decide(p[0].ID, "no", "", ""); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+}
+
+// An agent's read, search or think request that names no location was allowed as a read
+// inside the project, whatever its tool read (issue 079). It asks now; one that names a
+// file inside is allowed as before.
+func TestAnAgentsReadThatNamesNoLocationAsks(t *testing.T) {
+	for _, mode := range []permission.Mode{permission.ModeAsk, permission.ModePlan} {
+		s, broker, root := agentRequests(t, mode, nil)
+		for _, kind := range []sdk.ToolKind{sdk.ToolKindRead, sdk.ToolKindSearch, sdk.ToolKindThink} {
+			if asked, _ := answered(t, s, broker, sdk.ToolCallUpdate{ToolCallId: "t1", Kind: &kind, Title: sdk.Ptr("Search")}); !asked {
+				t.Errorf("%s mode: %s naming nothing was not asked about", mode, kind)
+			}
+			inside := sdk.ToolCallUpdate{ToolCallId: "t2", Kind: &kind, Title: sdk.Ptr("Read"), Locations: []sdk.ToolCallLocation{{Path: filepath.Join(root, "a.go")}}}
+			if asked, option := answered(t, s, broker, inside); asked || option != "ok" {
+				t.Errorf("%s mode: %s naming a file inside: asked %v, %q", mode, kind, asked, option)
+			}
+		}
+	}
+}
+
+// Codex gives its command as a list of words. The client read only a string, so the
+// broker had no command, and an allow rule or bypass mode let `git push` past a rule
+// denying it (issue 079). A list is read as the line it runs; a shape still unknown
+// counts as hiding its command while a shell deny rule exists.
+func TestAnAgentsCommandInAnotherShape(t *testing.T) {
+	rules := []permission.Rule{
+		{Effect: permission.Deny, Tool: "shell", Command: "git push *", Scope: permission.ScopeGlobal},
+		{Effect: permission.Allow, Tool: "shell", Scope: permission.ScopeGlobal},
+	}
+	execute := sdk.ToolKindExecute
+	for _, mode := range []permission.Mode{permission.ModeAsk, permission.ModeBypass} {
+		s, broker, _ := agentRequests(t, mode, rules)
+		for _, c := range []struct {
+			input map[string]any
+			want  string
+			// asks is whether ask mode puts it to the user: what the rules can read they
+			// decide, and what they cannot is asked about, never allowed by a rule.
+			asks bool
+		}{
+			{map[string]any{"command": []any{"git", "push", "origin"}}, "no", false},
+			{map[string]any{"command": []any{"/bin/zsh", "-lc", "git push origin"}}, "no", false},
+			{map[string]any{"command": []any{"git", "status"}}, "ok", false},
+			{map[string]any{"command": "git status"}, "ok", false},
+			{map[string]any{"cmd": "git push"}, "no", true},
+			{map[string]any{"command": []any{"git", 5}}, "no", true},
+			{map[string]any{"command": []any{}}, "no", true},
+		} {
+			asked, option := answered(t, s, broker, sdk.ToolCallUpdate{ToolCallId: "t", Kind: &execute, Title: sdk.Ptr("Run"), RawInput: c.input})
+			if option != c.want || asked != (c.asks && mode == permission.ModeAsk) {
+				t.Errorf("%s mode: %v: got %q, asked %v", mode, c.input, option, asked)
+			}
+		}
+	}
+}

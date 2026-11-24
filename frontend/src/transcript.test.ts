@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { optimizerCounts, apply, awaitingDecision, buildView as foldOnce, emptyTranscript, transcriptFrom, viewOf, withEarlier, type SessionView, type Transcript, HELD_BY, hookFailedText, lineDiff, panelData, summary, toolRuns, type Item, type TranscriptEvent } from "./transcript.ts";
+import { optimizerCounts, apply, awaitingDecision, buildView as foldOnce, emptyTranscript, transcriptFrom, viewOf, withEarlier, type SessionView, type Transcript, HELD_BY, hookFailedText, lineDiff, panelData, splitMissed, summary, toolRuns, type Item, type TranscriptEvent } from "./transcript.ts";
 import { setLanguage } from "./i18n.ts";
 
 // stepped folds events the way a window gets them: in batches through apply, the view
@@ -803,4 +803,36 @@ test("a notice that another session rewound the folder is said in the window's l
   }
   // A notice without it is shown as given.
   assert.equal((buildView([ev(1, { message: "as given" })]).items[0] as { message: string }).message, "as given");
+});
+
+// Issue 080: the engine marks a session running while it snapshots the files before a
+// turn, so the view shows it working, with Stop, before the turn starts; a stop then
+// ends it as any stopped turn ends.
+test("a session running before its turn starts shows as running", () => {
+  const starting = buildView([at(1, "session_status", { status: "idle" }), at(2, "session_status", { status: "running" })]);
+  assert.equal(starting.running, true);
+  const stopped = buildView([
+    at(1, "session_status", { status: "running" }),
+    at(2, "turn_started", {}),
+    at(3, "user_message_chunk", { content: { type: "text", text: "go" } }),
+    at(4, "notice", { message: "You stopped the turn." }),
+    at(5, "turn_ended", { stopReason: "cancelled" }),
+    at(6, "session_status", { status: "idle" }),
+  ]);
+  assert.equal(stopped.running, false);
+  // A status of a session waiting inside its turn leaves it running.
+  assert.equal(buildView([at(1, "turn_started", {}), at(2, "session_status", { status: "waiting_permission" })]).running, true);
+  assert.equal(buildView([at(1, "session_status", { status: "running" }), at(2, "session_status", { status: "error" })]).running, false);
+});
+
+// Issue 081: the engine's marker for events it could not deliver is taken out of a
+// batch, and said.
+test("splitMissed takes out the marker of events the window missed", () => {
+  const batch = [at(7, "notice", { message: "a" }), { v: 1, seq: 0, ts: "", sid: "", type: "events_missed", data: {} } as TranscriptEvent, at(8, "turn_ended", {})];
+  const { events, missed } = splitMissed(batch);
+  assert.equal(missed, true);
+  assert.deepEqual(events.map((e) => e.seq), [7, 8]);
+  const none = splitMissed([at(9, "notice", {})]);
+  assert.equal(none.missed, false);
+  assert.equal(none.events.length, 1);
 });

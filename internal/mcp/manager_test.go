@@ -291,3 +291,48 @@ func TestStopDoesNotWaitForAHungCall(t *testing.T) {
 		t.Error("the call to a stopped server went on")
 	}
 }
+
+// MCP-005: a secret given a new value restarts the server at its next start, which a
+// fingerprint of the configuration alone, values left out, did not; the same values
+// leave it running. The fingerprint holds a hash of the values, never a value.
+func TestAChangedSecretRestartsTheServer(t *testing.T) {
+	env, err := environment.NewLocal(environment.LocalOptions{Root: t.TempDir(), Guard: allow{}, Shell: []string{"sh", "-c"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := New(env)
+	defer m.StopAll()
+	exe, _ := os.Executable()
+	cfg := config.MCPServer{ID: "test", Transport: "stdio", Command: exe, Env: map[string]string{"FREELOOP_MCP_TEST_SERVER": "1"}}
+	ctx := context.Background()
+	echo := func() string {
+		t.Helper()
+		res, err := m.Call(ctx, "test", "echo", []byte(`{"text":"key"}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.Text
+	}
+	if err := m.Start(ctx, Launch{Config: cfg, Env: map[string]string{"TOKEN": "old-key-0123456789"}}); err != nil {
+		t.Fatal(err)
+	}
+	started := m.Status("test").Started
+	if err := m.Start(ctx, Launch{Config: cfg, Env: map[string]string{"TOKEN": "old-key-0123456789"}}); err != nil || !m.Status("test").Started.Equal(started) {
+		t.Errorf("the same values restarted it: %v", err)
+	}
+	if got := echo(); got != "key old-key-0123456789" {
+		t.Fatalf("echo = %q", got)
+	}
+	if err := m.Start(ctx, Launch{Config: cfg, Env: map[string]string{"TOKEN": "new-key-9876543210"}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := echo(); got != "key new-key-9876543210" {
+		t.Errorf("after a new value, echo = %q", got)
+	}
+	m.mu.Lock()
+	fp := m.servers["test"].fingerprint
+	m.mu.Unlock()
+	if strings.Contains(fp, "new-key") || strings.Contains(fp, "9876543210") {
+		t.Errorf("the fingerprint holds the value: %q", fp)
+	}
+}

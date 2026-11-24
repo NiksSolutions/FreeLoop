@@ -36,6 +36,12 @@ export interface RunLike {
   effort?: string;
 }
 
+// planProblem is why a run cannot start, as the start dialog says it: the last run's
+// branch not merged yet in the window's language (OQ-040), else the engine's text.
+export function planProblem(plan: { problem: string; unmerged?: string }): string {
+  return plan.unmerged ? t("afk.dialog.unmerged", { branch: plan.unmerged }) : plan.problem;
+}
+
 // commandOutcome says what a session of the run would meet now.
 export function commandOutcome(c: CommandLike): string {
   switch (c.outcome) {

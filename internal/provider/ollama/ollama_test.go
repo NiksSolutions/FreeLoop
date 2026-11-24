@@ -196,3 +196,29 @@ func TestImagesInRequests(t *testing.T) {
 		}
 	}
 }
+
+// PRV-006: a made-up call ID carries a random part, so a provider made after a restart
+// does not repeat one already in the session's history.
+func TestMadeUpIDsDifferAcrossInstances(t *testing.T) {
+	srv := fake(t, []string{
+		`{"message":{"role":"assistant","content":"","tool_calls":[{"function":{"name":"read_file","arguments":{}}}]},"done":false}`,
+		`{"message":{"role":"assistant","content":""},"done":true,"done_reason":"stop"}`,
+	}, nil)
+	defer srv.Close()
+	var ids []string
+	for range 2 {
+		p := New(Options{BaseURL: srv.URL})
+		ch, err := p.Stream(context.Background(), provider.ChatRequest{Model: "qwen3:8b", Messages: []provider.Message{{Role: provider.RoleUser, Parts: []provider.Part{{Type: provider.PartText, Text: "hi"}}}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for ev := range ch {
+			if ev.Type == provider.EventDone {
+				ids = append(ids, ev.Message.ToolCalls()[0].ToolCallID)
+			}
+		}
+	}
+	if len(ids) != 2 || ids[0] == ids[1] {
+		t.Errorf("ids = %v", ids)
+	}
+}

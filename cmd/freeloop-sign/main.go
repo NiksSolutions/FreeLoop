@@ -1,13 +1,15 @@
 // freeloop-sign makes the project's release key and signs a release with it
-// (SEC-021). It is a tool make release runs on the build machine and is not
-// part of the app.
+// (SEC-021). It is a tool make release runs on the build machine, and a tester
+// checks a download with (verify); it is not part of the app.
 //
 //	freeloop-sign keygen -out <file>      write a new signing key (never over one), print its public half
 //	freeloop-sign public                  print the public half of the signing key
 //	freeloop-sign sign -version <v> -dir <release folder>
 //	                                      write SHA256SUMS.sig beside SHA256SUMS
-//	freeloop-sign verify -version <v> -dir <release folder> [-key <public key>]
-//	                                      check SHA256SUMS.sig and every file's checksum
+//	freeloop-sign verify -version <v> -dir <release folder> [-key <public key>] [-ignore-missing]
+//	                                      check SHA256SUMS.sig and every file's checksum;
+//	                                      with -ignore-missing, the files the folder holds
+//	                                      (a tester's download), named as they are checked
 //
 // The signing key is read from RELEASE_SIGNING_KEY (the key itself, as CI has
 // it in a secret) or from the file RELEASE_SIGNING_KEY_FILE names.
@@ -23,8 +25,11 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/FinanceNik/Freeloop/internal/release"
@@ -39,14 +44,15 @@ func main() {
 
 func run(args []string, out io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: freeloop-sign keygen|public|sign|verify (see the top of cmd/freeloop-sign/main.go)")
+		return errors.New("usage: freeloop-sign keygen -out <file> | public | sign -version <v> -dir <folder> | verify -version <v> -dir <folder> [-key <public key>] [-ignore-missing] (see the top of cmd/freeloop-sign/main.go)")
 	}
-	fs := flag.NewFlagSet(args[0], flag.ContinueOnError)
-	outFile := fs.String("out", "", "the file to write the new key to")
-	version := fs.String("version", "", "the release's version")
-	dir := fs.String("dir", "", "the release's folder")
-	pub := fs.String("key", "", "a public key to check with, in place of the app's own")
-	if err := fs.Parse(args[1:]); err != nil {
+	flags := flag.NewFlagSet(args[0], flag.ContinueOnError)
+	outFile := flags.String("out", "", "the file to write the new key to")
+	version := flags.String("version", "", "the release's version")
+	dir := flags.String("dir", "", "the release's folder")
+	pub := flags.String("key", "", "a public key to check with, in place of the app's own")
+	ignoreMissing := flags.Bool("ignore-missing", false, "verify: check the listed files the folder holds and skip the others; the signature is still checked over the whole list")
+	if err := flags.Parse(args[1:]); err != nil {
 		return err
 	}
 	switch args[0] {
@@ -66,7 +72,7 @@ func run(args []string, out io.Writer) error {
 		if *pub != "" {
 			keys = []string{*pub}
 		}
-		return verify(keys, *version, *dir, out)
+		return verify(keys, *version, *dir, *ignoreMissing, out)
 	}
 	return fmt.Errorf("unknown command %q", args[0])
 }
@@ -149,8 +155,12 @@ func contains(list []string, s string) bool {
 }
 
 // verify checks a release folder as the app checks a download: the signature
-// over the version and the list, then each listed file against the list.
-func verify(keys []string, version, dir string, out io.Writer) error {
+// over the version and the whole list, then each listed file against the list.
+// With ignoreMissing a listed file the folder does not hold is skipped, as a
+// tester has only the download for their system; every file it holds is still
+// checked, each is named, and a folder with none of them fails, since then no
+// download was checked (a file saved under another name is not one).
+func verify(keys []string, version, dir string, ignoreMissing bool, out io.Writer) error {
 	if version == "" || dir == "" {
 		return errors.New("verify needs -version and -dir")
 	}
@@ -169,9 +179,17 @@ func verify(keys []string, version, dir string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	for name, want := range list {
+	var checked, absent []string
+	for _, name := range slices.Sorted(maps.Keys(list)) {
 		f, err := os.Open(filepath.Join(dir, name))
+		if errors.Is(err, fs.ErrNotExist) && ignoreMissing {
+			absent = append(absent, name)
+			continue
+		}
 		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				return fmt.Errorf("%s is listed but not in %s; to check only the files you have, add -ignore-missing", name, dir)
+			}
 			return err
 		}
 		h := sha256.New()
@@ -180,10 +198,24 @@ func verify(keys []string, version, dir string, out io.Writer) error {
 		if err != nil {
 			return err
 		}
-		if hex.EncodeToString(h.Sum(nil)) != want {
+		if hex.EncodeToString(h.Sum(nil)) != list[name] {
 			return fmt.Errorf("%s is not the file the release lists", name)
 		}
+		checked = append(checked, name)
 	}
-	fmt.Fprintf(out, "release %s: signed by the project, %d files as listed\n", version, len(list))
+	if len(checked) == 0 {
+		return fmt.Errorf("none of the files %s lists is in %s, so no download was checked; keep each file's name as the release has it", release.SumsName, dir)
+	}
+	if len(absent) == 0 {
+		fmt.Fprintf(out, "release %s: signed by the project, %d files as listed\n", version, len(list))
+		return nil
+	}
+	fmt.Fprintf(out, "release %s: the list of %d files is signed by the project\n", version, len(list))
+	for _, name := range checked {
+		fmt.Fprintf(out, "  checked %s: as listed\n", name)
+	}
+	for _, name := range absent {
+		fmt.Fprintf(out, "  not here: %s\n", name)
+	}
 	return nil
 }

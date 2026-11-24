@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { applicationServerKey, sessionFromHash, deviceName, pushBody, onceOptions, pairCode, parseSSE, pickLanguage, pushSupported, reconnectDelay, toolCommand, pastedPictures, whileShown } from "./phone.ts";
+import { applicationServerKey, sessionFromHash, deviceName, pushBody, onceOptions, pairCode, parseSSE, pickLanguage, pushSupported, reconnectDelay, retryAfter, toolCommand, pastedPictures, whileShown } from "./phone.ts";
 import { follow } from "./api.ts";
 
 test("a tapped notification's link opens that session, and nothing else does", () => {
@@ -29,6 +29,16 @@ test("a pairing link carries its code", () => {
   assert.equal(pairCode("#x=1&pair=ZZ"), "ZZ");
   assert.equal(pairCode("#other"), "");
   assert.equal(pairCode(""), "");
+});
+
+// SEC-020: after wrong codes the server looks at none for a while and says how long.
+test("the wait after wrong pairing codes is read in whole seconds", () => {
+  assert.equal(retryAfter("4"), 4);
+  assert.equal(retryAfter("60"), 60);
+  assert.equal(retryAfter(null), 1);
+  assert.equal(retryAfter("0"), 1);
+  assert.equal(retryAfter("soon"), 1);
+  assert.equal(retryAfter("2.5"), 3);
 });
 
 test("a phone's first name and language", () => {

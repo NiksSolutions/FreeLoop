@@ -373,3 +373,22 @@ func TestARealErrorIsStillAnError(t *testing.T) {
 		t.Error("gave up asking for usage over an error that was not about it")
 	}
 }
+
+// PRV-006: a made-up call ID carries a random part, so a provider made after a restart
+// does not repeat one already in the session's history.
+func TestMadeUpIDsDifferAcrossInstances(t *testing.T) {
+	srv := server(t, []string{
+		`{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"read_file","arguments":"{}"}}]}}]}`,
+		`{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`,
+	}, nil)
+	defer srv.Close()
+	var ids []string
+	for range 2 {
+		p := New(Options{Preset: "ollama-v1", BaseURL: srv.URL + "/v1"})
+		_, done := collect(t, p, req)
+		ids = append(ids, done.Message.ToolCalls()[0].ToolCallID)
+	}
+	if ids[0] == ids[1] {
+		t.Errorf("two providers made the same ID %q", ids[0])
+	}
+}

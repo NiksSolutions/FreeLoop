@@ -1,0 +1,23 @@
+---
+title: Store and bus edges: read-only opens released, a dropped tail noticed, a half-written config not applied
+status: done
+type: afk
+blockedBy: []
+---
+
+## What
+From the review of 2026-11-23 (OQ-053, NFR-REL-001, SET-001); confirm each first.
+- **Transcripts opened for reading are never released** (`internal/store/store.go` `EventsLimit`, `TailEvents` via `s.transcript`; `Release` is called only when a runtime idle-stops). Sessions only viewed, exported, costed or folded for activity keep a file descriptor and an offsets table until quit, against the comment on `Release` (OQ-053).
+- **A bus subscriber that drops the last events of a burst never learns of it** (`internal/engine/bus.go`, the window's gap check in `frontend/src/transcript.ts`): a dropped `turn_ended` and idle status leave the window showing the session running until something else happens there. The phone streams catch up on their keep-alive since issue 076; the window does not.
+- **A rules or config file read mid-save is applied as it is** (`internal/engine/watch.go`, `internal/engine/rules.go`): an editor that truncates then writes can leave an empty or cut `rules.yaml` for one poll, during which global deny rules are gone; a cut but valid `config.yaml` yields defaults (local-only off) for one interval.
+- Minor, same area: `stuckState` and `contextSeen` keep entries for deleted sessions; `rpc.wait` spins on the closed bus channel until its deadline after the engine closes.
+
+## Acceptance
+- Reading a session that has no runtime does not keep its file open (or such opens are released on the watch loop); a test counts open transcripts after reads.
+- A subscriber that dropped events gets a marker when there is room again, and the window then reads the session's events after its last seq.
+- A config or rules file is applied only when its fingerprint is the same in two polls in a row, and a rules file with errors never shrinks the deny rules in force; tests write a truncated file between polls.
+- The maps are cleared on delete; `rpc.wait` returns when the bus closes.
+- `go test -race` on the packages touched; `make check-app` if the window changes.
+
+## Notes
+- 2026-11-24: `internal/store/store.go`: each open transcript records when it was last fetched to be read or written, and `ReleaseUnused` closes those unused since a time except the sessions the caller keeps; the engine's config watch calls it every poll (`releaseTranscripts`, `internal/engine/idle.go`) for transcripts no runtime holds and unused for a minute (`transcriptIdle`), so a session only viewed, exported, costed or folded no longer holds its file and offsets until quit. `internal/engine/bus.go`: the bus still never waits; it fills a subscriber's buffer only to its last place, which a dropped event gives to an `events_missed` marker (`engine.Missed`: no session, no seq, never written to a transcript, so not in `schemas/events.json`), so a subscriber learns of a loss even when nothing follows. The window (`splitMissed` in `frontend/src/transcript.ts`, `resync` in `App.tsx`) then reads each held session from its last seq through `catchUp`, drops a transcript it is about to let go, and reads the session list, the attention view and the day's usage again; `rpc.wait` reads again on the marker and returns when the bus closes (`internal/rpc/rpc.go`). `internal/engine/watch.go`: a changed config file applies only when its fingerprint is the same on two polls in a row (`configWatch`), within SET-001's two seconds at the one-second poll. `internal/engine/rules.go`: a permission check no longer rereads `rules.yaml` by its modification time, so it never sees a file half saved; a hand edit applies through the watch, the app's own changes at once, and approvals read the file as it is now (`fileRules`, which applies nothing); a file with errors keeps every deny rule in force besides those it still gives. Deleting a session clears its stuck watch and its model-context record (`DeleteSession` calls `forgetRuntimeState` after the store's delete). Tests: `TestUnusedTranscriptsAreReleased` (store, counts open transcripts), `TestReadingASessionDoesNotKeepItsFileOpen`, `TestASubscriberThatFellBehindLearnsOfIt`, `TestAHalfSavedFileIsNotApplied` (truncated and cut files between polls, a broken rules file, a deletion), `TestDeletingASessionForgetsItsState`, `TestWaitReturnsWhenTheEngineCloses`, frontend "splitMissed takes out the marker"; `TestHandEditedRulesAreReloaded` and `TestBrokenRulesFileFailsClosedAndIsNotOverwritten` reload as the watch does. ARCHITECTURE.md (the bus, hot reload) and DEVELOPING.md (reads) say it. `internal/remote` was left alone: the phone streams ignore the marker (no session, no seq) and still catch up on their keep-alive.

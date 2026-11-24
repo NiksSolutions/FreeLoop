@@ -94,6 +94,10 @@ func (e *Engine) snapshotExclusions(ctx context.Context, host *environment.Local
 	return out
 }
 
+// snapshotHook, set by a test, runs in a snapshot before its files are added, as a
+// long git add would.
+var snapshotHook func(ctx context.Context, store string)
+
 // snapshot commits the folder's current state and returns the commit.
 func (e *Engine) snapshot(ctx context.Context, host *environment.Local, sid, message string) (string, error) {
 	if !environment.IsDir(e.checkpointStore(sid)) {
@@ -101,6 +105,7 @@ func (e *Engine) snapshot(ctx context.Context, host *environment.Local, sid, mes
 			return "", err
 		}
 	}
+	e.clearLocks(ctx, host, sid)
 	// A nested repository stays out too. For one the index knows, git add
 	// starts git in it to see whether it changed, under that repository's own
 	// config, which can run programs and which a container can write. A
@@ -114,6 +119,9 @@ func (e *Engine) snapshot(ctx context.Context, host *environment.Local, sid, mes
 	if _, err := e.shadowGit(ctx, host, sid, checkpointTimeout, "rm", "-r", "-q", "--cached", "--ignore-unmatch", "--", ".claude", ProjectDir); err != nil {
 		return "", err
 	}
+	if snapshotHook != nil {
+		snapshotHook(ctx, e.checkpointStore(sid))
+	}
 	// The exclusions are pathspec magic, and every path here is the app's own, so this
 	// add reads patterns (see gitEnv).
 	if _, err := e.shadowGitWith(ctx, host, sid, checkpointTimeout, gitPatterns, append([]string{"add", "-A", "--", "."}, e.snapshotExclusions(ctx, host, sid)...)...); err != nil {
@@ -126,6 +134,27 @@ func (e *Engine) snapshot(ctx context.Context, host *environment.Local, sid, mes
 		return "", err
 	}
 	return e.shadowGit(ctx, host, sid, 10*time.Second, "rev-parse", "HEAD")
+}
+
+// clearLocks removes the lock files git leaves in the store when a snapshot is cut
+// off, by Stop or by the app being killed: every snapshot after it would fail on
+// them. A session's snapshots run one at a time, each holding the session busy, so a
+// lock found as one starts is left over.
+func (e *Engine) clearLocks(ctx context.Context, host *environment.Local, sid string) {
+	store := e.checkpointStore(sid)
+	locks := []string{"index.lock", "HEAD.lock"}
+	if !slices.ContainsFunc(locks, func(l string) bool { return environment.IsFile(filepath.Join(store, l)) }) {
+		return
+	}
+	// A commit cut off holds its branch's lock too.
+	if ref, err := e.shadowGit(ctx, host, sid, 10*time.Second, "symbolic-ref", "-q", "HEAD"); err == nil && ref != "" {
+		locks = append(locks, filepath.FromSlash(ref)+".lock")
+	}
+	for _, l := range locks {
+		if err := environment.RemoveOwned(e.dataDir, filepath.Join(store, l)); err != nil {
+			log.Printf("engine: clear the checkpoint store of %s: %v", sid, err)
+		}
+	}
 }
 
 // dropNested takes the nested repositories out of the store's index.
@@ -159,15 +188,21 @@ func (e *Engine) dropNested(ctx context.Context, host *environment.Local, sid st
 	return nil
 }
 
-// checkpoint records the state before a prompt. A failure turns checkpoints
-// off for the runtime and says so once.
-func (e *Engine) checkpoint(r *runtime) {
+// checkpoint records the state before a prompt, under the turn's context: Stop
+// cuts the snapshot off, and the caller sees ctx done. The session shows as running
+// meanwhile, since a large folder takes a while. A failure turns checkpoints off for
+// the runtime and says so once.
+func (e *Engine) checkpoint(ctx context.Context, r *runtime) {
 	if r.noCheckpoints {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), checkpointTimeout+time.Minute)
+	e.emit(r.sid, event.SessionStatus, event.SessionStatusData{Status: string(session.StatusRunning)})
+	snap, cancel := context.WithTimeout(ctx, checkpointTimeout+time.Minute)
 	defer cancel()
-	commit, err := e.snapshot(ctx, r.host, r.sid, "before a turn")
+	commit, err := e.snapshot(snap, r.host, r.sid, "before a turn")
+	if ctx.Err() != nil {
+		return
+	}
 	if err != nil {
 		r.noCheckpoints = true
 		log.Printf("engine: checkpoint %s: %v", r.sid, err)

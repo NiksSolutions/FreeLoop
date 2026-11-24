@@ -7,8 +7,13 @@ package provider
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
+	"strconv"
+	"sync"
+	"sync/atomic"
 )
 
 // Type is a provider implementation.
@@ -227,4 +232,27 @@ type Event struct {
 	Usage Usage
 	// Set on EventError.
 	Err error
+}
+
+// CallIDs makes up IDs for the tool calls a model returns without one (PRV-006). The
+// history keeps them, so they must not repeat in a session: a counter alone starts
+// again with the app, and after a restart an ID would be one already there, which
+// pairs a result with the wrong call and which a provider switched to may refuse.
+// So each carries a random part, drawn once per provider. The zero value is ready.
+type CallIDs struct {
+	once  sync.Once
+	salt  string
+	turns atomic.Int64
+}
+
+// Response returns the start of the IDs for one response's calls: the response's
+// n-th call is it followed by n. A response's IDs are made from one start, so they
+// stay the same for as long as the loop matches its results to its calls.
+func (c *CallIDs) Response() string {
+	c.once.Do(func() {
+		b := make([]byte, 6)
+		rand.Read(b)
+		c.salt = hex.EncodeToString(b)
+	})
+	return c.salt + "_" + strconv.FormatInt(c.turns.Add(1), 10) + "_"
 }

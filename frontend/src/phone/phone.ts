@@ -22,6 +22,13 @@ export function pairCode(hash: string): string {
   return m ? m[1] : "";
 }
 
+// retryAfter reads the seconds the server asks the phone to wait after wrong pairing
+// codes (SEC-020), at least one.
+export function retryAfter(header: string | null): number {
+  const n = Math.ceil(Number(header));
+  return Number.isFinite(n) && n >= 1 ? n : 1;
+}
+
 // deviceName is a first name for this phone, from what the browser says it is.
 export function deviceName(userAgent: string): string {
   if (/iPhone/.test(userAgent)) return "iPhone";
