@@ -867,3 +867,20 @@ func TestEveryHandlerIsGuarded(t *testing.T) {
 		}
 	}
 }
+
+// NFR-REL-002: a prompt that reaches an agent's closed pipe before the connection
+// says the agent is gone reports the agent exiting, so the engine starts it again;
+// it failed with "write: file already closed" in CI.
+func TestAPromptToAnAgentThatJustExitedSaysSo(t *testing.T) {
+	for i := 0; i < 5; i++ {
+		hs, _ := refAgent(t, "", nil)
+		s := hs.(*session)
+		s.proc.Stdin().Close()
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		_, err := s.Prompt(ctx, harness.Prompt{Text: "hello"})
+		cancel()
+		if !errors.Is(err, harness.ErrAgentExited) {
+			t.Fatalf("try %d: %v", i, err)
+		}
+	}
+}

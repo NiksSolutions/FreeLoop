@@ -532,6 +532,19 @@ func (s *session) Close() error {
 // cancelWait is how long an agent has to end a turn after a cancel.
 var cancelWait = 10 * time.Second
 
+// exitWait is how long a failed prompt waits for the connection to say whether the
+// agent is gone.
+var exitWait = 2 * time.Second
+
+// exited is the error of a prompt whose agent exited, with the last line it wrote
+// to stderr when there is one.
+func (s *session) exited() error {
+	if tail := strings.TrimSpace(environment.StderrAfterExit(s.proc)); tail != "" {
+		return fmt.Errorf("%w: %s", harness.ErrAgentExited, lastLine(tail))
+	}
+	return harness.ErrAgentExited
+}
+
 // Prompt sends one user turn. Cancelling ctx sends session/cancel and waits
 // briefly for the agent to end the turn, as the protocol asks.
 func (s *session) Prompt(ctx context.Context, p harness.Prompt) (harness.StopReason, error) {
@@ -583,6 +596,16 @@ func (s *session) Prompt(ctx context.Context, p harness.Prompt) (harness.StopRea
 	answered, stopped := true, false
 	select {
 	case a = <-done:
+		// A prompt written to an agent that has just exited fails on the closed pipe
+		// before the connection says the agent is gone: that is the agent exiting
+		// too, and the engine starts it again for the next message (NFR-REL-002).
+		if a.err != nil {
+			select {
+			case <-s.conn.Done():
+				a.err = s.exited()
+			case <-time.After(exitWait):
+			}
+		}
 	case <-ctx.Done():
 		s.conn.Cancel(context.Background(), sdk.CancelNotification{SessionId: s.id})
 		s.stopTerminals(turn)
@@ -598,10 +621,7 @@ func (s *session) Prompt(ctx context.Context, p harness.Prompt) (harness.StopRea
 			stopped = true
 		}
 	case <-s.conn.Done():
-		a.err = harness.ErrAgentExited
-		if tail := strings.TrimSpace(environment.StderrAfterExit(s.proc)); tail != "" {
-			a.err = fmt.Errorf("%w: %s", harness.ErrAgentExited, lastLine(tail))
-		}
+		a.err = s.exited()
 	}
 	if ctx.Err() != nil {
 		s.stopTerminals(turn)
