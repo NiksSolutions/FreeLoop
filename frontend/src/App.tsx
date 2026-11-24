@@ -270,6 +270,10 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>({ kind: "none" });
   const mainBox = useRef<HTMLElement>(null);
   const [heardScreen, setHeardScreen] = useState("");
+  // What ⌘+ and ⌘- did, shown for a moment: at the smallest or largest size the
+  // text cannot change, and nothing else would say so but a screen reader.
+  const [textSizeNote, setTextSizeNote] = useState("");
+  const textSizeNoteTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   // Moving to another screen says so (NFR-A11Y-003): the window's title, an
   // announcement, and the focus in the new screen. A session opened from its
   // row keeps the focus there, so the next one is an arrow key or Tab away;
@@ -906,11 +910,12 @@ export default function App() {
       if (next === null) return;
       // Ahead of the View menu's page zoom, which would scale the layout too.
       e.preventDefault();
-      if (next === current) {
-        setHeardScreen(next === MAX_FONT_SIZE ? t("app.textSize.largest") : t("app.textSize.smallest"));
-        return;
-      }
-      setHeardScreen(t("app.textSize.now", { size: next }));
+      const said = next !== current ? t("app.textSize.now", { size: next }) : next === MAX_FONT_SIZE ? t("app.textSize.largest") : t("app.textSize.smallest");
+      setHeardScreen(said);
+      setTextSizeNote(said);
+      clearTimeout(textSizeNoteTimer.current);
+      textSizeNoteTimer.current = setTimeout(() => setTextSizeNote(""), 1500);
+      if (next === current) return;
       fontPending.current = next;
       setConfig({ ...now, ui: { ...now.ui, fontSize: next } });
       clearTimeout(fontSave.current);
@@ -1429,6 +1434,11 @@ export default function App() {
       <div className="sr-only" role="status" aria-live="polite">
         {heardScreen}
       </div>
+      {textSizeNote && (
+        <div className="text-size-note" aria-hidden="true">
+          {textSizeNote}
+        </div>
+      )}
       {!STANDALONE && (
         <button className="skip-link" onClick={() => mainBox.current?.focus()}>
           {t("app.skip")}

@@ -54,7 +54,10 @@ export default function ShortcutsEditor({ value, onChange }: Props) {
                 type="button"
                 className={listening === s.id ? "shortcut-key shortcut-listening" : "shortcut-key"}
                 aria-label={t("shortcuts.change", { label: t(s.label), key: keyLabel(current) })}
-                onClick={() => {
+                onClick={(e) => {
+                  // WebKit on a Mac leaves the focus where it was when a button is
+                  // clicked, and the key is heard only by the focused button.
+                  e.currentTarget.focus();
                   setListening(s.id);
                   setProblem(null);
                 }}

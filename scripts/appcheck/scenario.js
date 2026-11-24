@@ -1017,6 +1017,63 @@ await step("the app's settings are seven short pages", async () => {
   await sleep(100);
 });
 
+await step("a shortcut is recorded after a click on its key", async () => {
+  // WebKit on a Mac does not focus a clicked button, and the key it waits for is
+  // heard only there: a real click, then a key press.
+  document.querySelector(".settings-link").click();
+  await until("Settings", () => document.querySelector(".settings-nav"));
+  withText(".settings-nav button", "Keyboard").click();
+  const key = await until("the Larger text key", () => document.querySelector('button[aria-label^="Change Larger text"]'));
+  check("larger text is shown as ⌘+", key.textContent === "⌘+", key.textContent);
+  key.scrollIntoView({ block: "center" });
+  await sleep(500);
+  const r = key.getBoundingClientRect();
+  await window.webkit.messageHandlers.mouse.postMessage([r.left + r.width / 2, r.top + r.height / 2, 1]);
+  await until("waiting for a key", () => key.textContent.includes("Press a key"), 3000).catch(() => null);
+  check("the key has the focus after a click", document.activeElement === key, document.activeElement?.outerHTML.slice(0, 80));
+  document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: "L", metaKey: true, shiftKey: true, bubbles: true, cancelable: true }));
+  await sleep(300);
+  check("the press is taken", key.textContent === "⌘⇧L", key.textContent);
+  (await until("Reset", () => document.querySelector('button[aria-label="Reset Larger text"]'))).click();
+  await until("the key as it was", () => key.textContent === "⌘+", 3000).catch(() => null);
+  check("Reset gives it back", key.textContent === "⌘+", key.textContent);
+  withText(".settings-save button", "Revert")?.click();
+  document.querySelector(".settings-nav .settings-back").click();
+  await sleep(100);
+});
+
+await step("the text size keys say what they did", async () => {
+  // NFR-A11Y-002: at the smallest size ⌘- changes nothing, and a note says so.
+  const size = () => getComputedStyle(document.documentElement).getPropertyValue("--font-size").trim();
+  const press = (key, shiftKey = false) => document.dispatchEvent(new KeyboardEvent("keydown", { key, metaKey: true, shiftKey, bubbles: true, cancelable: true }));
+  const note = () => document.querySelector(".text-size-note")?.textContent ?? "";
+  const before = size();
+  let n = 0;
+  while (size() !== "11px" && n < 12) {
+    press("-");
+    n++;
+    await sleep(30);
+  }
+  check("⌘- makes the text smaller and says so", /^Text size \d+$/.test(note()) || note() === "Text is at its smallest", note());
+  press("_", true);
+  await sleep(30);
+  check("at the smallest, ⌘⇧- says the text is at its smallest", note() === "Text is at its smallest" && size() === "11px", `${note()}, ${size()}`);
+  press("+", true);
+  await sleep(30);
+  check("⌘+ as a US or Swiss keyboard types it makes the text larger", size() === "12px" && note() === "Text size 12", `${note()}, ${size()}`);
+  press("=", true);
+  await sleep(30);
+  check("⌘⇧0 on a Swiss keyboard (=) makes it larger too", size() === "13px", size());
+  for (let i = 0; i < 20 && size() !== before; i++) {
+    press(parseInt(size()) < parseInt(before) ? "=" : "-");
+    await sleep(30);
+  }
+  check("the size is back as it was", size() === before, `${size()}, was ${before}`);
+  await until("the note gone", () => !document.querySelector(".text-size-note"), 4000).catch(() => null);
+  check("the note goes by itself", !document.querySelector(".text-size-note"));
+  await sleep(600);
+});
+
 await step("a style keeps the fonts and colors, and choosing it brings them back", async () => {
   // GUI-053: saved from what is on screen, switched to from the list and the
   // palette, marked changed, reverted, and deleted with the look left as it is.
