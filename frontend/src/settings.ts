@@ -94,7 +94,7 @@ export const MIN_FONT_SIZE = 11;
 export const MAX_FONT_SIZE = 20;
 
 // textSizeAfter is the Font size that ⌘+ or ⌘- (Ctrl outside a Mac) asks for, or
-// null for any other key (NFR-A11Y-002). ⌘+ is ⌘= without Shift, on most keyboards.
+// null for any other key (NFR-A11Y-002); shortcuts.ts takes each keyboard's spelling.
 export function textSizeAfter(k: Keys, current: number): number | null {
   if (pressed(k, "textLarger")) return Math.min(current + 1, MAX_FONT_SIZE);
   if (pressed(k, "textSmaller")) return Math.max(current - 1, MIN_FONT_SIZE);

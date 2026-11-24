@@ -32,7 +32,7 @@ Mit `/` am Anfang wird nur in den Befehlen der offenen Sitzung gesucht: Modi, di
 | Befehlspalette öffnen | ⌘K |
 | Einstellungen öffnen | ⌘, |
 | „Braucht Aufmerksamkeit“ öffnen | ⌘0 |
-| Größerer Text | ⌘= |
+| Größerer Text | ⌘+ (auch ⌘=) |
 | Kleinerer Text | ⌘- |
 | In das Nachrichtenfeld diktieren | ⌘⇧D |
 | Zum Bereich links, rechts, darüber, darunter | {{⌃⇧← ⌃⇧→ ⌃⇧↑ ⌃⇧↓|Alt+Shift+← Alt+Shift+→ Alt+Shift+↑ Alt+Shift+↓}} |

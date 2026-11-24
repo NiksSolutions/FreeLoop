@@ -32,7 +32,7 @@ Met `/` vooraan wordt alleen in de opdrachten van de open sessie gezocht: modi, 
 | Opdrachtenpalet openen | ⌘K |
 | Instellingen openen | ⌘, |
 | ‘Vraagt aandacht’ openen | ⌘0 |
-| Grotere tekst | ⌘= |
+| Grotere tekst | ⌘+ (⌘= werkt ook) |
 | Kleinere tekst | ⌘- |
 | Dicteren in het berichtvak | ⌘⇧D |
 | Naar het paneel links, rechts, erboven, eronder | {{⌃⇧← ⌃⇧→ ⌃⇧↑ ⌃⇧↓|Alt+Shift+← Alt+Shift+→ Alt+Shift+↑ Alt+Shift+↓}} |

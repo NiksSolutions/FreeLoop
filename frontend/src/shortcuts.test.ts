@@ -180,3 +180,25 @@ test("why a key cannot be a shortcut is said in the language in force (GUI-048)"
   assert.equal(bindingProblem("allow_once", "Meta+K", {}), "Een goedkeuringssneltoets is één letter, zonder speciale toets.");
   setLanguage("en");
 });
+
+// ⌘+ is ⌘= with Shift on a US keyboard, its own key on a German one and ⌘⇧1 on a Swiss
+// one, where = is ⌘⇧0; - with Shift is _. Each of them changes the text size.
+test("the text size keys work on Swiss, German and US keyboards", () => {
+  setBindings({});
+  for (const [key, shiftKey] of [["=", false], ["+", true], ["+", false], ["=", true]] as const) {
+    assert.ok(pressed(press(key, { metaKey: true, shiftKey }), "textLarger"), `⌘${shiftKey ? "⇧" : ""}${key}`);
+  }
+  for (const [key, shiftKey] of [["-", false], ["-", true], ["_", true]] as const) {
+    assert.ok(pressed(press(key, { metaKey: true, shiftKey }), "textSmaller"), `⌘${shiftKey ? "⇧" : ""}${key}`);
+  }
+  assert.ok(!pressed(press("0", { metaKey: true }), "textLarger"));
+  assert.equal(keyLabel(bindingOf("textLarger")), "⌘+");
+  assert.equal(keyLabel(bindingOf("textSmaller")), "⌘-");
+  // Set to another key, that key alone changes it, and the spellings are free again.
+  setBindings({ textLarger: "Meta+L" });
+  assert.ok(!pressed(press("+", { metaKey: true, shiftKey: true }), "textLarger"));
+  assert.equal(bindingProblem("palette", "Meta+Shift++", { textLarger: "Meta+L" }), "");
+  setBindings({});
+  assert.match(bindingProblem("palette", "Meta+Shift++", {}), /Larger text/);
+  assert.match(bindingProblem("palette", "Meta+Shift+_", {}), /Smaller text/);
+});

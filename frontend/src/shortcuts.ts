@@ -47,7 +47,7 @@ export const SHORTCUTS: ShortcutInfo[] = [
   { id: "palette", label: "shortcut.palette", key: "Meta+K" },
   { id: "settings", label: "shortcut.settings", key: "Meta+," },
   { id: "attention", label: "shortcut.attention", key: "Meta+0" },
-  { id: "textLarger", label: "shortcut.textLarger", key: "Meta+=" },
+  { id: "textLarger", label: "shortcut.textLarger", key: "Meta++" },
   { id: "textSmaller", label: "shortcut.textSmaller", key: "Meta+-" },
   // Starts and stops voice input in the message box (GUI-050).
   { id: "dictate", label: "shortcut.dictate", key: "Meta+Shift+D" },
@@ -120,13 +120,23 @@ export function comboOf(k: Keys): string {
   return parts.join("+");
 }
 
+// The text size keys as keyboards have them, taken while the shortcut is its default:
+// ⌘+ is ⌘= with Shift on a US keyboard, its own key on a German one and ⌘⇧1 on a Swiss
+// one, where = is ⌘⇧0; - with Shift is _ (NFR-A11Y-002).
+const SPELLINGS: Record<string, string[]> = {
+  textLarger: ["Meta++", "Meta+Shift++", "Meta+=", "Meta+Shift+="],
+  textSmaller: ["Meta+-", "Meta+Shift+-", "Meta+_", "Meta+Shift+_"],
+};
+
+// combosOf lists the key presses a shortcut takes, given the bindings in current.
+function combosOf(id: string, current: Bindings): string[] {
+  const set = current[id];
+  return set ? [normal(set)] : (SPELLINGS[id] ?? [normal(defaultKey(id))]);
+}
+
 // pressed reports a key press matching a global shortcut.
 export function pressed(k: Keys, id: string): boolean {
-  const want = normal(bindingOf(id));
-  const combo = comboOf(k);
-  if (combo === want) return true;
-  // ⌘+ is ⌘= with Shift on some keyboards, and its own key on others.
-  return want === "Meta+=" && (combo === "Meta+Shift++" || combo === "Meta++");
+  return combosOf(id, bindings).includes(comboOf(k));
 }
 
 // bindingProblem says why a key cannot be used for a shortcut, or "".
@@ -145,7 +155,7 @@ export function bindingProblem(id: string, combo: string, current: Bindings): st
     if (reserved(normal(combo))) return t("shortcuts.problem.reserved", { key: keyLabel(combo), system: systemName() });
   }
   const wanted = info.letter ? combo.toLowerCase() : normal(combo);
-  const taken = SHORTCUTS.find((s) => s.id !== id && (info.letter ? current[s.id] || s.key : normal(current[s.id] || s.key)) === wanted);
+  const taken = SHORTCUTS.find((s) => s.id !== id && (info.letter ? (current[s.id] || s.key) === wanted : combosOf(s.id, current).includes(wanted)));
   return taken ? t("shortcuts.problem.taken", { key: keyLabel(wanted), label: t(taken.label) }) : "";
 }
 
