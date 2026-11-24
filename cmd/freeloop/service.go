@@ -833,6 +833,11 @@ func (s *EngineService) Rewind(ctx context.Context, sessionID string, seq int64)
 	return s.eng.Rewind(ctx, sessionID, seq)
 }
 
+// RewindPreview says what a rewind would do to the other sessions in the folder.
+func (s *EngineService) RewindPreview(ctx context.Context, sessionID string, seq int64) (engine.RewindPreview, error) {
+	return s.eng.RewindPreview(ctx, sessionID, seq)
+}
+
 func (s *EngineService) ForkSession(ctx context.Context, sessionID string, seq int64) (engine.ForkResult, error) {
 	return s.eng.ForkSession(ctx, sessionID, seq)
 }

@@ -834,6 +834,8 @@ export const en = {
   // {text} is the start of a message of the user's.
   "session.palette.rewindTo": "Rewind to before “{text}”…",
   "session.rewindConfirm": "Restore the files to before this message and continue from there?",
+  "session.rewindBusy": 'The session "{title}" is working in this folder. Stop its turn or wait for it to end, then rewind.',
+  "session.rewindOthers": "Other sessions have changed files in this folder since this message, and a rewind resets their changes too: {titles}. Rewind anyway?",
   "session.palette.forkLast": "Fork before the last message",
   "session.palette.continueWith": "Continue with {name}",
   "session.openWindow": "Open in a new window",

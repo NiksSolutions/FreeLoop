@@ -60,6 +60,7 @@ import { drawOnce, HOLD_PLACE, holdsPlace, READER_PAUSE, readerScrolling, scroll
 import { costText, estimate, formatCost, tallyCalls, type CostTally, type PriceEntry } from "./cost.ts";
 import { trustLines, trustStep } from "./trust.ts";
 import { locale, t, type PlainKey } from "./i18n.ts";
+import { rewindCheck } from "./rewind.ts";
 import { tNodes } from "./i18nNodes.tsx";
 
 interface Props {
@@ -1095,13 +1096,20 @@ export default function SessionView({ session, transcript, focus, prices, initia
     EngineService.ForkSession(session.id, seq)
       .then((r) => onForked(r.session.id, r.text))
       .catch(onError);
-  const rewind = (seq: number, text: string) =>
-    EngineService.Rewind(session.id, seq)
+  // A checkpoint holds the whole folder: what a rewind would take from the other
+  // sessions working in it is said first (issue 071). The engine refuses beside a
+  // running turn whatever this finds.
+  const rewind = async (seq: number, text: string) => {
+    const check = rewindCheck(await EngineService.RewindPreview(session.id, seq).catch(() => null));
+    if (check.refuse) return onError(check.refuse);
+    if (check.ask && !(await askUser(check.ask))) return;
+    return EngineService.Rewind(session.id, seq)
       .then(() => {
         setDraft(text);
         input.current?.focus();
       })
       .catch(onError);
+  };
   // What an item calls is the same functions from one render to the next, each going to
   // the latest, so ItemView can compare them and still skip an item that did not change.
   const latestActions = useRef({ onError, rewind, fork });

@@ -782,6 +782,8 @@ export const nl = translationOf<typeof en>()({
   "session.palette.rewindLast": "Terugspoelen tot vóór het laatste bericht…",
   "session.palette.rewindTo": "Terugspoelen tot vóór ‘{text}’…",
   "session.rewindConfirm": "De bestanden terugzetten naar vóór dit bericht en vanaf daar verdergaan?",
+  "session.rewindBusy": "De sessie ‘{title}’ werkt nu in deze map. Terugspoelen kan pas als haar beurt klaar of gestopt is.",
+  "session.rewindOthers": "Andere sessies hebben sinds dit bericht bestanden in deze map gewijzigd, en terugspoelen zet ook hun wijzigingen terug: {titles}. Toch terugspoelen?",
   "session.palette.forkLast": "Aftakken vóór het laatste bericht",
   "session.palette.continueWith": "Verdergaan met {name}",
   "session.openWindow": "Openen in een nieuw venster",

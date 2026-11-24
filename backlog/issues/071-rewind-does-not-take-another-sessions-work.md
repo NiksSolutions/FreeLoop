@@ -1,6 +1,6 @@
 ---
 title: Rewind does not take another session's work
-status: open
+status: done
 type: afk
 blockedBy: []
 ---
@@ -18,3 +18,4 @@ Found in the review of 2026-11-23 (SES-010). Checkpoints are per session but sna
 - Not done: the preview does not reach the window yet. Showing it in the rewind's confirmation (`MessageActions` and the palette's rewind, both in `SessionView.tsx`) needs a `RewindPreview` method on `EngineService` in `cmd/freeloop/service.go` and the confirmation calling it and naming `others` (and `busy`), with words in en, de and nl. Both files belonged to other agents this time.
 - For a decision: the refusal is an engine error, which GUI-048 shows as given, in English, like the rewind's other errors ("stop the running turn before rewinding"). Showing it in de and nl would need a structured error the window knows (or the confirmation refusing beforehand from `busy`), which goes against GUI-048's "engine error details stay English".
 - Found on the way, not fixed (outside this work's area): a rewind to before a built-in session's first message writes `history_message` `{"index":0,"reset":true,"clear":true}` (`TruncateHistory(0)`, `internal/harness/builtin/builtin.go`), which `schemas/events.json` refuses (`historyMessage` requires `message`), so under `FREELOOP_CHECK_EVENTS` it panics. It is so at HEAD; `TestRewindInASharedFolder` rewinds to a later checkpoint, as `TestCheckpointsAndRewind` does.
+- 2026-11-24: the preview reaches the window. `EngineService.RewindPreview` (`cmd/freeloop/service.go`); `rewindCheck` in `frontend/src/rewind.ts` (tested) is asked by `rewind` in `SessionView.tsx` before either way of rewinding: beside another session's turn it says so in the window's language (`session.rewindBusy`) and does nothing; when other sessions changed files since, it names them and asks (`session.rewindOthers`). The engine still refuses beside a turn whatever the window found. Left: a rewind of a built-in session to before its first message writes a `history_message` event the schema rejects (found here, not fixed).

@@ -783,6 +783,8 @@ export const de = translationOf<typeof en>()({
   "session.palette.rewindLast": "Vor die letzte Nachricht zurückspulen…",
   "session.palette.rewindTo": "Vor „{text}“ zurückspulen…",
   "session.rewindConfirm": "Die Dateien auf den Stand vor dieser Nachricht zurücksetzen und von dort weitermachen?",
+  "session.rewindBusy": "Die Sitzung „{title}“ arbeitet gerade in diesem Ordner. Erst wenn ihr Durchgang beendet oder gestoppt ist, lässt sich zurückspulen.",
+  "session.rewindOthers": "Andere Sitzungen haben seit dieser Nachricht Dateien in diesem Ordner geändert, und das Zurückspulen setzt auch ihre Änderungen zurück: {titles}. Trotzdem zurückspulen?",
   "session.palette.forkLast": "Vor der letzten Nachricht abzweigen",
   "session.palette.continueWith": "Mit {name} fortfahren",
   "session.openWindow": "In neuem Fenster öffnen",
