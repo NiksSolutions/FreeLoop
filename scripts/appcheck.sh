@@ -204,6 +204,12 @@ restart_app "$DATA/app-phone.log"
 cat "$HERE/appcheck/lib.js" "$HERE/appcheck/phone-on.js" > "$DATA/phone-on.js"
 ${APPCHECK_SLOW:+taskpolicy -c background} "$DATA/drive" "http://localhost:$PORT/" "$DATA/phone-on.js" > "$OUT/results-phone.txt" || status=1
 printf 'localStorage.setItem("freeloop.phone.key", "%s");\n' "$PHONE_KEY" > "$DATA/phone-init.js"
+# The check's window may be covered, or never shown (CI), which WebKit reports as a
+# hidden page, and a hidden phone app holds no stream open (issue 076). The phone's page
+# is in front; phone.js hides it on purpose.
+cat >> "$DATA/phone-init.js" <<'JS'
+Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" });
+JS
 cat "$HERE/appcheck/lib.js" "$HERE/appcheck/phone.js" > "$DATA/phone.js"
 APPCHECK_INIT="$DATA/phone-init.js" APPCHECK_WIDTH=390 APPCHECK_HEIGHT=844 APPCHECK_DEADLINE=120 \
   ${APPCHECK_SLOW:+taskpolicy -c background} "$DATA/drive" "http://127.0.0.1:$((PORT + 1))/phone/" "$DATA/phone.js" >> "$OUT/results-phone.txt" || status=1

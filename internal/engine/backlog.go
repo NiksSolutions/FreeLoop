@@ -115,12 +115,8 @@ func (e *Engine) projectBacklog(ctx context.Context, project session.Project, ro
 	if info.PRDs == nil {
 		info.PRDs = []backlog.PRD{}
 	}
-	for _, it := range info.Issues {
-		if it.State == backlog.Done {
-			info.Finished++
-		}
-	}
-	info.Finished += len(backlog.Finished(info.PRDs, info.Issues))
+	take, _ := backlog.Archivable(info.Issues)
+	info.Finished = len(take) + len(backlog.Finished(info.PRDs, info.Issues))
 	if blocked(ctx, env) == "" {
 		if out, ok := git(ctx, env, "status", "--porcelain", "--untracked-files=all", "--", w.BacklogDir()); ok && strings.TrimSpace(out) != "" {
 			info.Uncommitted = true
@@ -228,7 +224,8 @@ type ArchiveResult struct {
 // of the project (WFL-004, OQ-041): git removes them in a commit of their own, which
 // names them, so later agents are not misled by stale docs and git history keeps them
 // (git log -- backlog/). No copy is kept elsewhere. Only files committed as they are
-// now are removed, so nothing unsaved is lost.
+// now are removed, so nothing unsaved is lost, and a done issue an open issue still
+// names in blockedBy stays, so that issue does not wait on a missing one for ever.
 func (e *Engine) ArchiveBacklog(ctx context.Context, root, workflowID string) (ArchiveResult, error) {
 	res := ArchiveResult{Moved: []string{}, Left: []string{}}
 	project, err := e.store.ProjectByRoot(ctx, environment.Canonical(root))
@@ -255,15 +252,22 @@ func (e *Engine) ArchiveBacklog(ctx context.Context, root, workflowID string) (A
 		return res, errors.New(why)
 	}
 	var paths []string
+	take, kept := backlog.Archivable(info.Issues)
+	for _, it := range take {
+		paths = append(paths, it.Path)
+	}
 	for _, it := range info.Issues {
-		if it.State == backlog.Done {
-			paths = append(paths, it.Path)
+		if waiting := kept[it.ID]; len(waiting) > 0 {
+			res.Left = append(res.Left, it.Path+": "+strings.Join(waiting, ", ")+" still waits on it")
 		}
 	}
 	for _, p := range backlog.Finished(info.PRDs, info.Issues) {
 		paths = append(paths, p.Path)
 	}
 	if len(paths) == 0 {
+		if len(res.Left) > 0 {
+			return res, errors.New("nothing in the backlog can be archived yet: " + strings.Join(res.Left, "; "))
+		}
 		return res, errors.New("nothing in the backlog is finished")
 	}
 	var move []string
@@ -314,7 +318,7 @@ func (e *Engine) cleanupStage(ctx context.Context, ses session.Session, w config
 	}
 	msg := fmt.Sprintf("Archived %d finished backlog files: commit %s removed them, and git history keeps them.", len(res.Moved), res.Commit)
 	if len(res.Left) > 0 {
-		msg += " Left: " + strings.Join(res.Left, "; ") + "."
+		msg += fmt.Sprintf(" Left %d: %s.", len(res.Left), strings.Join(res.Left, "; "))
 	}
 	e.emit(ses.ID, event.Notice, event.NoticeData{Message: msg})
 	e.gitChanged(ses.ID)

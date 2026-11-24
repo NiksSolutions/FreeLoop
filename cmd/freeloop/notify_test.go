@@ -5,6 +5,9 @@ package main
 import (
 	"errors"
 	"testing"
+	"time"
+
+	"github.com/FinanceNik/Freeloop/internal/engine"
 )
 
 // fakePermission is the system's notification permission as the user sets it.
@@ -60,5 +63,46 @@ func TestNotificationsAllowedLaterTakeEffect(t *testing.T) {
 	g.failed(errors.New("Notifications are not allowed for this application"))
 	if g.allowed(p) {
 		t.Error("turned off in System Settings, a notice got through")
+	}
+}
+
+// 076: the desktop's notice can wait minutes on the system's permission prompt. The loop
+// still takes every notice and the phone hears of each at once; the desktop shows them
+// after, in order.
+func TestADesktopNoticeHoldsUpNothing(t *testing.T) {
+	notices := make(chan engine.Notice)
+	prompt := make(chan struct{})
+	phoned := make(chan string, 8)
+	shown := make(chan string, 8)
+	go relayNotices(notices, func(n engine.Notice) { phoned <- n.SessionID }, func(n engine.Notice) {
+		<-prompt
+		shown <- n.SessionID
+	})
+	defer close(notices)
+	ids := []string{"ses_a", "ses_b", "ses_c"}
+	for _, id := range ids {
+		select {
+		case notices <- engine.Notice{Kind: "finished", SessionID: id}:
+		case <-time.After(time.Second):
+			t.Fatal("the loop took no notice while the desktop's waited")
+		}
+	}
+	for range ids {
+		select {
+		case <-phoned:
+		case <-time.After(time.Second):
+			t.Fatal("the phone was held up behind the desktop")
+		}
+	}
+	close(prompt)
+	for _, want := range ids {
+		select {
+		case got := <-shown:
+			if got != want {
+				t.Errorf("the desktop showed %s, want %s", got, want)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("the desktop never showed %s", want)
+		}
 	}
 }

@@ -125,7 +125,8 @@ func TestNativeProgram(t *testing.T) {
 	if !found {
 		t.Errorf("whisper.cpp is not in the bill: %s", b)
 	}
-	text, _, err := Notices(App{Name: "Freeloop", Version: "0.0.1"}, &debug.BuildInfo{}, []byte(`{"packages":{}}`), NoticeSources{Natives: []Native{n}, NativeRoot: root})
+	goRoot := fstest.MapFS{"LICENSE": {Data: []byte("go license")}}
+	text, err := Notices(App{Name: "Freeloop", Version: "0.0.1"}, &debug.BuildInfo{}, []byte(`{"packages":{}}`), NoticeSources{GoRoot: goRoot, Natives: []Native{n}, NativeRoot: root})
 	if err != nil {
 		t.Fatal(err)
 	}

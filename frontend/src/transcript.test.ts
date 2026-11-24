@@ -789,3 +789,18 @@ test("a long session opened at its end and then given what came before equals th
   assert.throws(() => withEarlier(apply(transcriptFrom(100), events.slice(99, 120)).transcript, events.slice(0, 50)), /in order/);
 });
 
+
+test("a notice that another session rewound the folder is said in the window's language (SES-014)", () => {
+  const notice = { message: 'The session "Fix the build" rewound the files of this folder…', rewoundBy: { sessionId: "ses_2", title: "Fix the build" } };
+  const text = () => (buildView([ev(1, notice)]).items[0] as { message: string }).message;
+  const english = text();
+  assert.ok(english.includes('"Fix the build"') && english.startsWith("The session"), english);
+  setLanguage("de");
+  try {
+    assert.ok(text().includes("„Fix the build“"), text());
+  } finally {
+    setLanguage("en");
+  }
+  // A notice without it is shown as given.
+  assert.equal((buildView([ev(1, { message: "as given" })]).items[0] as { message: string }).message, "as given");
+});

@@ -150,6 +150,9 @@ func (p *Provider) params(req provider.ChatRequest) responses.ResponseNewParams 
 			Strict: param.NewOpt(false),
 		}})
 	}
+	if req.NoToolCalls && len(params.Tools) > 0 {
+		params.ToolChoice = responses.ResponseNewParamsToolChoiceUnion{OfToolChoiceMode: param.NewOpt(responses.ToolChoiceOptionsNone)}
+	}
 	if reasons(req.Model) {
 		params.Reasoning = shared.ReasoningParam{Summary: shared.ReasoningSummaryAuto}
 		if e := effort(req.Effort); e != "" {
@@ -185,9 +188,7 @@ func toInput(msgs []provider.Message) responses.ResponseInputParam {
 			for _, part := range m.Parts {
 				switch {
 				case part.Type == provider.PartToolResult:
-					item := responses.ResponseInputItemParamOfFunctionCallOutput(part.Text)
-					item.OfFunctionCallOutput.CallID = param.NewOpt(part.ToolCallID)
-					out = append(out, item)
+					out = append(out, toolOutput(part))
 				case part.Type == provider.PartText && part.Text != "":
 					list = append(list, responses.ResponseInputContentUnionParam{OfInputText: &responses.ResponseInputTextParam{Text: part.Text}})
 				case part.Type == provider.PartImage && part.Image != nil && len(part.Image.Data) > 0:
@@ -223,14 +224,24 @@ func toInput(msgs []provider.Message) responses.ResponseInputParam {
 				out = append(out, responses.ResponseInputItemParamOfFunctionCall(args, part.ToolCallID, part.ToolName))
 			case provider.PartToolResult:
 				flush()
-				item := responses.ResponseInputItemParamOfFunctionCallOutput(part.Text)
-				item.OfFunctionCallOutput.CallID = param.NewOpt(part.ToolCallID)
-				out = append(out, item)
+				out = append(out, toolOutput(part))
 			}
 		}
 		flush()
 	}
 	return out
+}
+
+// toolOutput is a tool result as a function call output. The API has no
+// error flag, so a failure is marked in the text, as the other adapters do.
+func toolOutput(part provider.Part) responses.ResponseInputItemUnionParam {
+	text := part.Text
+	if part.IsError {
+		text = "Error: " + text
+	}
+	item := responses.ResponseInputItemParamOfFunctionCallOutput(text)
+	item.OfFunctionCallOutput.CallID = param.NewOpt(part.ToolCallID)
+	return item
 }
 
 func (p *Provider) Stream(ctx context.Context, req provider.ChatRequest) (<-chan provider.Event, error) {

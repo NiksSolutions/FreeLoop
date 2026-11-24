@@ -179,6 +179,14 @@ func (l *Local) Exec(ctx context.Context, spec ExecSpec) (ExecResult, error) {
 		errOut = &capped{limit: limit}
 	}
 	cmd.Stdout, cmd.Stderr = out, errOut
+	if spec.Live != nil {
+		// One writer for both keeps them on one pipe, in the order written.
+		live := io.MultiWriter(out, spec.Live)
+		cmd.Stdout = live
+		if errOut == out {
+			cmd.Stderr = live
+		}
+	}
 	if spec.Stdin != nil {
 		cmd.Stdin = bytes.NewReader(spec.Stdin)
 	}

@@ -1,8 +1,10 @@
 package remote
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"time"
@@ -15,27 +17,68 @@ import (
 // The phone follows sessions over server-sent events. A list's stream sends the
 // whole summary each time something it shows changes, so a phone that lost its
 // signal is right again at once; a session's stream sends its events in order,
-// from where the phone left off.
+// from where the phone left off. A phone with a stream open is being looked at and
+// gets no push (notify.go); the phone app closes its streams while it is hidden.
 
 const (
 	keepAlive = 25 * time.Second
 	settle    = 300 * time.Millisecond
+	// writeWait is the longest one write to a stream, with its flush, may take.
+	writeWait = 10 * time.Second
 )
 
-// streamTo starts an event stream, or says the response cannot be one.
-func streamTo(w http.ResponseWriter) (func(), bool) {
-	f, ok := w.(http.Flusher)
-	if !ok {
+// stream is an event stream open to a phone. Each write, and each flush, must be done
+// within writeWait: a phone that stopped reading, gone out of reach with its connection
+// held open, ends the stream rather than holding it, and stops counting as looking.
+type stream struct {
+	w    http.ResponseWriter
+	rc   *http.ResponseController
+	wait time.Duration
+}
+
+func (st *stream) write(text string) bool {
+	// Only a writer that is not the server's own, as in a test, takes no deadline.
+	st.rc.SetWriteDeadline(time.Now().Add(st.wait))
+	_, err := io.WriteString(st.w, text)
+	return err == nil
+}
+
+func (st *stream) flush() bool {
+	st.rc.SetWriteDeadline(time.Now().Add(st.wait))
+	return st.rc.Flush() == nil
+}
+
+func (st *stream) send(text string) bool { return st.write(text) && st.flush() }
+
+// openStream starts an event stream to phone d, or says the response cannot be one.
+// While it is open the phone counts as looking, until closed is called.
+func (s *Server) openStream(w http.ResponseWriter, d config.Device) (st *stream, closed func(), ok bool) {
+	if _, ok := w.(http.Flusher); !ok {
 		http.Error(w, "streaming is not supported", http.StatusInternalServerError)
-		return nil, false
+		return nil, nil, false
 	}
 	h := w.Header()
 	h.Set("Content-Type", "text/event-stream")
 	h.Set("Cache-Control", "no-store")
 	h.Set("X-Accel-Buffering", "no")
 	w.WriteHeader(http.StatusOK)
-	f.Flush()
-	return f.Flush, true
+	st = &stream{w: w, rc: http.NewResponseController(w), wait: s.writeWait}
+	if !st.flush() {
+		return nil, nil, false
+	}
+	s.mu.Lock()
+	if s.looking == nil {
+		s.looking = map[string]int{}
+	}
+	s.looking[d.ID]++
+	s.mu.Unlock()
+	return st, func() {
+		s.mu.Lock()
+		if s.looking[d.ID]--; s.looking[d.ID] <= 0 {
+			delete(s.looking, d.ID)
+		}
+		s.mu.Unlock()
+	}, true
 }
 
 // changesSummary are the events after which the lists may read differently.
@@ -48,29 +91,33 @@ func changesSummary(t event.Type) bool {
 	return false
 }
 
-func (s *Server) summaryStream(w http.ResponseWriter, r *http.Request, _ config.Device) {
-	flush, ok := streamTo(w)
+func (s *Server) summaryStream(w http.ResponseWriter, r *http.Request, d config.Device) {
+	st, closed, ok := s.openStream(w, d)
 	if !ok {
 		return
 	}
-	ch, cancel := s.eng.Subscribe()
+	defer closed()
+	ch, cancel := s.subscribe()
 	defer cancel()
-	send := func() bool {
+	var sent []byte
+	// send writes the summary; unless always, only when it changed since it was last
+	// sent, and a ping otherwise.
+	send := func(always bool) bool {
 		sum, err := s.eng.PhoneSummary(r.Context())
 		if err != nil {
 			return false
 		}
 		b, _ := json.Marshal(sum)
-		if _, err := fmt.Fprintf(w, "event: summary\ndata: %s\n\n", b); err != nil {
-			return false
+		if !always && bytes.Equal(b, sent) {
+			return st.send(": ping\n\n")
 		}
-		flush()
-		return true
+		sent = b
+		return st.send("event: summary\ndata: " + string(b) + "\n\n")
 	}
-	if !send() {
+	if !send(true) {
 		return
 	}
-	ping := time.NewTicker(keepAlive)
+	ping := time.NewTicker(s.keepAlive)
 	defer ping.Stop()
 	var due <-chan time.Time
 	for {
@@ -86,19 +133,20 @@ func (s *Server) summaryStream(w http.ResponseWriter, r *http.Request, _ config.
 			}
 		case <-due:
 			due = nil
-			if !send() {
+			if !send(true) {
 				return
 			}
 		case <-ping.C:
-			if _, err := fmt.Fprint(w, ": ping\n\n"); err != nil {
+			// The keep-alive reads the summary again: a change whose event the bus
+			// dropped shows within a tick.
+			if !send(false) {
 				return
 			}
-			flush()
 		}
 	}
 }
 
-func (s *Server) sessionStream(w http.ResponseWriter, r *http.Request, _ config.Device) {
+func (s *Server) sessionStream(w http.ResponseWriter, r *http.Request, d config.Device) {
 	id, ok := s.readable(w, r)
 	if !ok {
 		return
@@ -120,12 +168,13 @@ func (s *Server) sessionStream(w http.ResponseWriter, r *http.Request, _ config.
 		}
 	}
 	// Subscribed before reading what came before, so nothing falls between.
-	ch, cancel := s.eng.Subscribe()
+	ch, cancel := s.subscribe()
 	defer cancel()
-	flush, ok := streamTo(w)
+	st, closed, ok := s.openStream(w, d)
 	if !ok {
 		return
 	}
+	defer closed()
 	last := after
 	write := func(evs []event.Event) bool {
 		for _, ev := range evs {
@@ -133,13 +182,12 @@ func (s *Server) sessionStream(w http.ResponseWriter, r *http.Request, _ config.
 				continue
 			}
 			b, _ := json.Marshal(ev)
-			if _, err := fmt.Fprintf(w, "id: %d\nevent: event\ndata: %s\n\n", ev.Seq, b); err != nil {
+			if !st.write(fmt.Sprintf("id: %d\nevent: event\ndata: %s\n\n", ev.Seq, b)) {
 				return false
 			}
 			last = ev.Seq
 		}
-		flush()
-		return true
+		return st.flush()
 	}
 	// catchUp reads what the stream has not sent, as when the bus dropped some.
 	catchUp := func() bool {
@@ -156,7 +204,7 @@ func (s *Server) sessionStream(w http.ResponseWriter, r *http.Request, _ config.
 	if !catchUp() {
 		return
 	}
-	ping := time.NewTicker(keepAlive)
+	ping := time.NewTicker(s.keepAlive)
 	defer ping.Stop()
 	for {
 		select {
@@ -179,10 +227,11 @@ func (s *Server) sessionStream(w http.ResponseWriter, r *http.Request, _ config.
 				return
 			}
 		case <-ping.C:
-			if _, err := fmt.Fprint(w, ": ping\n\n"); err != nil {
+			// The keep-alive catches up too: an event the bus dropped, with none after it
+			// to show the gap, arrives within a tick.
+			if !catchUp() || !st.send(": ping\n\n") {
 				return
 			}
-			flush()
 		}
 	}
 }

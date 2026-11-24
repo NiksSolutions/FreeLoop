@@ -316,6 +316,36 @@ func Summary(items []Item) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
+// Archivable splits the done issues into those archiving may take out of the backlog
+// and those it keeps, each kept one with the open issues that name it in blockedBy:
+// once it was gone they would wait on it for ever, since a missing blocker blocks.
+func Archivable(items []Item) (take []Item, kept map[string][]string) {
+	kept = map[string][]string{}
+	open := map[string]bool{}
+	for _, it := range items {
+		if it.State != Done {
+			open[it.ID] = true
+		}
+	}
+	for _, it := range items {
+		if it.State != Done {
+			continue
+		}
+		var waiting []string
+		for _, b := range it.Blocks {
+			if open[b] {
+				waiting = append(waiting, b)
+			}
+		}
+		if len(waiting) > 0 {
+			kept[it.ID] = waiting
+			continue
+		}
+		take = append(take, it)
+	}
+	return take, kept
+}
+
 // Finished are the PRDs every issue of which is done, at least one of them.
 func Finished(prds []PRD, items []Item) []PRD {
 	var out []PRD

@@ -926,6 +926,7 @@ export const nl = translationOf<typeof en>()({
   "transcript.handedOffAnother": "Verdergegaan in ‘{title}’ met een ander profiel.",
   "transcript.rewound": "Teruggezet naar vóór de gedimde beurten: de bestanden zijn hersteld en het gesprek gaat vanaf daar verder.",
   "transcript.rewoundFiles": "Bestanden teruggezet naar vóór de gedimde beurten; de agent herinnert zich die nog.",
+  "transcript.rewoundBy": "De sessie ‘{title}’ heeft de bestanden van deze map teruggezet naar vóór een van haar berichten: wat deze sessie sindsdien heeft gewijzigd, is mogelijk ongedaan gemaakt.",
   "transcript.env.ready": "Omgeving gereed.",
   "transcript.env.readyDetail": "Omgeving gereed: {detail}.",
   "transcript.env.unhealthy": "Omgeving niet in orde: {detail}",

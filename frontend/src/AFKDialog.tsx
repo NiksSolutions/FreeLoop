@@ -1,10 +1,11 @@
-import { useEffect, useEffectEvent, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { EngineService, modeName, type AFKPlan, type AFKRun, type ModelChoice, type Profile, type ProfileEfforts, type ProfileModels } from "./api.ts";
 import { commandFrom, commandOutcome, defaultAllow } from "./afk.ts";
 import { fromSetNote, keptEffort, modelOffered } from "./modelChoice.ts";
 import ModelSelect from "./ModelSelect.tsx";
 import { t } from "./i18n.ts";
 import { tNodes } from "./i18nNodes.tsx";
+import { useModalFocus } from "./useModalFocus.ts";
 
 // Starting an AFK run (WFL-005): what it would do first, where, on which profiles,
 // and the commands it will want, which the user can allow for the run's sessions up
@@ -49,6 +50,9 @@ export default function AFKDialog({ root, workflowId, profiles, startedBy, fromS
     onClose();
   });
   const escape = useEffectEvent(() => onClose());
+  // The focus starts on the dialog and moves to its first control once the plan is read.
+  const box = useRef<HTMLDivElement>(null);
+  useModalFocus(box, !!plan);
   useEffect(() => {
     EngineService.PrepareAFK(root, workflowId ?? "")
       .then((p) => {
@@ -86,7 +90,7 @@ export default function AFKDialog({ root, workflowId, profiles, startedBy, fromS
   };
   return (
     <div className="palette-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="afk-dialog" role="dialog" aria-modal="true" aria-label={t("afk.dialog.title")}>
+      <div ref={box} tabIndex={-1} className="afk-dialog" role="dialog" aria-modal="true" aria-label={t("afk.dialog.title")}>
         <h2>{plan ? t("afk.dialog.titleOf", { project: plan.projectName }) : t("afk.dialog.title")}</h2>
         {!plan && <p className="muted">{t("afk.dialog.reading")}</p>}
         {plan && (

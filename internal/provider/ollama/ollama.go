@@ -361,7 +361,7 @@ func (p *Provider) Stream(ctx context.Context, req provider.ChatRequest) (<-chan
 			return
 		}
 		if !final.Done {
-			send(provider.Event{Type: provider.EventError, Err: errors.New("Ollama's stream ended early")})
+			send(provider.Event{Type: provider.EventError, Err: provider.ErrStreamEnded})
 			return
 		}
 		msg := provider.Message{Role: provider.RoleAssistant}

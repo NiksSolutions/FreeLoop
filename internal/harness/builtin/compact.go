@@ -129,7 +129,16 @@ func (s *session) compact(ctx context.Context, reason string) error {
 	}
 	prov, model := s.current()
 	// The record of what was sent says what this call is (NFR-PRIV-003).
-	summary, err := s.complete(provider.WithPurpose(ctx, provider.PurposeCompaction, "The conversation so far, to be summarised"), prov, provider.ChatRequest{Model: model, System: compactPrompt, Messages: msgs, Tools: s.toolSpecs(s.Mode()), Effort: s.p.Effort})
+	sctx := provider.WithPurpose(ctx, provider.PurposeCompaction, "The conversation so far, to be summarised")
+	// The tools go along, as an API may require with a history of tool calls, but
+	// may not be called. A model that calls one anyway, where the API cannot say
+	// so, is asked once more with none offered.
+	req := provider.ChatRequest{Model: model, System: compactPrompt, Messages: msgs, Tools: s.toolSpecs(s.Mode()), NoToolCalls: true, Effort: s.p.Effort}
+	summary, called, err := s.complete(sctx, prov, req)
+	if err == nil && called && strings.TrimSpace(summary) == "" {
+		req.Tools = nil
+		summary, _, err = s.complete(sctx, prov, req)
+	}
 	if err != nil {
 		return err
 	}
@@ -188,11 +197,12 @@ func (s *session) replaceHistory(msgs []provider.Message) {
 }
 
 // complete runs one model call without streaming it into the transcript
-// and returns its text. Its tokens are recorded for cost estimates.
-func (s *session) complete(ctx context.Context, prov provider.Provider, req provider.ChatRequest) (string, error) {
+// and returns its text, and whether it called a tool. Its tokens are
+// recorded for cost estimates.
+func (s *session) complete(ctx context.Context, prov provider.Provider, req provider.ChatRequest) (string, bool, error) {
 	ch, err := prov.Stream(ctx, req)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	for ev := range ch {
 		switch ev.Type {
@@ -201,20 +211,22 @@ func (s *session) complete(ctx context.Context, prov provider.Provider, req prov
 			s.p.Emit(event.UsageUpdate, event.UsageData{InputTokens: u.InputTokens, OutputTokens: u.OutputTokens,
 				CacheReadTokens: u.CacheReadTokens, CacheWriteTokens: u.CacheWriteTokens, ProviderID: prov.ID(), Model: req.Model})
 			var sb strings.Builder
+			called := false
 			if ev.Message != nil {
 				for _, p := range ev.Message.Parts {
 					if p.Type == provider.PartText {
 						sb.WriteString(p.Text)
 					}
 				}
+				called = len(ev.Message.ToolCalls()) > 0
 			}
-			return sb.String(), nil
+			return sb.String(), called, nil
 		case provider.EventError:
-			return "", ev.Err
+			return "", false, ev.Err
 		}
 	}
 	if ctx.Err() != nil {
-		return "", ctx.Err()
+		return "", false, ctx.Err()
 	}
-	return "", errors.New("the provider stream ended without a response")
+	return "", false, errors.New("the provider stream ended without a response")
 }

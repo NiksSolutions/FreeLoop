@@ -4,6 +4,7 @@ import { ask } from "./ask.ts";
 import { EngineService, type ChangedFile, type Changes, type FileDiff, type Session } from "./api.ts";
 import { diffStats, parseDiff, type DiffRow } from "./diff.ts";
 import { anchor, locate, reviewMessage, type ReviewComment } from "./review.ts";
+import { newest } from "./newest.ts";
 import type { FileChange } from "./transcript.ts";
 import { showTool } from "./SessionPanel.tsx";
 import { usePaletteActions } from "./Palette.tsx";
@@ -68,13 +69,14 @@ export default function DiffPanel({ session, gitKey, agentEdits, onReview, onErr
   // Bumped after each action so an open diff refetches.
   const [version, setVersion] = useState(0);
 
+  // Only the newest read's answer is shown: an older one arriving late does not put back
+  // what a newer one replaced.
+  const [latest] = useState(newest);
   const load = () =>
-    EngineService.Changes(session.id)
-      .then((c) => {
-        setChanges(c);
-        setVersion((v) => v + 1);
-      })
-      .catch(onError);
+    latest(EngineService.Changes(session.id), (c) => {
+      setChanges(c);
+      setVersion((v) => v + 1);
+    }).catch(onError);
   const loadNow = useEffectEvent(load);
   useEffect(() => {
     loadNow();
@@ -303,8 +305,9 @@ interface RowProps {
 function FileRow({ file, sessionId, open, version, edit, busy, onToggle, onStage, onDiscard, comments, onComment, onUncomment, onError }: RowProps) {
   const [diff, setDiff] = useState<FileDiff | null>(null);
   const [confirming, setConfirming] = useState(false);
-  // The row a comment is being written on, and its text.
-  const [writing, setWriting] = useState<number | null>(null);
+  // The line a comment is being written on, found again in each new diff as comments
+  // are, and its text.
+  const [writing, setWriting] = useState<ReturnType<typeof anchor>>(null);
   const [body, setBody] = useState("");
   const box = useRef<HTMLInputElement>(null);
   const uncommitted = file.staged || file.unstaged;
@@ -314,10 +317,11 @@ function FileRow({ file, sessionId, open, version, edit, busy, onToggle, onStage
     if (box.current) box.current.indeterminate = file.staged && file.unstaged;
   }, [file.staged, file.unstaged]);
   const failed = useEffectEvent((err: unknown) => onError(err));
+  const [latest] = useState(newest);
   useEffect(() => {
     if (!open) return;
-    EngineService.FileDiff(sessionId, file.path).then(setDiff).catch(failed);
-  }, [open, version, sessionId, file.path]);
+    latest(EngineService.FileDiff(sessionId, file.path), setDiff).catch(failed);
+  }, [open, version, sessionId, file.path, latest]);
 
   const rows = diff ? parseDiff(diff.diff) : [];
   const stats = diffStats(rows);
@@ -330,12 +334,45 @@ function FileRow({ file, sessionId, open, version, edit, busy, onToggle, onStage
     if (i < 0) lost.push(c);
     else placed.set(i, [...(placed.get(i) ?? []), c]);
   }
+  // Where the comment being written sits now; -1 when its line is gone, and it is
+  // written above the diff.
+  const writingAt = writing ? locate(rows, writing) : -1;
+  const startWriting = (i: number) => {
+    setWriting(anchor(rows, i));
+    setBody("");
+  };
   const add = () => {
-    const a = writing !== null ? anchor(rows, writing) : null;
-    if (a && body.trim()) onComment({ ...a, body: body.trim() });
+    if (writing && body.trim()) onComment({ ...writing, body: body.trim() });
     setWriting(null);
     setBody("");
   };
+  const editor = writing && (
+    <div className="review-editor">
+      <textarea
+        autoFocus
+        rows={3}
+        aria-label={t("diff.comment.editor", { line: lineNo(writing.line), path: file.path })}
+        placeholder={t("diff.comment.placeholder")}
+        value={body}
+        onChange={(e) => setBody(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && primaryKey(e)) {
+            e.preventDefault();
+            if (!e.repeat) add();
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            setWriting(null);
+          }
+        }}
+      />
+      <div className="row">
+        <button className="primary" disabled={!body.trim()} onClick={add} title={chord("Enter")}>
+          {t("diff.comment.add")}
+        </button>
+        <button onClick={() => setWriting(null)}>{t("common.cancel")}</button>
+      </div>
+    </div>
+  );
   return (
     <li className="diff-file">
       <div className="diff-file-row">
@@ -397,12 +434,13 @@ function FileRow({ file, sessionId, open, version, edit, busy, onToggle, onStage
               {lost.map((c) => (
                 <CommentView key={c.id} c={c} changed onRemove={() => onUncomment(c.id)} />
               ))}
+              {writingAt < 0 && editor}
               <pre className="diff-view">
                 {rows.map((r, i) => (
                   <div key={i}>
                     <div className={`diff-line diff-${r.kind}`}>
-                      <DiffNo row={r} side="old" onComment={commentable(r) ? () => (setWriting(i), setBody("")) : undefined} />
-                      <DiffNo row={r} side="new" onComment={commentable(r) ? () => (setWriting(i), setBody("")) : undefined} />
+                      <DiffNo row={r} side="old" onComment={commentable(r) ? () => startWriting(i) : undefined} />
+                      <DiffNo row={r} side="new" onComment={commentable(r) ? () => startWriting(i) : undefined} />
                       <span className="diff-text">
                         {r.kind === "add" ? "+" : r.kind === "del" ? "-" : r.kind === "ctx" ? " " : ""}
                         {r.text}
@@ -411,33 +449,7 @@ function FileRow({ file, sessionId, open, version, edit, busy, onToggle, onStage
                     {(placed.get(i) ?? []).map((c) => (
                       <CommentView key={c.id} c={c} onRemove={() => onUncomment(c.id)} />
                     ))}
-                    {writing === i && (
-                      <div className="review-editor">
-                        <textarea
-                          autoFocus
-                          rows={3}
-                          aria-label={t("diff.comment.editor", { line: lineNo(r.newNo ?? r.oldNo), path: file.path })}
-                          placeholder={t("diff.comment.placeholder")}
-                          value={body}
-                          onChange={(e) => setBody(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter" && primaryKey(e)) {
-                              e.preventDefault();
-                              if (!e.repeat) add();
-                            } else if (e.key === "Escape") {
-                              e.preventDefault();
-                              setWriting(null);
-                            }
-                          }}
-                        />
-                        <div className="row">
-                          <button className="primary" disabled={!body.trim()} onClick={add} title={chord("Enter")}>
-                            {t("diff.comment.add")}
-                          </button>
-                          <button onClick={() => setWriting(null)}>{t("common.cancel")}</button>
-                        </div>
-                      </div>
-                    )}
+                    {writingAt === i && editor}
                   </div>
                 ))}
               </pre>

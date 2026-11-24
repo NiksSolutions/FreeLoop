@@ -883,7 +883,11 @@ func (e *Engine) PendingPermissions() []permission.Request {
 }
 
 // recover closes out sessions the app left mid-turn: pending requests are
-// recorded as cancelled, the open turn as ended, and the session as idle.
+// recorded as cancelled, the open turn as ended, and the session as idle. Which
+// sessions those are, the transcripts say, read from their ends: after a power loss
+// the database can be behind them, a row saying idle while its transcript ends inside
+// a turn (NFR-REL-001). A session at rest is not written to, so a second start has
+// nothing left to do.
 func (e *Engine) recover(ctx context.Context) {
 	list, err := e.store.ListSessions(ctx)
 	if err != nil {
@@ -891,42 +895,92 @@ func (e *Engine) recover(ctx context.Context) {
 		return
 	}
 	for _, ses := range list {
-		if ses.Status != session.StatusRunning && ses.Status != session.StatusWaitingPermission && ses.Status != session.StatusQueued {
-			continue
-		}
-		events, err := e.store.Events(ctx, ses.ID, 0)
+		tail, err := e.readTail(ctx, ses.ID)
 		if err != nil {
+			log.Printf("engine: recover %s: %v", ses.ID, err)
 			continue
 		}
-		open := map[string]string{} // requestId -> toolCallId
-		inTurn := false
-		for _, ev := range events {
-			var d struct {
-				RequestID  string `json:"requestId"`
-				ToolCallID string `json:"toolCallId"`
-			}
-			json.Unmarshal(ev.Data, &d)
-			switch ev.Type {
-			case event.PermissionRequested:
-				open[d.RequestID] = d.ToolCallID
-			case event.PermissionDecided:
-				delete(open, d.RequestID)
-			case event.TurnStarted:
-				inTurn = true
-			case event.TurnEnded:
-				inTurn = false
-			}
+		if !busy(ses.Status) && !tail.inTurn && !tail.busy {
+			continue
 		}
-		for id, call := range open {
+		for id, call := range tail.open {
 			e.emit(ses.ID, event.PermissionDecided, permission.Decision{
 				RequestID: id, ToolCallID: call, Outcome: permission.Cancelled, Actor: permission.ActorUser, Reason: "the app quit",
 			})
 		}
-		if inTurn {
+		if tail.inTurn {
 			e.emit(ses.ID, event.TurnEnded, event.TurnEndedData{StopReason: string(harness.StopCancelled)})
 		}
-		e.emit(ses.ID, event.SessionStatus, event.SessionStatusData{Status: string(session.StatusIdle)})
+		// An archived session stays archived.
+		status := session.StatusIdle
+		if ses.Status == session.StatusArchived {
+			status = session.StatusArchived
+		}
+		e.emit(ses.ID, event.SessionStatus, event.SessionStatusData{Status: string(status)})
 	}
+}
+
+// busy reports a status of a session at work, which no session has at the start.
+func busy(s session.Status) bool {
+	return s == session.StatusRunning || s == session.StatusWaitingPermission || s == session.StatusQueued
+}
+
+// transcriptTail is what the end of a transcript says about its last turn: whether
+// it is still open, which of its permission requests are undecided (requestId to
+// toolCallId), and whether the last status recorded is busy, or was lost after the
+// turn ended.
+type transcriptTail struct {
+	inTurn bool
+	busy   bool
+	open   map[string]string
+}
+
+// readTail reads a transcript from its end only as far as the answer needs: back to
+// its last status if that is of a session at rest, else to its last turn's start or
+// end, or to an import's end. A session at rest costs a read of the file's end.
+func (e *Engine) readTail(ctx context.Context, sid string) (transcriptTail, error) {
+	tail := transcriptTail{open: map[string]string{}}
+	decided := map[string]bool{}
+	status := false
+	err := e.store.ScanBack(ctx, sid, func(ev event.Event) bool {
+		var d struct {
+			Status     string `json:"status"`
+			RequestID  string `json:"requestId"`
+			ToolCallID string `json:"toolCallId"`
+		}
+		switch ev.Type {
+		case event.SessionStatus:
+			if status {
+				return false
+			}
+			status = true
+			json.Unmarshal(ev.Data, &d)
+			if !busy(session.Status(d.Status)) {
+				return true
+			}
+			tail.busy = true
+		case event.PermissionDecided:
+			json.Unmarshal(ev.Data, &d)
+			decided[d.RequestID] = true
+		case event.PermissionRequested:
+			if json.Unmarshal(ev.Data, &d); !decided[d.RequestID] {
+				tail.open[d.RequestID] = d.ToolCallID
+			}
+		case event.TurnStarted:
+			tail.inTurn = true
+			return true
+		case event.TurnEnded:
+			// Every turn's end is followed by a status; one missing was lost.
+			tail.busy = tail.busy || !status
+			return true
+		case event.SessionImported:
+			// What came before is the imported history, which holds no turn of
+			// this app's.
+			return true
+		}
+		return false
+	})
+	return tail, err
 }
 
 func plural(n int, one, many string) string {

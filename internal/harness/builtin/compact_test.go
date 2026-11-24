@@ -20,6 +20,9 @@ import (
 type bigContext struct {
 	mu       sync.Mutex
 	requests []provider.ChatRequest
+	// callsTools answers a summary request that offers tools with a tool call
+	// alone, as a model the API cannot keep from calling them does.
+	callsTools bool
 }
 
 func (b *bigContext) ID() string                                               { return "big" }
@@ -35,6 +38,9 @@ func (b *bigContext) Stream(ctx context.Context, req provider.ChatRequest) (<-ch
 	stop := provider.StopEndTurn
 	all, _ := json.Marshal(req.Messages)
 	switch {
+	case req.System == compactPrompt && b.callsTools && len(req.Tools) > 0:
+		msg.Parts = []provider.Part{{Type: provider.PartToolUse, ToolCallID: "c9", ToolName: "list_dir", Input: json.RawMessage(`{"path":"."}`)}}
+		stop = provider.StopToolUse
 	case req.System == compactPrompt:
 		msg.Parts = []provider.Part{{Type: provider.PartText, Text: "The user asked to look at the project; list_dir showed it."}}
 	case strings.Contains(string(all), "summary of the session"):
@@ -154,5 +160,30 @@ func TestCompactsBeforeALargeToolResultOverflows(t *testing.T) {
 	}
 	if got := estimate(prov.requests[2].Messages); got >= 1000 {
 		t.Errorf("the call after compaction is %d tokens by estimate", got)
+	}
+}
+
+// HRN-013: the summary request asks for no tool calls, and a model that answers it
+// with a tool call alone is asked once more with no tools offered, instead of
+// failing the turn.
+func TestCompactionSurvivesAToolCall(t *testing.T) {
+	f := setup(t, permission.ModeAsk)
+	prov := &bigContext{callsTools: true}
+	s := f.sess.(*session)
+	s.SetModel(prov, "m", 1000)
+	if stop, err := f.sess.Prompt(context.Background(), harness.Prompt{Text: "look at the project"}); err != nil || stop != harness.StopEndTurn {
+		t.Fatalf("prompt = %s, %v", stop, err)
+	}
+	var summaries []provider.ChatRequest
+	for _, r := range prov.requests {
+		if r.System == compactPrompt {
+			summaries = append(summaries, r)
+		}
+	}
+	if len(summaries) != 2 || !summaries[0].NoToolCalls || len(summaries[0].Tools) == 0 || len(summaries[1].Tools) != 0 {
+		t.Fatalf("summary requests: %d", len(summaries))
+	}
+	if f.log.count(event.CompactionUpdate) != 2 {
+		t.Errorf("compaction updates = %d", f.log.count(event.CompactionUpdate))
 	}
 }

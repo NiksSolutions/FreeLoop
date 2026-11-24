@@ -1,8 +1,9 @@
-import { useEffect, useEffectEvent } from "react";
+import { useEffect, useEffectEvent, useRef } from "react";
 import { EngineService, type AttentionItem, type BacklogInfo } from "./api.ts";
 import { runCostLine, runLine, stepLabel } from "./afk.ts";
 import { t } from "./i18n.ts";
 import { tNodes } from "./i18nNodes.tsx";
+import { useModalFocus } from "./useModalFocus.ts";
 
 // AFKRunView is a project's AFK run in full (WFL-009): each issue it took on, with
 // its state, why it waits, its session and review, the approvals its session waits
@@ -21,6 +22,8 @@ interface Props {
 export default function AFKRunView({ backlog, attention, onOpen, onClose, onChanged, onError }: Props) {
   const run = backlog.run;
   const escape = useEffectEvent(() => onClose());
+  const box = useRef<HTMLDivElement>(null);
+  useModalFocus(box);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && escape();
     window.addEventListener("keydown", onKey);
@@ -35,7 +38,7 @@ export default function AFKRunView({ backlog, attention, onOpen, onClose, onChan
   const act = (p: Promise<unknown>) => p.then(onChanged).catch(onError);
   return (
     <div className="palette-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="afk-dialog afk-run-view" role="dialog" aria-modal="true" aria-label={t("afk.run.title", { project: backlog.projectName })}>
+      <div ref={box} tabIndex={-1} className="afk-dialog afk-run-view" role="dialog" aria-modal="true" aria-label={t("afk.run.title", { project: backlog.projectName })}>
         <h2>{t("afk.run.title", { project: backlog.projectName })}</h2>
         <p className="muted" role="status">
           {runLine(run)}

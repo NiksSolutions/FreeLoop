@@ -732,7 +732,9 @@ function newFold(): Fold {
         }
         break;
       case "notice":
-        push({ kind: "notice", key, rev, message: d.message ?? "", warn: true });
+        // Another session's rewind put back this folder's files (SES-014): said in the
+        // window's language; any other notice as given.
+        push({ kind: "notice", key, rev, message: d.rewoundBy ? t("transcript.rewoundBy", { title: String(d.rewoundBy.title ?? "") }) : (d.message ?? ""), warn: true });
         break;
       case "hook_ran": {
         // Hooks that pass stay quiet; one that blocked or failed says so

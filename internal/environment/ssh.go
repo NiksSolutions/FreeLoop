@@ -585,7 +585,7 @@ func (s *SSH) run(ctx context.Context, spec ExecSpec) (ExecResult, error) {
 	stdin = append(stdin, spec.Stdin...)
 	id := newExecID()
 	res, err := s.host.Exec(ctx, ExecSpec{Argv: s.sshArgv(execScript, s.state, id, fmt.Sprint(int(timeout.Seconds()))), Cwd: "/",
-		Timeout: timeout + 5*time.Second, MaxOutput: spec.MaxOutput, Stdin: stdin, SeparateStderr: spec.SeparateStderr})
+		Timeout: timeout + 5*time.Second, MaxOutput: spec.MaxOutput, Stdin: stdin, SeparateStderr: spec.SeparateStderr, Live: spec.Live})
 	// Ending ssh here leaves the command running there.
 	if ctx.Err() != nil || res.TimedOut {
 		killCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 20*time.Second)

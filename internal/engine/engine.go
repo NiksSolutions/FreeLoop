@@ -117,6 +117,13 @@ type Engine struct {
 	// queueMu guards queue.json (SES-025); onQueue tells the interface it changed.
 	queueMu sync.Mutex
 	onQueue func()
+	// queueRun lets one pass of the queue run at a time, so a task saved as starting
+	// is not being started by another. queueSave saves the queue when set (a test's
+	// way to make a save fail; under queueMu), and taskStarting is called before a
+	// task's session starts (a test's look at what is saved then).
+	queueRun     sync.Mutex
+	queueSave    func(dir string, q config.Queue) error
+	taskStarting func(config.Task)
 	// onNotice sends a notice (GUI-008); budgets alerted holds which budget periods
 	// have warned at which level, so each says so once (PRV-017).
 	// contextSeen is what was last recorded of each session's kinds of model call
@@ -914,6 +921,9 @@ type CreateSessionRequest struct {
 	// doing says the session does a run's work, an issue, rather than plan it, so
 	// it does not start on the workflow's planning model (WFL-014).
 	doing bool
+	// id is the session's ID when the caller saved it before (a queued task,
+	// SES-025); empty for a new one.
+	id string
 }
 
 // CreateSession creates an idle session and records its initial status as
@@ -1041,7 +1051,7 @@ func (e *Engine) CreateSession(ctx context.Context, req CreateSessionRequest) (s
 	}
 	git.BaseCommit = git.Head
 	ses, err := e.store.CreateSession(ctx, session.Session{
-		Optimizer: optimizer, Workflow: e.chooseWorkflow(req, prof), Title: title, HarnessID: harnessID, ProjectID: project.ID, ProjectRoot: project.Root, EnvironmentID: envID,
+		ID: req.id, Optimizer: optimizer, Workflow: e.chooseWorkflow(req, prof), Title: title, HarnessID: harnessID, ProjectID: project.ID, ProjectRoot: project.Root, EnvironmentID: envID,
 		BaseCommit: git.BaseCommit, Branch: git.Branch, ProviderID: req.ProviderID, Model: model, Mode: string(mode), ProfileID: prof.ID, Effort: planEffort,
 		Worktree: worktree, WorktreeBranch: worktreeBranch, ParentID: req.parent, PortBase: portBase,
 	})

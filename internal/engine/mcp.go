@@ -355,6 +355,28 @@ func mcpToolName(server, tool string) string {
 	return name
 }
 
+// mcpToolNames names a server's tools. Two whose safe names are the same
+// (read.file and read_file) must both stay callable, and a rule must land
+// on the tool it names: a tool whose name needed no change keeps it, the
+// others get a suffix from their own name, so the names do not depend on
+// the order the server lists the tools in.
+func mcpToolNames(server string, tools []string) []string {
+	names := make([]string, len(tools))
+	count := map[string]int{}
+	for i, t := range tools {
+		names[i] = mcpToolName(server, t)
+		count[names[i]]++
+	}
+	for i, t := range tools {
+		if count[names[i]] > 1 && names[i] != "mcp__"+server+"__"+t {
+			sum := sha256.Sum256([]byte(t))
+			suffix := "_" + hex.EncodeToString(sum[:])[:8]
+			names[i] = names[i][:min(len(names[i]), 64-len(suffix))] + suffix
+		}
+	}
+	return names
+}
+
 // sessionMCP is a session's harness.MCPSource. It reads the profile and
 // the servers' state at every call.
 type sessionMCP struct {
@@ -384,7 +406,12 @@ func (s sessionMCP) Tools() []harness.MCPTool {
 		if st.State != mcp.Running {
 			continue
 		}
+		var raw []string
 		for _, t := range st.Tools {
+			raw = append(raw, t.Name)
+		}
+		names := mcpToolNames(srv.ID, raw)
+		for i, t := range st.Tools {
 			schema := map[string]any{}
 			json.Unmarshal(t.InputSchema, &schema)
 			if len(schema) == 0 {
@@ -394,7 +421,7 @@ func (s sessionMCP) Tools() []harness.MCPTool {
 			if desc == "" {
 				desc = "Tool " + t.Name + " of the MCP server " + srv.ID + "."
 			}
-			out = append(out, harness.MCPTool{Name: mcpToolName(srv.ID, t.Name), Description: desc, InputSchema: schema, Server: srv.ID, Tool: t.Name})
+			out = append(out, harness.MCPTool{Name: names[i], Description: desc, InputSchema: schema, Server: srv.ID, Tool: t.Name})
 		}
 	}
 	return out

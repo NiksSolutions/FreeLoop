@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { applicationServerKey, sessionFromHash, deviceName, pushBody, onceOptions, pairCode, parseSSE, pickLanguage, pushSupported, reconnectDelay, toolCommand, pastedPictures } from "./phone.ts";
+import { applicationServerKey, sessionFromHash, deviceName, pushBody, onceOptions, pairCode, parseSSE, pickLanguage, pushSupported, reconnectDelay, toolCommand, pastedPictures, whileShown } from "./phone.ts";
+import { follow } from "./api.ts";
 
 test("a tapped notification's link opens that session, and nothing else does", () => {
   assert.equal(sessionFromHash("#session=ses_01-A"), "ses_01-A");
@@ -91,4 +92,97 @@ test("a pasted screenshot is attached, and pasted text is left to paste as text"
   const files = [{ type: "image/png", name: "shot" }, { type: "text/plain", name: "note" }, { type: "image/heic", name: "photo" }, { type: "", name: "unknown" }];
   assert.deepEqual(pastedPictures(files).map((f) => f.name), ["shot", "photo"]);
   assert.deepEqual(pastedPictures([]), []);
+});
+
+// A page as the phone's browser has it: shown or hidden, and word when that changes.
+class FakePage extends EventTarget {
+  visibilityState: DocumentVisibilityState = "visible";
+  set(state: DocumentVisibilityState) {
+    this.visibilityState = state;
+    this.dispatchEvent(new Event("visibilitychange"));
+  }
+}
+
+test("what follows the computer runs only while the page is shown", () => {
+  const page = new FakePage();
+  let opened = 0;
+  let closed = 0;
+  const stop = whileShown(page, () => {
+    opened++;
+    return () => closed++;
+  });
+  assert.deepEqual([opened, closed], [1, 0]);
+  // Locked, or another app in front: closed, so the computer pushes instead (issue 076).
+  page.set("hidden");
+  assert.deepEqual([opened, closed], [1, 1]);
+  page.set("hidden");
+  assert.deepEqual([opened, closed], [1, 1]);
+  page.set("visible");
+  page.set("visible");
+  assert.deepEqual([opened, closed], [2, 1]);
+  stop();
+  page.set("hidden");
+  page.set("visible");
+  assert.deepEqual([opened, closed], [2, 2]);
+  // Opened hidden, it waits to be shown.
+  const hidden = new FakePage();
+  hidden.visibilityState = "hidden";
+  let n = 0;
+  whileShown(hidden, () => (n++, () => {}));
+  assert.equal(n, 0);
+  hidden.set("visible");
+  assert.equal(n, 1);
+});
+
+// A computer that answers a stream with what the test sends it, until the request is aborted.
+function fakeComputer() {
+  const streams: { headers: Record<string, string>; signal: AbortSignal; send: (text: string) => void }[] = [];
+  const fetch = async (_url: string, init: RequestInit) => {
+    let push: (text: string) => void = () => {};
+    const body = new ReadableStream<Uint8Array>({
+      start(c) {
+        push = (text) => c.enqueue(new TextEncoder().encode(text));
+        init.signal?.addEventListener("abort", () => c.error(new DOMException("aborted", "AbortError")));
+      },
+    });
+    streams.push({ headers: init.headers as Record<string, string>, signal: init.signal!, send: (text) => push(text) });
+    return new Response(body, { status: 200 });
+  };
+  return { streams, fetch };
+}
+const settle = () => new Promise((r) => setTimeout(r, 20));
+
+test("a hidden page closes its stream without saying the computer is out of reach, and goes on where it was when shown", async () => {
+  const computer = fakeComputer();
+  const real = { fetch: globalThis.fetch, storage: (globalThis as { localStorage?: unknown }).localStorage };
+  globalThis.fetch = computer.fetch as typeof fetch;
+  (globalThis as { localStorage?: unknown }).localStorage = { getItem: () => "key", removeItem: () => {} };
+  try {
+    const page = new FakePage();
+    const got: string[] = [];
+    let lost = 0;
+    const stop = follow("/api/sessions/s/stream", (m) => got.push(m.id), () => lost++, page);
+    await settle();
+    assert.equal(computer.streams.length, 1);
+    assert.equal(computer.streams[0].headers.Authorization, "Bearer key");
+    computer.streams[0].send("id: 7\nevent: event\ndata: {}\n\n");
+    await settle();
+    assert.deepEqual(got, ["7"]);
+    page.set("hidden");
+    await settle();
+    assert.ok(computer.streams[0].signal.aborted, "the stream stayed open while hidden");
+    assert.equal(lost, 0, "hiding the page was taken for losing the computer");
+    assert.equal(computer.streams.length, 1);
+    page.set("visible");
+    await settle();
+    assert.equal(computer.streams.length, 2);
+    assert.equal(computer.streams[1].headers["Last-Event-ID"], "7");
+    stop();
+    await settle();
+    assert.ok(computer.streams[1].signal.aborted);
+    assert.equal(lost, 0);
+  } finally {
+    globalThis.fetch = real.fetch;
+    (globalThis as { localStorage?: unknown }).localStorage = real.storage;
+  }
 });

@@ -3,6 +3,7 @@ package ollama
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -150,6 +151,23 @@ func TestChatError(t *testing.T) {
 	_, err = New(Options{BaseURL: "http://127.0.0.1:1"}).ListModels(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "is it running") {
 		t.Errorf("connection refused err = %v", err)
+	}
+}
+
+// PRV-010: a stream that closes before Ollama says it is done is the
+// error the harness retries, as with the other providers.
+func TestEarlyStreamEndIsRetried(t *testing.T) {
+	srv := fake(t, []string{`{"message":{"role":"assistant","content":"Half"},"done":false}`}, nil)
+	defer srv.Close()
+	ch, _ := New(Options{BaseURL: srv.URL}).Stream(context.Background(), provider.ChatRequest{Model: "qwen3:8b"})
+	var err error
+	for ev := range ch {
+		if ev.Type == provider.EventError {
+			err = ev.Err
+		}
+	}
+	if retry, _ := provider.Retryable(err); !errors.Is(err, provider.ErrStreamEnded) || !retry {
+		t.Errorf("err = %v, retryable %v", err, retry)
 	}
 }
 

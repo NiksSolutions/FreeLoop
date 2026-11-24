@@ -429,7 +429,7 @@ func (d *Docker) Exec(ctx context.Context, spec ExecSpec) (ExecResult, error) {
 		args = append(args, "sh", "-c", `if command -v timeout >/dev/null 2>&1; then exec timeout -s KILL "$1" sh -lc "$0"; else exec sh -lc "$0"; fi`, spec.Command, secs)
 	}
 	res, err := d.host.Exec(ctx, ExecSpec{Argv: d.cli(args...), Env: env, Timeout: timeout + 5*time.Second, MaxOutput: spec.MaxOutput,
-		Stdin: spec.Stdin, SeparateStderr: spec.SeparateStderr})
+		Stdin: spec.Stdin, SeparateStderr: spec.SeparateStderr, Live: spec.Live})
 	// Ending the docker CLI on the host leaves the command running in the
 	// container; a cancel or timeout ends it there too.
 	if ctx.Err() != nil || res.TimedOut {

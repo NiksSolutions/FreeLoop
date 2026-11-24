@@ -281,3 +281,18 @@ func TestImagesInRequests(t *testing.T) {
 		}
 	}
 }
+
+// HRN-013: a request that may not call tools still declares them, with
+// function calling off.
+func TestNoToolCalls(t *testing.T) {
+	p := New(Options{APIKey: "k"})
+	req := provider.ChatRequest{Model: "gemini-3-pro", Tools: []provider.ToolSpec{{Name: "read_file", InputSchema: map[string]any{"type": "object"}}}}
+	for _, no := range []bool{false, true} {
+		req.NoToolCalls = no
+		cfg := p.config(req)
+		off := cfg.ToolConfig != nil && cfg.ToolConfig.FunctionCallingConfig.Mode == "NONE"
+		if off != no || len(cfg.Tools) != 1 {
+			t.Errorf("NoToolCalls %v: tools %d, function calling off %v", no, len(cfg.Tools), off)
+		}
+	}
+}

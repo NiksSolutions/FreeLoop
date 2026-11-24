@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { test } from "node:test";
-import { contrast, editMark, pickLabel, quietCommand, screenName, tabAfterKey, toolStatusLabel, visibleCommand } from "./a11y.ts";
+import { contrast, editMark, pickLabel, quietCommand, screenName, tabAfterKey, tabWrap, toolStatusLabel, visibleCommand } from "./a11y.ts";
 import { setLanguage } from "./i18n.ts";
 
 test("a screen has a name, and a session goes by its title", () => {
@@ -146,4 +146,18 @@ test("a completed file edit gets a pen", () => {
   assert.equal(editMark("edit", "failed"), null);
   assert.equal(editMark("edit", "in_progress"), null);
   assert.equal(editMark("read", "completed"), null);
+});
+
+test("Tab and Shift-Tab go round a dialog's controls and never leave it", () => {
+  // The last control forward, the first one back: round to the other end.
+  assert.equal(tabWrap(2, 3, false), 0);
+  assert.equal(tabWrap(0, 3, true), 2);
+  // Between them the browser moves the focus as it would.
+  assert.equal(tabWrap(1, 3, false), -1);
+  assert.equal(tabWrap(1, 3, true), -1);
+  // On the dialog itself, or somewhere outside it: to the first or the last.
+  assert.equal(tabWrap(-1, 3, false), 0);
+  assert.equal(tabWrap(-1, 3, true), 2);
+  // Nothing to go to: the focus stays where it is.
+  assert.equal(tabWrap(-1, 0, false), null);
 });

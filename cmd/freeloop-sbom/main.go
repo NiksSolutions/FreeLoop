@@ -2,11 +2,12 @@
 //
 //	freeloop-sbom -binary bin/Freeloop -version 0.0.1 < frontend/package-lock.json > sbom.json
 //
-// With -notices it writes the licenses of the same things instead, and lists on
-// stderr anything that has none to copy.
+// With -notices it writes the licenses of the same things instead, Go's own from
+// the Go root, and fails on anything that has none to copy and no text in
+// internal/sbom/licenses.
 //
 //	freeloop-sbom -notices -modcache "$(go env GOMODCACHE)" -node-modules frontend/node_modules \
-//	  -binary bin/Freeloop -version 0.0.1 < frontend/package-lock.json > THIRD_PARTY_NOTICES.txt
+//	  -goroot "$(go env GOROOT)" -binary bin/Freeloop -version 0.0.1 < frontend/package-lock.json > THIRD_PARTY_NOTICES.txt
 //
 // -native names a native program the app carries, by the description beside it
 // (GUI-050: bin/whisper-cli.json on a Mac).
@@ -29,6 +30,7 @@ func main() {
 	notices := flag.Bool("notices", false, "write third-party licenses instead of the bill")
 	modCache := flag.String("modcache", "", "with -notices: the Go module cache")
 	nodeModules := flag.String("node-modules", "", "with -notices: the frontend's node_modules")
+	goRoot := flag.String("goroot", "", "with -notices: the Go root, whose LICENSE is Go's")
 	native := flag.String("native", "", "a native program's description, such as bin/whisper-cli.json")
 	flag.Parse()
 	var natives []sbom.Native
@@ -42,7 +44,12 @@ func main() {
 	}
 	var src *sbom.NoticeSources
 	if *notices {
-		src = &sbom.NoticeSources{ModCache: os.DirFS(*modCache), NodeModules: os.DirFS(*nodeModules), Natives: natives, NativeRoot: os.DirFS(".")}
+		// os.DirFS("") would read from the root of the file system.
+		if *modCache == "" || *nodeModules == "" || *goRoot == "" {
+			fmt.Fprintln(os.Stderr, "freeloop-sbom: -notices needs -modcache, -node-modules and -goroot")
+			os.Exit(2)
+		}
+		src = &sbom.NoticeSources{ModCache: os.DirFS(*modCache), NodeModules: os.DirFS(*nodeModules), GoRoot: os.DirFS(*goRoot), Natives: natives, NativeRoot: os.DirFS(".")}
 	}
 	if err := run(*binary, *version, src, natives); err != nil {
 		fmt.Fprintln(os.Stderr, "freeloop-sbom:", err)
@@ -61,12 +68,9 @@ func run(binary, version string, notices *sbom.NoticeSources, natives []sbom.Nat
 	}
 	app := sbom.App{Name: "Freeloop", Version: version}
 	if notices != nil {
-		text, missing, err := sbom.Notices(app, info, packageLock, *notices)
+		text, err := sbom.Notices(app, info, packageLock, *notices)
 		if err != nil {
 			return err
-		}
-		for _, m := range missing {
-			fmt.Fprintln(os.Stderr, "freeloop-sbom: no license file for", m)
 		}
 		_, err = os.Stdout.Write(text)
 		return err

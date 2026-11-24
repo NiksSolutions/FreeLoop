@@ -18,11 +18,18 @@ import (
 // loop, which a queued session's end kicks, would move it on between the test's steps.
 func queueEngine(t *testing.T) (*Engine, string) {
 	t.Helper()
-	e, err := Open(Options{DataDir: t.TempDir(), Secrets: secrets.NewMemory(), Home: t.TempDir(), WatchInterval: -1, ScheduleInterval: -1})
+	e := openQueueEngine(t, t.TempDir())
+	t.Cleanup(func() { e.Close() })
+	return e, t.TempDir()
+}
+
+// openQueueEngine opens a queueEngine on the data folder dir, which the caller closes.
+func openQueueEngine(t *testing.T, dir string) *Engine {
+	t.Helper()
+	e, err := Open(Options{DataDir: dir, Secrets: secrets.NewMemory(), Home: t.TempDir(), WatchInterval: -1, ScheduleInterval: -1})
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { e.Close() })
 	steps := make([]scripted.Step, 10)
 	for i := range steps {
 		steps[i] = scripted.Step{Text: "done"}
@@ -31,7 +38,7 @@ func queueEngine(t *testing.T) (*Engine, string) {
 	if err := e.SaveProfileYAML("main", "name: Main\nprovider: s\nmodel: m\n"); err != nil {
 		t.Fatal(err)
 	}
-	return e, t.TempDir()
+	return e
 }
 
 func states(q config.Queue) []string {

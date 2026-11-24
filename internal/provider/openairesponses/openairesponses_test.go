@@ -245,3 +245,36 @@ func TestImagesInRequests(t *testing.T) {
 		}
 	}
 }
+
+// A failed tool result is marked the way the other adapters mark it, also
+// when it goes with a picture.
+func TestFailedToolResultIsMarked(t *testing.T) {
+	failed := provider.Part{Type: provider.PartToolResult, ToolCallID: "call_1", Text: "no such file", IsError: true}
+	for name, msg := range map[string]provider.Message{
+		"plain": {Role: provider.RoleUser, Parts: []provider.Part{failed}},
+		"with a picture": {Role: provider.RoleUser, Parts: []provider.Part{failed,
+			{Type: provider.PartImage, Image: &provider.Image{Name: "x.png", MediaType: "image/png", Data: []byte("PNG")}}}},
+	} {
+		body, err := json.Marshal(toInput([]provider.Message{msg}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(body), `"output":"Error: no such file"`) {
+			t.Errorf("%s: %s", name, body)
+		}
+	}
+}
+
+// HRN-013: a request that may not call tools still offers them, with
+// tool_choice none.
+func TestNoToolCalls(t *testing.T) {
+	p := New(Options{APIKey: "k"})
+	req := provider.ChatRequest{Model: "gpt-5.5", Tools: []provider.ToolSpec{{Name: "read_file", InputSchema: map[string]any{"type": "object"}}}}
+	for _, no := range []bool{false, true} {
+		req.NoToolCalls = no
+		body, _ := json.Marshal(p.params(req))
+		if got := strings.Contains(string(body), `"tool_choice":"none"`); got != no || !strings.Contains(string(body), `"tools":[`) {
+			t.Errorf("NoToolCalls %v: %s", no, body)
+		}
+	}
+}

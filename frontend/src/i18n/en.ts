@@ -1002,6 +1002,8 @@ export const en = {
   "transcript.handedOffAnother": 'Continued in "{title}" on another profile.',
   "transcript.rewound": "Rewound to before the dimmed turns: the files are restored and the conversation continues from there.",
   "transcript.rewoundFiles": "Rewound the files to before the dimmed turns; the agent still remembers them.",
+  // Another session in the same folder rewound it; {title} is that session's.
+  "transcript.rewoundBy": 'The session "{title}" rewound the files of this folder to before one of its messages: changes this session made since may be undone.',
   "transcript.env.ready": "Environment ready.",
   "transcript.env.readyDetail": "Environment ready: {detail}.",
   "transcript.env.unhealthy": "Environment unhealthy: {detail}",

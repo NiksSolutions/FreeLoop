@@ -23,7 +23,7 @@ Will der Agent etwas tun, worüber die Richtlinie nicht entscheidet, erscheint e
 
 Auf eine der eigenen Nachrichten zeigen:
 
-- **Bis hier zurückspulen** setzt die Dateien und das Gespräch auf den Stand vor dieser Nachricht zurück und legt die Nachricht wieder ins Feld. Vorher kommt eine Rückfrage.
+- **Bis hier zurückspulen** setzt die Dateien und das Gespräch auf den Stand vor dieser Nachricht zurück und legt die Nachricht wieder ins Feld. Vorher kommt eine Rückfrage. Zurückgesetzt wird der ganze Ordner: Solange in einer anderen Sitzung im selben Ordner eine Runde läuft, ist das nicht möglich, und eine Sitzung dort, die seitdem Dateien geändert hat, bekommt einen Hinweis in ihrem Gespräch.
 - **Hier abzweigen** startet eine neue Sitzung mit dem Gespräch bis zu dieser Nachricht.
 
 Ist der Kontext zu 80 % voll, fasst **Kontext verdichten** im Kopf das Gespräch zusammen, damit jede Nachricht weniger sendet.

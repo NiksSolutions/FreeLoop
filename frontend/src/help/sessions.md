@@ -23,7 +23,7 @@ When the agent wants to do something your policy doesn't decide, a card appears 
 
 Point at one of your messages:
 
-- **Rewind to here** puts the files and the conversation back to before that message, and the message back in the box. It asks first.
+- **Rewind to here** puts the files and the conversation back to before that message, and the message back in the box. It asks first. The files are the whole folder's: while another session working in the same folder is in a turn, the rewind is refused, and a session there that changed files since is told in its conversation.
 - **Fork from here** starts a new session with the conversation up to that message.
 
 When the context is 80% full, **Compact context** in the header summarises the conversation so each message sends less.

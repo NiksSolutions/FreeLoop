@@ -18,6 +18,9 @@ import (
 type Call struct {
 	Name  string
 	Input any
+	// Raw, when set, is the call's arguments as the model sent them, valid
+	// JSON or not, as a call cut off at max_tokens comes.
+	Raw string
 }
 
 // NoSteps starts a prompt that gets a plain answer and no tool calls, so a check can
@@ -149,6 +152,9 @@ func (p *Provider) Stream(ctx context.Context, req provider.ChatRequest) (<-chan
 		for n, c := range step.Calls {
 			id := fmt.Sprintf("call_%d_%d", turn, n)
 			input, err := json.Marshal(c.Input)
+			if c.Raw != "" {
+				input, err = []byte(c.Raw), nil
+			}
 			if err != nil {
 				send(provider.Event{Type: provider.EventError, Err: err})
 				return

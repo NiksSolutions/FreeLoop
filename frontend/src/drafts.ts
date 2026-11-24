@@ -81,10 +81,42 @@ export function rememberExtras(sid: string, value: unknown) {
   extras.set(sid, value);
 }
 
-// forgetDraft is for a message sent or a session deleted.
+// forgetDraft is for a session deleted.
 export function forgetDraft(sid: string) {
   rememberDraft(sid, "");
   extras.delete(sid);
+}
+
+// unsentText is what stays in the box once the engine took a message: what was typed
+// after the text sent. Text changed inside what was sent stays whole: nothing typed is
+// thrown away unasked.
+export function unsentText(now: string, sent: string): string {
+  const head = sent.trim();
+  const rest = now.trimStart();
+  return rest.startsWith(head) ? rest.slice(head.length).trimStart() : now;
+}
+
+// unsentOf is what was attached since a message was sent.
+export function unsentOf<T>(now: readonly T[], sent: readonly T[]): T[] {
+  return now.filter((x) => !sent.includes(x));
+}
+
+// forgetSent clears what a message took once the engine has it, and only that. Taking a
+// first message can take long, while an agent starts or downloads; what is typed or
+// attached meanwhile stays, in memory and in storage. The extras are the lists of what
+// the message carried, by the name they are kept under; lists not named stay as they are.
+export function forgetSent(sid: string, sent: { text: string; extras?: Record<string, readonly unknown[]> }, redact: (s: string) => Promise<string>) {
+  const text = unsentText(draftOf(sid), sent.text);
+  rememberDraft(sid, text);
+  if (text) void storeDraft(sid, text, redact);
+  const kept = extras.get(sid);
+  if (!sent.extras || !kept || typeof kept !== "object") return;
+  const next: Record<string, unknown> = { ...kept };
+  for (const [name, list] of Object.entries(sent.extras)) {
+    const now = next[name];
+    if (Array.isArray(now)) next[name] = unsentOf(now, list);
+  }
+  extras.set(sid, next);
 }
 
 // pruneDrafts removes what is stored for sessions that no longer exist.

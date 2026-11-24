@@ -100,22 +100,23 @@ func TestArchiveBacklog(t *testing.T) {
 	if _, err := e.ArchiveBacklog(ctx, root, ""); err == nil {
 		t.Error("archived with nothing finished")
 	}
-	writeIssue(t, root, "001-store", "title: Store a draft\nstatus: done\ntype: afk\nprd: drafts")
+	writeIssue(t, root, "003-docs", "title: Document drafts\nstatus: done\ntype: afk")
 	if _, err := e.ArchiveBacklog(ctx, root, ""); err == nil || !strings.Contains(err.Error(), "commit") {
 		t.Errorf("an uncommitted done issue: %v", err)
 	}
-	gitIn(t, root, "commit", "-qam", "done")
+	gitIn(t, root, "add", ".")
+	gitIn(t, root, "commit", "-qm", "done")
 	res, err := e.ArchiveBacklog(ctx, root, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(res.Moved, ",") != "backlog/issues/001-store.md" {
+	if strings.Join(res.Moved, ",") != "backlog/issues/003-docs.md" {
 		t.Errorf("moved %v", res.Moved)
 	}
-	if _, err := os.Stat(filepath.Join(root, "backlog", "issues", "001-store.md")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(root, "backlog", "issues", "003-docs.md")); !os.IsNotExist(err) {
 		t.Error("the done issue is still in the project")
 	}
-	if got := gitIn(t, root, "show", res.Commit+"^:backlog/issues/001-store.md"); !strings.Contains(got, "status: done") {
+	if got := gitIn(t, root, "show", res.Commit+"^:backlog/issues/003-docs.md"); !strings.Contains(got, "status: done") {
 		t.Errorf("git history does not keep it: %q", got)
 	}
 	if _, err := os.Stat(filepath.Join(e.dataDir, "archive")); !os.IsNotExist(err) {
@@ -129,6 +130,62 @@ func TestArchiveBacklog(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "backlog", "issues", "002-search.md")); err != nil {
 		t.Error("an open issue was moved")
+	}
+}
+
+// WFL-004: archive leaves a done issue an open issue still names in blockedBy, which would
+// otherwise wait on it for ever (a missing blocker blocks), and says which it kept and why.
+func TestArchiveKeepsWhatOpenIssuesWaitOn(t *testing.T) {
+	ctx := context.Background()
+	e, _ := queueEngine(t)
+	root := backlogRepo(t)
+	e.AddProject(ctx, root)
+	e.SetProjectTrust(ctx, root, true)
+	writeIssue(t, root, "001-store", "title: Store a draft\nstatus: done\ntype: afk\nprd: drafts")
+	writeIssue(t, root, "003-docs", "title: Document drafts\nstatus: done\ntype: afk")
+	writeIssue(t, root, "004-typo", "title: Waits on a typo\ntype: afk\nblockedBy: [009-stroe]")
+	gitIn(t, root, "add", ".")
+	gitIn(t, root, "commit", "-qm", "001 done")
+	if b, _ := e.Backlog(ctx, root, ""); b.Finished != 1 {
+		t.Errorf("finished = %d, want 1: the issue 002 waits on is not one to archive", b.Finished)
+	}
+	res, err := e.ArchiveBacklog(ctx, root, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(res.Moved, ",") != "backlog/issues/003-docs.md" {
+		t.Errorf("moved %v", res.Moved)
+	}
+	if len(res.Left) != 1 || !strings.Contains(res.Left[0], "backlog/issues/001-store.md") || !strings.Contains(res.Left[0], "002-search") {
+		t.Errorf("left %v", res.Left)
+	}
+	if _, err := os.Stat(filepath.Join(root, "backlog", "issues", "001-store.md")); err != nil {
+		t.Errorf("the issue 002 waits on was archived: %v", err)
+	}
+	b, err := e.Backlog(ctx, root, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := map[string]string{}
+	for _, it := range b.Issues {
+		state[it.ID] = it.State
+	}
+	if state["002-search"] != backlog.Ready || state["004-typo"] != backlog.Blocked || b.Finished != 0 {
+		t.Errorf("after the archive: %v, finished %d", state, b.Finished)
+	}
+	// With only kept issues finished, there is nothing to archive, and the error says why.
+	if _, err := e.ArchiveBacklog(ctx, root, ""); err == nil || !strings.Contains(err.Error(), "002-search") {
+		t.Errorf("archive with only a kept issue: %v", err)
+	}
+	// Once 002 is done too, both go, with the PRD whose issues are all done.
+	writeIssue(t, root, "002-search", "title: Search drafts\nstatus: done\ntype: afk\nblockedBy: [001-store]\nprd: drafts")
+	gitIn(t, root, "commit", "-qam", "002 done")
+	res, err = e.ArchiveBacklog(ctx, root, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Moved) != 3 || len(res.Left) != 0 {
+		t.Errorf("moved %v, left %v", res.Moved, res.Left)
 	}
 }
 

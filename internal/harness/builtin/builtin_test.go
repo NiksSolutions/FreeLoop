@@ -259,6 +259,50 @@ func TestInvalidInputAndUnknownTool(t *testing.T) {
 	}
 }
 
+// A tool call cut off mid-arguments, at max_tokens, is in the transcript as a
+// failed call with the text the model sent: its event could not be recorded
+// with that text as JSON, so the window never saw the call.
+func TestCutOffToolCallIsRecorded(t *testing.T) {
+	const raw = `{"path":"a.txt","content":"unterminated`
+	for _, name := range []string{"write_file", "mcp__srv__do"} {
+		f := setup(t, permission.ModeAsk,
+			scripted.Step{Calls: []scripted.Call{{Name: name, Raw: raw}}, Stop: provider.StopMaxTokens},
+			scripted.Step{Text: "done"},
+		)
+		f.sess.(*session).p.MCP = &fakeMCP{}
+		if _, err := f.sess.Prompt(context.Background(), harness.Prompt{Text: "go"}); err != nil {
+			t.Fatal(err)
+		}
+		var call struct {
+			ToolCallID string `json:"toolCallId"`
+			RawInput   any    `json:"rawInput"`
+		}
+		var failed bool
+		for _, ev := range f.log.all() {
+			switch ev.Type {
+			case event.ToolCall:
+				if err := json.Unmarshal(ev.Data, &call); err != nil {
+					t.Fatalf("%s: tool_call event %q: %v", name, ev.Data, err)
+				}
+			case event.ToolCallUpdate:
+				var u struct{ ToolCallID, Status string }
+				json.Unmarshal(ev.Data, &u)
+				failed = failed || u.ToolCallID == call.ToolCallID && u.Status == "failed"
+			}
+		}
+		if call.ToolCallID == "" || call.RawInput != raw || !failed {
+			t.Errorf("%s: call %+v, failed %v", name, call, failed)
+		}
+		if len(f.broker.Pending()) > 0 || f.log.count(event.PermissionRequested) > 0 {
+			t.Errorf("%s: a cut-off call was put to the user", name)
+		}
+		res := f.prov.Requests()[1].Messages[2].Parts[0]
+		if !res.IsError || !strings.Contains(res.Text, "cut off") {
+			t.Errorf("%s: result = %+v", name, res)
+		}
+	}
+}
+
 func TestEditFile(t *testing.T) {
 	f := setup(t, permission.ModeAcceptEdits,
 		scripted.Step{Calls: []scripted.Call{

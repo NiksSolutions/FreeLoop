@@ -5,6 +5,8 @@
 # already built on the host; /out is the host's bin/, where the results go:
 #   /out/linux-<arch>/freeloop, THIRD_PARTY_NOTICES.txt, BUILDINFO.txt
 #   /out/Freeloop-<version>-linux-<arch>.AppImage and .deb
+# FREELOOP_COMMIT is the commit as Taskfile.yml's COMMIT has it, worked out on the
+# host: the copy built here has no .git, and a worktree's .git points outside /src.
 set -eu
 # linuxdeploy walks PATH and stops at a folder it cannot read: the image's
 # /root/go/bin, as the build user. Nothing here is installed there.
@@ -17,7 +19,7 @@ cd /tmp/app
 # The notices read license files from the frontend's packages; the host's are
 # fine for that (only their native build tools differ by platform).
 ln -s /src/frontend/node_modules frontend/node_modules
-ARCH="$arch" wails3 task linux:build:binary SHIPPED=1
+ARCH="$arch" wails3 task linux:build:binary SHIPPED=1 COMMIT="${FREELOOP_COMMIT:-}"
 ARCH="$arch" wails3 task linux:package:files
 {
 	echo "linux/$arch built in build/linux/Dockerfile"

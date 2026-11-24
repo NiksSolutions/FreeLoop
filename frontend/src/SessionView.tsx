@@ -44,7 +44,7 @@ import SourceMark from "./SourceMark.tsx";
 import GitMark from "./GitMark.tsx";
 import { contextHigh, contextLabel, contextTitle, shortTokens } from "./contextMeter.ts";
 import type { Source } from "./source.ts";
-import { draftOf, extrasOf, forgetDraft, rememberDraft, rememberExtras, storeDraft } from "./drafts.ts";
+import { draftOf, extrasOf, forgetSent, rememberDraft, rememberExtras, storeDraft, unsentOf, unsentText } from "./drafts.ts";
 import { MAX_IMAGES, room } from "./images.ts";
 import { CheckIcon, CloseIcon, CompactIcon, CopyIcon, ForkIcon, InfoIcon, MoreIcon, PanelRightIcon, PaperclipIcon, QueueIcon, RewindIcon, SendIcon, StopIcon } from "./icons.tsx";
 import { Markdown } from "./Markdown.tsx";
@@ -225,8 +225,10 @@ export default function SessionView({ session, transcript, focus, prices, initia
   const setTags = (tags: string[]) => EngineService.SetTags(session.id, tags).catch(onError);
   // The model switch form (PRV-006).
   const [switching, setSwitching] = useState<{ providerId: string; model: string } | null>(null);
+  // Escape takes the field away, and losing focus must not then save what was typed.
+  const renameCancelled = useRef(false);
   const rename = () => {
-    if (renaming === null) return;
+    if (renaming === null || renameCancelled.current) return;
     EngineService.RenameSession(session.id, renaming)
       .then(() => setRenaming(null))
       .catch(onError);
@@ -492,14 +494,20 @@ export default function SessionView({ session, transcript, focus, prices, initia
   };
   const [attaching, setAttaching] = useState<string | null>(null);
   const [promptForm, setPromptForm] = useState<{ command: SlashCommand; values: Record<string, string> } | null>(null);
+  // clearSent empties the box of the text a message took, once the engine has it, and
+  // keeps what was typed since. Here as well as in the view: the view may be gone by then.
+  const clearSent = (text: string) => {
+    forgetSent(session.id, { text }, EngineService.RedactText);
+    setDraft((now) => unsentText(now, text));
+  };
   const runPrompt = (c: SlashCommand, values: Record<string, string>) => {
     if (!c.prompt) return;
     holdBottom.current = false;
+    const sent = draft;
     EngineService.RunMCPPrompt(session.id, c.prompt.server, c.prompt.name, values)
       .then((r) => {
         setPromptForm(null);
-        forgetDraft(session.id);
-        setDraft("");
+        clearSent(sent);
         if (r.queued) setQueued((n) => n + 1);
       })
       .catch(onError);
@@ -803,11 +811,11 @@ export default function SessionView({ session, transcript, focus, prices, initia
   }, [view.running]);
 
   const [accepting, setAccepting] = useState(false);
-  // runStage has the engine run a stage of the session's workflow; typed, it
-  // clears the draft once accepted.
+  // runStage has the engine run a stage of the session's workflow; typed, what was
+  // typed leaves the box once accepted.
   // A stage the workflow's model set could not start, and why (WFL-014).
-  const [blocked, setBlocked] = useState<{ command: string; text: string; typed: boolean; why: string } | null>(null);
-  const runStage = (command: string, text: string, typed: boolean, onCurrent = false) => {
+  const [blocked, setBlocked] = useState<{ command: string; text: string; typed: string | null; why: string } | null>(null);
+  const runStage = (command: string, text: string, typed: string | null, onCurrent = false) => {
     holdBottom.current = false;
     setAccepting(true);
     const run = onCurrent ? EngineService.RunStageOnCurrent : EngineService.RunStage;
@@ -818,9 +826,7 @@ export default function SessionView({ session, transcript, focus, prices, initia
           return;
         }
         setBlocked(null);
-        if (!typed) return;
-        forgetDraft(session.id);
-        setDraft("");
+        if (typed !== null) clearSent(typed);
       })
       .catch(onError)
       .finally(() => setAccepting(false));
@@ -840,7 +846,7 @@ export default function SessionView({ session, transcript, focus, prices, initia
       });
       return;
     }
-    runStage(stage.command, "", false);
+    runStage(stage.command, "", null);
   };
   const send = () => {
     const text = draft.trim();
@@ -859,12 +865,11 @@ export default function SessionView({ session, transcript, focus, prices, initia
     // An AFK run starts from its dialog, which shows what it will do first.
     if (call && workflow && (workflow.stages ?? []).find((s) => s.command === call.command)?.kind === "afk") {
       setDraft("");
-      forgetDraft(session.id);
       onRunAFK?.(session.projectRoot, workflow.id, session.id);
       return;
     }
     if (call) {
-      runStage(call.command, call.input, true);
+      runStage(call.command, call.input, draft);
       return;
     }
     // A message that is just an MCP prompt's command runs the prompt.
@@ -874,21 +879,21 @@ export default function SessionView({ session, transcript, focus, prices, initia
       return;
     }
     holdBottom.current = false;
-    const sending = attached;
+    const sent = { attached, pictures, textFiles } satisfies ComposerExtras;
+    const typedText = draft;
     const images = pictures.map((p) => ({ mediaType: p.mediaType, data: p.data }));
     // Until the engine takes the message, which waits for an agent to
     // start (the first start may download it), the composer says so and
-    // takes no second one.
+    // takes no second one. What is typed or attached meanwhile stays.
     setAccepting(true);
-    (sending.length > 0 || images.length > 0 || textFiles.length > 0 ? EngineService.PromptWith(session.id, { text, resources: sending, images, files: textFiles }) : EngineService.Prompt(session.id, text))
+    (attached.length > 0 || images.length > 0 || textFiles.length > 0 ? EngineService.PromptWith(session.id, { text, resources: attached, images, files: textFiles }) : EngineService.Prompt(session.id, text))
       .then((r) => {
-        // Here as well: the view may be gone by the time the engine has taken it.
-        forgetDraft(session.id);
-        setDraft("");
-        setAttached([]);
-        setTextFiles([]);
-        pictures.forEach((p) => URL.revokeObjectURL(p.url));
-        setPictures([]);
+        forgetSent(session.id, { text: typedText, extras: sent }, EngineService.RedactText);
+        setDraft((now) => unsentText(now, typedText));
+        setAttached((list) => unsentOf(list, sent.attached));
+        setTextFiles((list) => unsentOf(list, sent.textFiles));
+        sent.pictures.forEach((p) => URL.revokeObjectURL(p.url));
+        setPictures((list) => unsentOf(list, sent.pictures));
         if (r.queued) setQueued((n) => n + 1);
       })
       .catch(onError)
@@ -1330,7 +1335,20 @@ export default function SessionView({ session, transcript, focus, prices, initia
                     rename();
                   }}
                 >
-                  <input autoFocus aria-label={t("session.header.titleLabel")} value={renaming} onChange={(e) => setRenaming(e.target.value)} onBlur={rename} />
+                  <input
+                    autoFocus
+                    aria-label={t("session.header.titleLabel")}
+                    value={renaming}
+                    onFocus={() => (renameCancelled.current = false)}
+                    onChange={(e) => setRenaming(e.target.value)}
+                    onBlur={rename}
+                    onKeyDown={(e) => {
+                      if (e.key !== "Escape") return;
+                      e.preventDefault();
+                      renameCancelled.current = true;
+                      setRenaming(null);
+                    }}
+                  />
                 </form>
               )}
               {(view.git?.repo || session.branch) && <GitMark branch={view.git?.repo ? view.git.branch : session.branch} />}

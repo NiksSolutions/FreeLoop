@@ -1,14 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { EngineService } from "./api.ts";
+import { keptPicture, readPicture } from "./images.ts";
 import { t } from "./i18n.ts";
 
 // The pictures a user message carried (SES-015), loaded from the session's
-// attachments once and kept for the rest of the app's run. They are the
-// user's own files; nothing a model writes is ever shown as an image.
-const pictureCache = new Map<string, string>();
+// attachments once and kept for the rest of the app's run (images.ts). They are
+// the user's own files; nothing a model writes is ever shown as an image.
 
 export default function AttachedImages({ sid, images }: { sid: string; images: { name: string; mimeType: string }[] }) {
   const [, setLoaded] = useState(0);
+  // Those that could not be read, for as long as this view is shown; the next one tries again.
+  const [missing, setMissing] = useState<ReadonlySet<string>>(() => new Set());
   const [open, setOpen] = useState<string | null>(null);
   // The full-size view takes the focus, so Escape reaches it, and gives it
   // back to the picture it came from.
@@ -28,14 +30,10 @@ export default function AttachedImages({ sid, images }: { sid: string; images: {
     let live = true;
     for (const img of images) {
       const key = `${sid}/${img.name}`;
-      if (pictureCache.has(key)) continue;
-      EngineService.Attachment(sid, img.name)
-        .then((a) => {
-          if (!a.mediaType.startsWith("image/")) return;
-          pictureCache.set(key, `data:${a.mediaType};base64,${a.data}`);
-          if (live) setLoaded((n) => n + 1);
-        })
-        .catch(() => pictureCache.set(key, ""));
+      if (keptPicture(key)) continue;
+      readPicture(key, () => EngineService.Attachment(sid, img.name))
+        .then(() => live && setLoaded((n) => n + 1))
+        .catch(() => live && setMissing((m) => new Set(m).add(key)));
     }
     return () => {
       live = false;
@@ -44,8 +42,9 @@ export default function AttachedImages({ sid, images }: { sid: string; images: {
   return (
     <div className="msg-pictures">
       {images.map((img, i) => {
-        const src = pictureCache.get(`${sid}/${img.name}`);
-        if (src === "") return <span key={img.name} className="muted">{t("transcript.picture.missing")}</span>;
+        const key = `${sid}/${img.name}`;
+        const src = keptPicture(key);
+        if (!src && missing.has(key)) return <span key={img.name} className="muted">{t("transcript.picture.missing")}</span>;
         if (!src) return <span key={img.name} className="msg-picture msg-picture-loading" aria-label={t("transcript.picture.loading")} />;
         return (
           <button key={img.name} className="msg-picture" onClick={() => setOpen(src)} aria-label={t("transcript.picture.show", { number: i + 1 })}>

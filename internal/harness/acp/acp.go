@@ -22,6 +22,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	sdk "github.com/coder/acp-go-sdk"
 
@@ -87,7 +88,9 @@ type session struct {
 	owedRecap string
 	// turn is the context of the prompt running, or of one the agent never
 	// answered after it was stopped; what the agent asks during it ends with it.
-	turn  context.Context
+	turn context.Context
+	// turns counts the prompts, so a terminal knows the turn it was started in.
+	turns int
 	terms map[string]*terminal
 	next  int
 	// options are what the agent reports it can change (PRV-014).
@@ -534,6 +537,8 @@ var cancelWait = 10 * time.Second
 func (s *session) Prompt(ctx context.Context, p harness.Prompt) (harness.StopReason, error) {
 	s.mu.Lock()
 	s.turn = ctx
+	s.turns++
+	turn := s.turns
 	s.mu.Unlock()
 	s.p.Emit(event.TurnStarted, struct{}{})
 	s.p.Emit(event.SessionStatus, event.SessionStatusData{Status: "running"})
@@ -580,6 +585,7 @@ func (s *session) Prompt(ctx context.Context, p harness.Prompt) (harness.StopRea
 	case a = <-done:
 	case <-ctx.Done():
 		s.conn.Cancel(context.Background(), sdk.CancelNotification{SessionId: s.id})
+		s.stopTerminals(turn)
 		select {
 		case a = <-done:
 		case <-time.After(cancelWait):
@@ -596,6 +602,9 @@ func (s *session) Prompt(ctx context.Context, p harness.Prompt) (harness.StopRea
 		if tail := strings.TrimSpace(environment.StderrAfterExit(s.proc)); tail != "" {
 			a.err = fmt.Errorf("%w: %s", harness.ErrAgentExited, lastLine(tail))
 		}
+	}
+	if ctx.Err() != nil {
+		s.stopTerminals(turn)
 	}
 	if answered {
 		// Between turns an agent may still ask, for work of its own.
@@ -1064,8 +1073,59 @@ const maxTerminalOutput = 1 << 20
 type terminal struct {
 	cancel context.CancelFunc
 	done   chan struct{}
-	res    environment.ExecResult
-	err    error
+	// turn is the turn it was started in; 0 between turns.
+	turn int
+	out  *termOutput
+	res  environment.ExecResult
+	err  error
+}
+
+// termOutput is what a terminal's command has printed so far, for terminal/output
+// while it runs. Past its limit it keeps the latest output and drops from the start,
+// as the protocol asks.
+type termOutput struct {
+	mu        sync.Mutex
+	buf       []byte
+	limit     int
+	truncated bool
+}
+
+func (o *termOutput) Write(p []byte) (int, error) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.buf = append(o.buf, p...)
+	// Dropping the start at every write past the limit would copy the whole
+	// buffer each time; do it once it holds twice the limit.
+	if len(o.buf) > 2*o.limit {
+		o.buf = append(o.buf[:0], o.buf[len(o.buf)-o.limit:]...)
+		o.truncated = true
+	}
+	return len(p), nil
+}
+
+// text is the output kept, cut at whole characters, as the protocol asks: a character
+// cut at the start is dropped, one still being written is left for the next read.
+func (o *termOutput) text() (string, bool) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	b, truncated := o.buf, o.truncated
+	if over := len(b) - o.limit; over > 0 {
+		b, truncated = b[over:], true
+	}
+	if truncated {
+		for i := 0; i < utf8.UTFMax && len(b) > 0 && !utf8.RuneStart(b[0]); i++ {
+			b = b[1:]
+		}
+	}
+	for i := len(b) - 1; i >= max(0, len(b)-utf8.UTFMax); i-- {
+		if utf8.RuneStart(b[i]) {
+			if !utf8.FullRune(b[i:]) {
+				b = b[:i]
+			}
+			break
+		}
+	}
+	return string(b), truncated
 }
 
 func (s *session) CreateTerminal(ctx context.Context, r sdk.CreateTerminalRequest) (sdk.CreateTerminalResponse, error) {
@@ -1124,23 +1184,52 @@ func (s *session) CreateTerminal(ctx context.Context, r sdk.CreateTerminalReques
 	if r.Cwd != nil {
 		spec.Cwd = *r.Cwd
 	}
+	// The agent reads the output as it comes; the result's own copy is kept within
+	// the same limit.
+	out := &termOutput{limit: environment.DefaultMaxOutput}
 	if r.OutputByteLimit != nil && *r.OutputByteLimit > 0 {
-		spec.MaxOutput = min(*r.OutputByteLimit, maxTerminalOutput)
+		out.limit = min(*r.OutputByteLimit, maxTerminalOutput)
+		spec.MaxOutput = out.limit
 	}
+	spec.Live = out
 	spec.ReadOnly = readOnly
+	// A command outlives the request and may outlive the turn: an agent can start a
+	// dev server in one turn and read it in the next. A turn that is stopped stops the
+	// commands started in it (stopTerminals), and one started after the stop does not
+	// run; the check and the record are under one lock, so none slips between them.
 	tctx, cancel := context.WithCancel(context.Background())
-	t := &terminal{cancel: cancel, done: make(chan struct{})}
+	t := &terminal{cancel: cancel, done: make(chan struct{}), out: out}
+	s.mu.Lock()
+	if s.turn != nil && s.turn.Err() != nil {
+		s.mu.Unlock()
+		cancel()
+		return sdk.CreateTerminalResponse{}, errors.New("the turn was stopped")
+	}
+	if s.turn != nil {
+		t.turn = s.turns
+	}
+	s.next++
+	id := fmt.Sprintf("term-%d", s.next)
+	s.terms[id] = t
+	s.mu.Unlock()
 	go func() {
 		defer close(t.done)
 		defer recovered(sdk.ClientMethodTerminalCreate, &t.err)
 		t.res, t.err = s.env.Exec(tctx, spec)
 	}()
-	s.mu.Lock()
-	s.next++
-	id := fmt.Sprintf("term-%d", s.next)
-	s.terms[id] = t
-	s.mu.Unlock()
 	return sdk.CreateTerminalResponse{TerminalId: id}, nil
+}
+
+// stopTerminals ends the commands started in a turn that was stopped. They stay
+// listed, so the agent can still read what they printed and release them.
+func (s *session) stopTerminals(turn int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, t := range s.terms {
+		if t.turn == turn {
+			t.cancel()
+		}
+	}
 }
 
 func (s *session) terminal(id string) (*terminal, error) {
@@ -1163,12 +1252,14 @@ func (s *session) TerminalOutput(_ context.Context, r sdk.TerminalOutputRequest)
 	if err != nil {
 		return sdk.TerminalOutputResponse{}, err
 	}
+	var status *sdk.TerminalExitStatus
 	select {
 	case <-t.done:
-		return sdk.TerminalOutputResponse{Output: t.res.Output, Truncated: t.res.Truncated, ExitStatus: exitStatus(t)}, nil
+		status = exitStatus(t)
 	default:
-		return sdk.TerminalOutputResponse{}, nil
 	}
+	output, truncated := t.out.text()
+	return sdk.TerminalOutputResponse{Output: output, Truncated: truncated, ExitStatus: status}, nil
 }
 
 func (s *session) WaitForTerminalExit(ctx context.Context, r sdk.WaitForTerminalExitRequest) (sdk.WaitForTerminalExitResponse, error) {

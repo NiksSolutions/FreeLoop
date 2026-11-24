@@ -17,3 +17,4 @@ With the app on each phone's home screen and notifications turned on, close Free
 
 ## Notes
 - Needs a person and both phones; anything that fails becomes an issue.
+- 2026-11-24 (issue 076): the phone app now closes its streams when its page is hidden. Check on each phone that the push comes with the app left open in front and the phone then locked, and with another app brought to the front; and that unlocking, or coming back to the app, opens the streams again without the "Can't reach your computer" notice. Not tried on a real phone: whether the closing reaches the computer before the phone suspends the page is what only a real one shows.

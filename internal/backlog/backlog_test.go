@@ -92,3 +92,41 @@ func TestAnalyzeOrdersAndBlocks(t *testing.T) {
 		t.Errorf("finished = %+v", f)
 	}
 }
+
+// WFL-004: archiving takes a done issue only when no open issue names it in blockedBy,
+// since a missing blocker blocks (a typo must not unblock).
+func TestArchivableKeepsWhatOpenIssuesWaitOn(t *testing.T) {
+	items := Analyze([]Issue{
+		issue("b/issues/001-one.md", "type: afk\nstatus: done"),
+		issue("b/issues/002-two.md", "type: afk\nblockedBy: [001-one]"),
+		issue("b/issues/003-three.md", "type: afk\nstatus: done"),
+		issue("b/issues/004-four.md", "type: afk\nstatus: done\nblockedBy: [003-three]"),
+		issue("b/issues/005-five.md", "type: afk\nblockedBy: [404-typo]"),
+	})
+	take, kept := Archivable(items)
+	var ids []string
+	for _, it := range take {
+		ids = append(ids, it.ID)
+	}
+	if strings.Join(ids, ",") != "003-three,004-four" {
+		t.Errorf("take = %v", ids)
+	}
+	if len(kept) != 1 || strings.Join(kept["001-one"], ",") != "002-two" {
+		t.Errorf("kept = %v", kept)
+	}
+	// Once 001 is gone, 002 would wait on it: what was kept is what keeps 002 ready.
+	var left []Issue
+	for _, it := range items {
+		if it.ID != "003-three" && it.ID != "004-four" {
+			left = append(left, it.Issue)
+		}
+	}
+	for _, it := range Analyze(left) {
+		if it.ID == "002-two" && it.State != Ready {
+			t.Errorf("002 after the archive: %+v", it)
+		}
+		if it.ID == "005-five" && it.State != Blocked {
+			t.Errorf("a missing blocker unblocked: %+v", it)
+		}
+	}
+}

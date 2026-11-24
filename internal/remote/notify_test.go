@@ -4,10 +4,16 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
+	"net/http/httptest"
+	"os"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/FinanceNik/Freeloop/internal/config"
 	"github.com/FinanceNik/Freeloop/internal/engine"
 )
 
@@ -129,4 +135,152 @@ func TestNoticeKindsAndLocalOnly(t *testing.T) {
 	}
 	s.Notify(engine.Notice{Kind: "finished", SessionID: "ses_1"})
 	noPush(t, f, "in local-only mode")
+}
+
+// waitUntil polls ok for up to three seconds.
+func waitUntil(t *testing.T, what string, ok func() bool) {
+	t.Helper()
+	for end := time.Now().Add(3 * time.Second); !ok(); {
+		if time.Now().After(end) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// lookingAt is how many streams a phone has open.
+func lookingAt(s *Server, id string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.looking[id]
+}
+
+// 076: only an open stream says the phone is being looked at. Any other call in flight,
+// a slow message say, does not hold the push back, and a stream closed, as the phone app
+// does when it is hidden, lets it through.
+func TestOnlyAnOpenStreamIsLooking(t *testing.T) {
+	_, s, p, f, read := notifiedSetup(t)
+	id := pairedID(s)
+	// A call that is not a stream, held open.
+	release := make(chan struct{})
+	entered := make(chan struct{})
+	slow := s.authed(func(w http.ResponseWriter, r *http.Request, _ config.Device) {
+		close(entered)
+		<-release
+	})
+	req := httptest.NewRequest("GET", "/api/summary", nil)
+	p.authorize(req)
+	done := make(chan struct{})
+	go func() {
+		slow(httptest.NewRecorder(), req)
+		close(done)
+	}()
+	<-entered
+	s.Notify(engine.Notice{Kind: "approval", SessionID: "ses_1"})
+	if got := pushOf(t, f, read); got["sessionId"] != "ses_1" {
+		t.Errorf("payload: %v", got)
+	}
+	close(release)
+	<-done
+
+	// A stream open: no push; closed: the next one goes.
+	sreq, _ := http.NewRequest("GET", p.base+"/api/stream", nil)
+	p.authorize(sreq)
+	resp, err := p.client.Do(sreq)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("stream: %v", err)
+	}
+	bufio.NewReader(resp.Body).ReadString('\n')
+	waitUntil(t, "the stream to count", func() bool { return lookingAt(s, id) == 1 })
+	s.Notify(engine.Notice{Kind: "approval", SessionID: "ses_2"})
+	noPush(t, f, "to a phone whose stream is open")
+	resp.Body.Close()
+	waitUntil(t, "the closed stream to stop counting", func() bool { return lookingAt(s, id) == 0 })
+	s.Notify(engine.Notice{Kind: "finished", SessionID: "ses_3"})
+	if got := pushOf(t, f, read); got["kind"] != "done" || got["sessionId"] != "ses_3" {
+		t.Errorf("payload after the stream closed: %v", got)
+	}
+}
+
+// stalled is a listener whose connections, once stall is set, take no more writes: as a
+// phone gone out of reach with its connection held open, whose buffers are full. A
+// write waits for its deadline, if it has one.
+type stalled struct {
+	net.Listener
+	stall atomic.Bool
+}
+
+func (l *stalled) Accept() (net.Conn, error) {
+	c, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	return &stallConn{Conn: c, l: l, closed: make(chan struct{})}, nil
+}
+
+type stallConn struct {
+	net.Conn
+	l        *stalled
+	mu       sync.Mutex
+	deadline time.Time
+	closed   chan struct{}
+	once     sync.Once
+}
+
+func (c *stallConn) SetWriteDeadline(t time.Time) error {
+	c.mu.Lock()
+	c.deadline = t
+	c.mu.Unlock()
+	return c.Conn.SetWriteDeadline(t)
+}
+
+func (c *stallConn) Write(b []byte) (int, error) {
+	if !c.l.stall.Load() {
+		return c.Conn.Write(b)
+	}
+	c.mu.Lock()
+	wait := time.Until(c.deadline)
+	if c.deadline.IsZero() {
+		wait = time.Minute
+	}
+	c.mu.Unlock()
+	select {
+	case <-time.After(wait):
+	case <-c.closed:
+	}
+	return 0, os.ErrDeadlineExceeded
+}
+
+func (c *stallConn) Close() error {
+	c.once.Do(func() { close(c.closed) })
+	return c.Conn.Close()
+}
+
+// 076: a stream whose phone stopped taking what is written ends within the write's
+// deadline, and the phone no longer counts as looking.
+func TestAStalledStreamEnds(t *testing.T) {
+	_, s, p := started(t)
+	pairPhone(t, s, p)
+	id := pairedID(s)
+	s.keepAlive, s.writeWait = 50*time.Millisecond, 200*time.Millisecond
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	l := &stalled{Listener: ln}
+	srv := &http.Server{Handler: s.Handler()}
+	go srv.Serve(l)
+	t.Cleanup(func() { srv.Close() })
+	req, _ := http.NewRequest("GET", "http://"+ln.Addr().String()+"/api/stream", nil)
+	req.Host = "laptop.tail1234.ts.net"
+	p.authorize(req)
+	resp, err := p.client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("stream: %v", err)
+	}
+	defer resp.Body.Close()
+	bufio.NewReader(resp.Body).ReadString('\n')
+	waitUntil(t, "the stream to count", func() bool { return lookingAt(s, id) == 1 })
+	l.stall.Store(true)
+	waitUntil(t, "the stalled stream to end", func() bool { return lookingAt(s, id) == 0 })
 }

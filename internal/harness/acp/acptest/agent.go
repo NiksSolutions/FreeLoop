@@ -4,6 +4,9 @@
 // prompt says "terminal" runs a command through the client without asking.
 // A prompt "READ <path> <line> <limit>" or "RUN <outputByteLimit> <command>"
 // sends just that request, with the numbers as given, and says the answer.
+// "WATCH <command>" starts a terminal, says the first output it reads while
+// the command runs, and waits for the command to end; "BG <command>" starts
+// a terminal and ends the turn, leaving the command running.
 package acptest
 
 import (
@@ -206,6 +209,18 @@ func (a *agent) Prompt(ctx context.Context, r sdk.PromptRequest) (sdk.PromptResp
 	}
 	if strings.HasPrefix(text, "RUN ") {
 		return a.run(ctx, r.SessionId, text, say)
+	}
+	if strings.HasPrefix(text, "WATCH ") {
+		return a.watch(ctx, r.SessionId, strings.TrimPrefix(text, "WATCH "), say)
+	}
+	if strings.HasPrefix(text, "BG ") {
+		t, err := a.conn.CreateTerminal(ctx, sdk.CreateTerminalRequest{SessionId: r.SessionId, Command: "sh", Args: []string{"-c", strings.TrimPrefix(text, "BG ")}})
+		if err != nil {
+			say("terminal failed: " + err.Error())
+		} else {
+			say("started " + t.TerminalId)
+		}
+		return sdk.PromptResponse{StopReason: sdk.StopReasonEndTurn}, nil
 	}
 	cwd, _ := os.Getwd()
 	path := filepath.Join(cwd, "notes.txt")
@@ -450,5 +465,30 @@ func (a *agent) run(ctx context.Context, sid sdk.SessionId, text string, say fun
 	} else {
 		say(fmt.Sprintf("output: %d bytes, truncated %t", len(out.Output), out.Truncated))
 	}
+	return sdk.PromptResponse{StopReason: sdk.StopReasonEndTurn}, nil
+}
+
+// watch runs "WATCH <command>": it polls the terminal until it has output, says that
+// output and whether the command had ended by then, and waits for the command to end,
+// as an agent watching a dev server or a test watch does.
+func (a *agent) watch(ctx context.Context, sid sdk.SessionId, command string, say func(string)) (sdk.PromptResponse, error) {
+	t, err := a.conn.CreateTerminal(ctx, sdk.CreateTerminalRequest{SessionId: sid, Command: "sh", Args: []string{"-c", command}})
+	if err != nil {
+		say("terminal failed: " + err.Error())
+		return sdk.PromptResponse{StopReason: sdk.StopReasonEndTurn}, nil
+	}
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		out, err := a.conn.TerminalOutput(ctx, sdk.TerminalOutputRequest{SessionId: sid, TerminalId: t.TerminalId})
+		if err != nil {
+			say("output failed: " + err.Error())
+			break
+		}
+		if out.Output != "" || out.ExitStatus != nil {
+			say(fmt.Sprintf("output: %s, ended %t", strings.TrimSpace(out.Output), out.ExitStatus != nil))
+			break
+		}
+	}
+	a.conn.WaitForTerminalExit(ctx, sdk.WaitForTerminalExitRequest{SessionId: sid, TerminalId: t.TerminalId})
+	say("ended")
 	return sdk.PromptResponse{StopReason: sdk.StopReasonEndTurn}, nil
 }

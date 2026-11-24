@@ -75,7 +75,8 @@ tasks:
         msg: "zip is missing"
     cmds:
       - task: notices
-      # Microsoft's WebView2 bootstrapper, which the pinned wails3 carries.
+      # Microsoft's WebView2 bootstrapper, which the pinned wails3 carries; the notices
+      # say the installer carries it (carried in internal/sbom/notices.go).
       - wails3 generate webview2bootstrapper -dir "{{.BIN_DIR}}/windows-nsis" >/dev/null
       - >-
         makensis -V2 -NOCD
@@ -101,7 +102,7 @@ tasks:
     cmds:
       - >-
         go run ./cmd/freeloop-sbom -notices -modcache "$(go env GOMODCACHE)" -node-modules frontend/node_modules
-        -binary "{{.WIN_OUT}}/{{.APP_NAME}}.exe" -version {{.VERSION}}
+        -goroot "$(go env GOROOT)" -binary "{{.WIN_OUT}}/{{.APP_NAME}}.exe" -version {{.VERSION}}
         < frontend/package-lock.json > "{{.WIN_OUT}}/THIRD_PARTY_NOTICES.txt"
 
   run:

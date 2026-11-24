@@ -77,7 +77,7 @@ tasks:
     cmds:
       - >-
         go run ./cmd/freeloop-sbom -notices -modcache "$(go env GOMODCACHE)" -node-modules frontend/node_modules
-        -binary "{{.LINUX_OUT}}/{{.LINUX_BINARY}}" -version {{.VERSION}}
+        -goroot "$(go env GOROOT)" -binary "{{.LINUX_OUT}}/{{.LINUX_BINARY}}" -version {{.VERSION}}
         < frontend/package-lock.json > "{{.LINUX_OUT}}/THIRD_PARTY_NOTICES.txt"
 
   deb:
@@ -91,7 +91,7 @@ tasks:
       - echo "{{.BIN_DIR}}/{{.LINUX_PACKAGE}}.deb"
 
   appimage:
-    summary: Makes bin/Freeloop-<version>-linux-<ARCH>.AppImage (linuxdeploy with its GTK plugin)
+    summary: Makes bin/Freeloop-<version>-linux-<ARCH>.AppImage (linuxdeploy with its GTK plugin), notices included
     preconditions:
       - sh: test -x "{{.LINUXDEPLOY}}"
         msg: "no linuxdeploy at {{.LINUXDEPLOY}}: build in the image (make linux-package) or set LINUXDEPLOY to a pinned linuxdeploy AppImage"
@@ -101,15 +101,34 @@ tasks:
       # linuxdeploy wants the icon named as the desktop file's Icon= key.
       - cp build/linux/icons/256x256.png "{{.LINUX_OUT}}/appimage/{{.LINUX_BINARY}}.png"
       - cp "{{.LINUXDEPLOY}}" "{{.LINUX_OUT}}/appimage/build/linuxdeploy-{{.APPIMAGE_ARCH}}.AppImage"
+      # The notices say what linuxdeploy copies from the system (carried in
+      # internal/sbom/notices.go).
       - >-
         wails3 generate appimage -binary "{{.LINUX_OUT}}/{{.LINUX_BINARY}}"
         -icon "{{.LINUX_OUT}}/appimage/{{.LINUX_BINARY}}.png" -desktopfile build/linux/freeloop.desktop
         -outputdir "{{.LINUX_OUT}}/appimage" -builddir "{{.LINUX_OUT}}/appimage/build"
-      - mv "{{.LINUX_OUT}}/appimage/{{.LINUX_BINARY}}-{{.APPIMAGE_ARCH}}.AppImage" "{{.BIN_DIR}}/{{.LINUX_PACKAGE}}.AppImage"
+      # wails3 takes no other file and leaves the AppDir it packed in the build folder:
+      # the notices go in where the .deb has them, and linuxdeploy packs it again as
+      # wails3's last step did. Nothing is left to deploy; NO_STRIP keeps it from
+      # touching what is there.
+      - mkdir -p "{{.APPDIR}}/usr/share/doc/{{.LINUX_BINARY}}"
+      - cp "{{.LINUX_OUT}}/THIRD_PARTY_NOTICES.txt" "{{.APPDIR}}/usr/share/doc/{{.LINUX_BINARY}}/"
+      - rm "{{.LINUX_OUT}}/appimage/{{.APPIMAGE}}"
+      - >-
+        cd "{{.LINUX_OUT}}/appimage/build" && OUTPUT="{{.APPIMAGE}}" NO_STRIP=1
+        "./linuxdeploy-{{.APPIMAGE_ARCH}}.AppImage" --appimage-extract-and-run --appdir "{{.LINUX_BINARY}}-{{.APPIMAGE_ARCH}}.AppDir" --output appimage
+      # The notices are in the AppImage: take that one file out of it again.
+      - >-
+        cd "{{.LINUX_OUT}}/appimage" && "./build/{{.APPIMAGE}}" --appimage-extract "usr/share/doc/{{.LINUX_BINARY}}/THIRD_PARTY_NOTICES.txt" >/dev/null
+        && cmp "squashfs-root/usr/share/doc/{{.LINUX_BINARY}}/THIRD_PARTY_NOTICES.txt" ../THIRD_PARTY_NOTICES.txt
+      - mv "{{.LINUX_OUT}}/appimage/build/{{.APPIMAGE}}" "{{.BIN_DIR}}/{{.LINUX_PACKAGE}}.AppImage"
       - rm -rf "{{.LINUX_OUT}}/appimage"
       - echo "{{.BIN_DIR}}/{{.LINUX_PACKAGE}}.AppImage"
     vars:
       APPIMAGE_ARCH: '{{if eq .LINUX_ARCH "arm64"}}aarch64{{else}}x86_64{{end}}'
+      # What wails3 names the AppImage and its AppDir.
+      APPIMAGE: '{{.LINUX_BINARY}}-{{.APPIMAGE_ARCH}}.AppImage'
+      APPDIR: '{{.LINUX_OUT}}/appimage/build/{{.LINUX_BINARY}}-{{.APPIMAGE_ARCH}}.AppDir'
 
   run:
     summary: Runs the built application

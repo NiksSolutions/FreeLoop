@@ -191,11 +191,18 @@ func (s *Store) IsOpen(sid string) bool {
 }
 
 // CreateSession inserts a session record built from tmpl, which supplies
-// the title, harness, project root, provider, model and mode.
+// the title, harness, project root, provider, model and mode, and may supply
+// the ID, from session.NewID, that a caller saved before (the queue, SES-025).
 func (s *Store) CreateSession(ctx context.Context, tmpl session.Session) (session.Session, error) {
 	now := s.now().UTC()
 	ses := tmpl
 	ses.ID = session.NewID(now)
+	if tmpl.ID != "" {
+		if !newIDShaped(tmpl.ID) {
+			return session.Session{}, fmt.Errorf("store: %q is not a session ID", tmpl.ID)
+		}
+		ses.ID = tmpl.ID
+	}
 	ses.Status = session.StatusIdle
 	ses.LastSeq = 0
 	ses.CreatedAt, ses.UpdatedAt = now, now
@@ -212,6 +219,21 @@ func (s *Store) CreateSession(ctx context.Context, tmpl session.Session) (sessio
 	}
 	s.writeMeta(ses)
 	return ses, nil
+}
+
+// newIDShaped reports whether id is one session.NewID could have made, so it is safe
+// as a folder name.
+func newIDShaped(id string) bool {
+	rest, ok := strings.CutPrefix(id, "ses_")
+	if !ok || len(rest) != 26 {
+		return false
+	}
+	for _, c := range rest {
+		if !strings.ContainsRune("0123456789abcdefghjkmnpqrstvwxyz", c) {
+			return false
+		}
+	}
+	return true
 }
 
 // ListSessions returns all sessions, most recently updated first.

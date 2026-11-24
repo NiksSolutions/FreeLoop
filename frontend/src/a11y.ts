@@ -55,6 +55,18 @@ export function tabAfterKey(key: string, index: number, count: number): number {
   return -1;
 }
 
+// tabWrap keeps Tab inside a modal dialog: given the place of the focused control among
+// the dialog's count controls (-1 for the dialog itself, or anywhere else), it says which
+// one Tab, or Shift-Tab when back, goes to. -1 leaves the move to the browser, between
+// two controls; null keeps the focus where it is, for a dialog with no controls.
+export function tabWrap(index: number, count: number, back: boolean): number | null {
+  if (count === 0) return null;
+  if (index < 0) return back ? count - 1 : 0;
+  if (!back && index === count - 1) return 0;
+  if (back && index === 0) return count - 1;
+  return -1;
+}
+
 // toolStatusLabel says in words what a tool card's coloured dot shows.
 export function toolStatusLabel(status: string, waiting: boolean): string {
   if (waiting) return t("a11y.tool.waiting");

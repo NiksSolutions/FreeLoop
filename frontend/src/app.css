@@ -3313,9 +3313,12 @@ button.issue-title:hover {
   outline-offset: 2px;
 }
 
-/* Focus put here by the app, after moving to another screen. */
+/* Focus put here by the app, after moving to another screen, or on a dialog
+   until it has a control ready. */
 .main:focus,
-.main:focus-visible {
+.main:focus-visible,
+.afk-dialog:focus,
+.afk-dialog:focus-visible {
   outline: none;
 }
 

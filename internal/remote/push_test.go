@@ -2,13 +2,17 @@ package remote
 
 import (
 	"crypto/ecdh"
+	"crypto/ecdsa"
 	"crypto/rand"
 	"encoding/base64"
 	"net/http"
+	"sync"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/FinanceNik/Freeloop/internal/config"
+	"github.com/FinanceNik/Freeloop/internal/secrets"
 )
 
 var b64 = base64.RawURLEncoding
@@ -136,5 +140,63 @@ func TestPushRefusedInLocalOnlyMode(t *testing.T) {
 	}
 	if notifies(s, pairedID(s)) {
 		t.Error("kept a subscription in local-only mode")
+	}
+}
+
+// slowKeys is a keyring that waits for the user, as the system's prompt can.
+type slowKeys struct {
+	secrets.Store
+	asked   chan struct{}
+	release chan struct{}
+}
+
+func (k *slowKeys) Get(ref secrets.Ref) (string, error) {
+	k.asked <- struct{}{}
+	<-k.release
+	return k.Store.Get(ref)
+}
+
+// 076: reading the push key, which can wait on the keyring's prompt, holds up nothing
+// else: Settings' status and the phones' calls go on meanwhile. The key is still made
+// once, however many ask for it at the same time.
+func TestThePushKeyIsReadOutsideTheLock(t *testing.T) {
+	_, s, p := started(t)
+	pairPhone(t, s, p)
+	keys := &slowKeys{Store: secrets.NewMemory(), asked: make(chan struct{}, 2), release: make(chan struct{})}
+	s.keys = keys
+	var once sync.Once
+	release := func() { once.Do(func() { close(keys.release) }) }
+	// A failing check still lets the keyring answer, so the server can stop.
+	t.Cleanup(release)
+	type result struct {
+		key *ecdsa.PrivateKey
+		err error
+	}
+	got := make(chan result, 2)
+	for range 2 {
+		go func() {
+			k, err := s.vapidKey()
+			got <- result{k, err}
+		}()
+	}
+	<-keys.asked
+	done := make(chan struct{})
+	go func() {
+		s.Status()
+		p.do("GET", "/api/summary", nil, nil)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Settings' status and a phone's call waited for the keyring")
+	}
+	release()
+	a, b := <-got, <-got
+	if a.err != nil || b.err != nil || a.key == nil || !a.key.Equal(b.key) {
+		t.Fatalf("two keys, or none: %v %v", a.err, b.err)
+	}
+	if len(keys.asked) != 0 {
+		t.Error("the keyring was asked twice")
 	}
 }

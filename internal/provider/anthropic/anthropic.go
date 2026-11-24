@@ -126,17 +126,15 @@ func (p *Provider) params(req provider.ChatRequest) sdk.MessageNewParams {
 		tool := sdk.ToolParam{
 			Name:        t.Name,
 			Description: sdk.String(t.Description),
-			InputSchema: sdk.ToolInputSchemaParam{
-				Properties: t.InputSchema["properties"],
-			},
+			InputSchema: inputSchema(t.InputSchema),
 			// Arguments stream as generated; the harness validates them
 			// before running anything.
 			EagerInputStreaming: sdk.Bool(true),
 		}
-		if req, ok := t.InputSchema["required"].([]string); ok {
-			tool.InputSchema.Required = req
-		}
 		params.Tools = append(params.Tools, sdk.ToolUnionParam{OfTool: &tool})
+	}
+	if req.NoToolCalls && len(params.Tools) > 0 {
+		params.ToolChoice = sdk.ToolChoiceUnionParam{OfNone: &sdk.ToolChoiceNoneParam{}}
 	}
 	if modern(req.Model) {
 		adaptive := sdk.ThinkingConfigAdaptiveParam{Display: sdk.ThinkingConfigAdaptiveDisplaySummarized}
@@ -146,6 +144,35 @@ func (p *Provider) params(req provider.ChatRequest) sdk.MessageNewParams {
 		}
 	}
 	return params
+}
+
+// inputSchema sends a tool's whole JSON Schema (MCP-002). The SDK types
+// only properties and required; every other keyword ($defs,
+// additionalProperties, oneOf...) goes as an extra field. An MCP schema
+// comes from json.Unmarshal, so its required list is a []any.
+func inputSchema(schema map[string]any) sdk.ToolInputSchemaParam {
+	out := sdk.ToolInputSchemaParam{Properties: schema["properties"]}
+	switch req := schema["required"].(type) {
+	case []string:
+		out.Required = req
+	case []any:
+		for _, r := range req {
+			if s, ok := r.(string); ok {
+				out.Required = append(out.Required, s)
+			}
+		}
+	}
+	for k, v := range schema {
+		switch k {
+		case "properties", "required", "type": // type is always "object"
+			continue
+		}
+		if out.ExtraFields == nil {
+			out.ExtraFields = map[string]any{}
+		}
+		out.ExtraFields[k] = v
+	}
+	return out
 }
 
 // toParams converts neutral history to API messages. Thinking parts from

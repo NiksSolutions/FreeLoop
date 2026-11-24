@@ -137,6 +137,47 @@ await step("typing, the message box sits on the keyboard", async () => {
   document.documentElement.style.removeProperty("--safe-bottom");
 });
 
+// Issue 076: a hidden page, as on a locked phone, holds no stream open, so the computer
+// pushes to the phone; shown again, the streams open where they left off, and closing
+// them is not taken for the computer being out of reach.
+await step("hidden, the app closes its streams and opens them again when shown", async () => {
+  const real = window.fetch;
+  const streams = [];
+  window.fetch = (input, init) => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (/\/stream\b/.test(url)) streams.push({ url, signal: init?.signal, last: init?.headers?.["Last-Event-ID"] ?? "" });
+    return real(input, init);
+  };
+  let state = "visible";
+  const shown = Object.getOwnPropertyDescriptor(document, "visibilityState");
+  Object.defineProperty(document, "visibilityState", { configurable: true, get: () => state });
+  const set = (s) => {
+    state = s;
+    document.dispatchEvent(new Event("visibilitychange"));
+  };
+  try {
+    set("hidden");
+    await sleep(300);
+    set("visible");
+    const both = await until("both streams again", () => streams.length >= 2, 5000).catch(() => null);
+    const session = streams.find((x) => x.url.includes("/api/sessions/"));
+    check("shown again, the lists' and the session's streams open again", !!both && streams.some((x) => x.url.endsWith("/api/stream")) && !!session, streams.map((x) => x.url).join(", "));
+    check("the session's stream goes on from where it was", !!session?.last, session?.last);
+    set("hidden");
+    await sleep(300);
+    check("hidden, both streams are closed", streams.length >= 2 && streams.every((x) => x.signal?.aborted), streams.map((x) => `${x.url}: ${x.signal?.aborted}`).join(", "));
+    check("and the app does not say the computer is out of reach", !document.querySelector(".phone-unreachable"));
+  } finally {
+    set("visible");
+    if (shown) Object.defineProperty(document, "visibilityState", shown);
+    else delete document.visibilityState;
+    window.fetch = real;
+  }
+  await until("the streams open again", () => streams.length >= 4, 5000).catch(() => null);
+  await sleep(300);
+  check("shown, still nothing says the computer is out of reach", !document.querySelector(".phone-unreachable"));
+});
+
 window.scrollTo(0, 0);
 await sleep(100);
 await snap("phone-conversation");

@@ -613,7 +613,17 @@ func (s *session) runTool(ctx context.Context, c provider.Part, mode permission.
 	}
 	var prepared *call
 	var prepErr error
+	// A call cut off mid-arguments, at max_tokens, fails before the broker or an
+	// MCP server sees it, and its event carries the text the model sent: as JSON
+	// it could not be recorded, and the window would never see the call.
+	var rawInput any = c.Input
+	cutOff := !json.Valid(c.Input)
+	if cutOff {
+		rawInput = string(c.Input)
+	}
 	switch {
+	case cutOff:
+		prepErr = errors.New("the tool input is not valid JSON (it may have been cut off)")
 	case t == nil && slices.Contains(s.p.DisabledTools, c.ToolName):
 		prepErr = fmt.Errorf("the %s tool is turned off in this environment", c.ToolName)
 	case t == nil && len(s.p.Tools) > 0 && slices.Contains(ToolNames(), c.ToolName):
@@ -635,7 +645,7 @@ func (s *session) runTool(ctx context.Context, c provider.Part, mode permission.
 	}
 	s.p.Emit(event.ToolCall, map[string]any{
 		"toolCallId": c.ToolCallID, "title": title, "kind": kind, "status": "pending",
-		"tool": c.ToolName, "rawInput": c.Input, "locations": locations,
+		"tool": c.ToolName, "rawInput": rawInput, "locations": locations,
 	})
 	if ctx.Err() != nil {
 		return fail("Cancelled before it ran.", "failed")

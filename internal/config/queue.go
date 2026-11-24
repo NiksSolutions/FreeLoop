@@ -67,6 +67,11 @@ type Task struct {
 	SessionID string    `json:"sessionId,omitempty"`
 	StartedAt time.Time `json:"startedAt,omitempty"`
 	Note      string    `json:"note,omitempty"`
+	// Starting says the task was saved as running, with the ID its session gets,
+	// before the session was started, and the start is not recorded yet: the app
+	// stopped or the save after it failed. The next check of the queue looks for the
+	// session, so the task never starts twice (SES-025).
+	Starting bool `json:"starting,omitempty"`
 }
 
 // Validate reports the first thing a task cannot start without.

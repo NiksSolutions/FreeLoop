@@ -30,6 +30,7 @@ import (
 
 	"github.com/FinanceNik/Freeloop/internal/config"
 	"github.com/FinanceNik/Freeloop/internal/engine"
+	"github.com/FinanceNik/Freeloop/internal/event"
 	"github.com/FinanceNik/Freeloop/internal/secrets"
 	"github.com/FinanceNik/Freeloop/internal/store"
 )
@@ -67,10 +68,21 @@ type Server struct {
 	devices []config.Device
 	// streams cancel what a phone has open, so signing it out ends them at once.
 	streams map[string]map[int]context.CancelFunc
+	// looking counts each phone's open event streams: a phone with one is being looked
+	// at, and gets no push.
+	looking map[string]int
 	nextRun int
 	vapid   *ecdsa.PrivateKey
+	// vapidMu makes the push key once. It is held while the keyring is read or written,
+	// which can wait on the system's prompt, so s.mu is not.
+	vapidMu sync.Mutex
 	// pushClient sends to push services; nil means newPushClient(), tests set their own.
 	pushClient *http.Client
+	// The streams' keep-alive and the longest one write to a stream may take; tests
+	// shorten them.
+	keepAlive, writeWait time.Duration
+	// subscribe is the engine's event bus; tests have it drop events.
+	subscribe func() (<-chan event.Event, func())
 }
 
 // pairing is an open pairing window: the code the phone sends, and the phone that
@@ -83,19 +95,20 @@ type pairing struct {
 }
 
 type claim struct {
-	id      string
-	name    string
-	login   string
-	answer  string // "", "allowed" or "refused"
-	token   string
-	device  string
+	id     string
+	name   string
+	login  string
+	answer string // "", "allowed" or "refused"
+	token  string
+	// device is the phone allowed, kept only once it took its key.
+	device  config.Device
 	claimed time.Time
 }
 
 // New makes the server for eng, its phone app's files under assets (the built
 // frontend's phone/ folder).
 func New(eng *engine.Engine, dataDir string, keys secrets.Store, assets fs.FS) *Server {
-	s := &Server{eng: eng, keys: keys, dataDir: dataDir, assets: assets, now: time.Now}
+	s := &Server{eng: eng, keys: keys, dataDir: dataDir, assets: assets, now: time.Now, keepAlive: keepAlive, writeWait: writeWait, subscribe: eng.Subscribe}
 	if d, err := config.LoadDevices(dataDir); err == nil {
 		s.devices = d
 	} else {
@@ -222,7 +235,9 @@ func (s *Server) StartPairing() (PairingStatus, error) {
 }
 
 // AnswerPairing is the user's answer, on this computer, to the phone waiting in the
-// pairing window. Only allowed makes a device.
+// pairing window. Only allowed makes a device, and only once the phone took its key
+// (pairAnswer): one that never comes for it, as when it lost its connection, leaves
+// nothing when the window closes.
 func (s *Server) AnswerPairing(allow bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -237,12 +252,8 @@ func (s *Server) AnswerPairing(allow bool) error {
 	}
 	token := make([]byte, 32)
 	rand.Read(token)
-	d := config.Device{ID: newID(), Name: p.claim.name, TokenHash: hashToken(token), Login: p.claim.login, Paired: s.now().UTC(), LastSeen: s.now().UTC()}
-	if err := config.SaveDevices(s.dataDir, append(append([]config.Device{}, s.devices...), d)); err != nil {
-		return err
-	}
-	s.devices = append(s.devices, d)
-	p.claim.answer, p.claim.token, p.claim.device = "allowed", base64.RawURLEncoding.EncodeToString(token), d.ID
+	d := config.Device{ID: newID(), Name: p.claim.name, TokenHash: hashToken(token), Login: p.claim.login}
+	p.claim.answer, p.claim.token, p.claim.device = "allowed", base64.RawURLEncoding.EncodeToString(token), d
 	return nil
 }
 
@@ -570,21 +581,30 @@ func (s *Server) pair(w http.ResponseWriter, r *http.Request) {
 }
 
 // pairAnswer tells a waiting phone the user's answer, and with "allowed" its key,
-// once.
+// once, while the window is open. The phone is paired as its key goes out.
 func (s *Server) pairAnswer(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	s.mu.Lock()
 	var c *claim
-	if s.pairing != nil && s.pairing.claim != nil && s.pairing.claim.id == id {
-		c = s.pairing.claim
+	if p := s.openPairing(); p != nil && p.claim != nil && p.claim.id == id {
+		c = p.claim
 	}
 	var token string
 	answer := ""
 	if c != nil {
 		answer, token = c.answer, c.token
-		if answer == "allowed" {
-			s.pairing = nil // the key goes out once
+	}
+	if answer == "allowed" {
+		d := c.device
+		d.Paired, d.LastSeen = s.now().UTC(), s.now().UTC()
+		if err := config.SaveDevices(s.dataDir, append(append([]config.Device{}, s.devices...), d)); err != nil {
+			// The window stays open, so the phone may ask again.
+			s.mu.Unlock()
+			failed(w, http.StatusInternalServerError, err)
+			return
 		}
+		s.devices = append(s.devices, d)
+		s.pairing = nil // the key goes out once
 	}
 	s.mu.Unlock()
 	switch {

@@ -1,6 +1,6 @@
 import { beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { draftOf, extrasOf, forgetDraft, pruneDrafts, rememberDraft, rememberExtras, storeDraft, useDraftStorage } from "./drafts.ts";
+import { draftOf, extrasOf, forgetDraft, forgetSent, pruneDrafts, rememberDraft, rememberExtras, storeDraft, unsentOf, unsentText, useDraftStorage } from "./drafts.ts";
 
 function fakeStorage() {
   const m = new Map<string, string>();
@@ -113,4 +113,50 @@ test("without storage it still works in memory", async () => {
   assert.equal(draftOf(sid), "kept");
   rememberDraft(sid, "");
   assert.equal(draftOf(sid), "");
+});
+
+test("once a message is taken, only what was sent leaves the box", () => {
+  assert.equal(unsentText("fix the test", "fix the test"), "");
+  assert.equal(unsentText("  fix the test \n", "  fix the test \n"), "");
+  // Typed after it while the engine was starting the agent.
+  assert.equal(unsentText("fix the test\nand the docs", "fix the test"), "and the docs");
+  assert.equal(unsentText("fix the test and", "fix the test "), "and");
+  // Written anew, or changed inside what was sent: nothing typed is thrown away.
+  assert.equal(unsentText("something else", "fix the test"), "something else");
+  assert.equal(unsentText("fix a test", "fix the test"), "fix a test");
+  // A message of pictures only leaves what was typed meanwhile.
+  assert.equal(unsentText("about these", ""), "about these");
+  const a = { name: "a" };
+  const b = { name: "b" };
+  assert.deepEqual(unsentOf([a, b], [a]), [b]);
+  assert.deepEqual(unsentOf([b], [a]), [b]);
+});
+
+test("what was typed and attached while a message was being taken stays, stored too", async () => {
+  const a = { name: "a" };
+  const b = { name: "b" };
+  rememberDraft(sid, "first part");
+  rememberExtras(sid, { attached: [a], pictures: [] });
+  // The view sends, then the user goes on typing and attaching while the engine waits.
+  rememberDraft(sid, "first part\nsecond part");
+  rememberExtras(sid, { attached: [a, b], pictures: [] });
+  forgetSent(sid, { text: "first part", extras: { attached: [a], pictures: [] } }, same);
+  assert.equal(draftOf(sid), "second part");
+  assert.deepEqual(extrasOf(sid), { attached: [b], pictures: [] });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(disk.getItem(`freeloop.draft.${sid}`), "second part");
+  // Nothing new: the box and the stored copy are empty.
+  forgetSent(sid, { text: "second part", extras: { attached: [b] } }, same);
+  assert.equal(draftOf(sid), "");
+  assert.deepEqual(extrasOf(sid), { attached: [], pictures: [] });
+  assert.equal(disk.m.size, 0);
+});
+
+test("a command that sends no attachments leaves them", () => {
+  const a = { name: "a" };
+  rememberDraft(sid, "/review");
+  rememberExtras(sid, { attached: [a] });
+  forgetSent(sid, { text: "/review" }, same);
+  assert.equal(draftOf(sid), "");
+  assert.deepEqual(extrasOf(sid), { attached: [a] });
 });

@@ -3,7 +3,7 @@
 // page's own storage and sent as a header on every call, streams included, and never
 // as a cookie, which the browser would send to every port of the same host (SEC-020).
 import type { TranscriptEvent } from "../transcript.ts";
-import { parseSSE, reconnectDelay, type PhoneOption, type SSEMessage } from "./phone.ts";
+import { parseSSE, reconnectDelay, whileShown, type PhoneOption, type Shown, type SSEMessage } from "./phone.ts";
 
 const KEY = "freeloop.phone.key";
 
@@ -92,48 +92,53 @@ export const api = {
 
 // follow reads a server-sent stream with fetch, so the key goes as a header, and takes
 // it up again after a pause when it drops, from the last message's ID. It tells onLost
-// each time the connection ends or fails, and stops by itself on a refusal.
-function follow(url: string, on: (m: SSEMessage) => void, onLost: () => void): () => void {
-  const abort = new AbortController();
-  void (async () => {
-    let attempt = 0;
-    let lastId = "";
-    while (!abort.signal.aborted) {
-      try {
-        const r = await fetch(url, {
-          credentials: "omit",
-          signal: abort.signal,
-          headers: { ...authHeaders(), ...(lastId ? { "Last-Event-ID": lastId } : {}) },
-        });
-        if (r.status === 401) {
-          localStorage.removeItem(KEY);
-          onLost();
-          return;
-        }
-        if (!r.ok || !r.body) throw new Error(r.statusText);
-        const reader = r.body.getReader();
-        const decoder = new TextDecoder();
-        let rest = "";
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          attempt = 0;
-          const out = parseSSE(rest, decoder.decode(value, { stream: true }));
-          rest = out.rest;
-          for (const m of out.messages) {
-            if (m.id) lastId = m.id;
-            on(m);
+// each time the connection ends or fails, and stops by itself on a refusal. The stream is
+// open only while the page is shown (whileShown): hidden, as on a locked phone, it is
+// closed, so the computer pushes to the phone instead (issue 076), and shown again it
+// goes on from where it was. Closed so, it was not lost: onLost hears nothing.
+export function follow(url: string, on: (m: SSEMessage) => void, onLost: () => void, page: Shown = document): () => void {
+  let lastId = "";
+  return whileShown(page, () => {
+    const abort = new AbortController();
+    void (async () => {
+      let attempt = 0;
+      while (!abort.signal.aborted) {
+        try {
+          const r = await fetch(url, {
+            credentials: "omit",
+            signal: abort.signal,
+            headers: { ...authHeaders(), ...(lastId ? { "Last-Event-ID": lastId } : {}) },
+          });
+          if (r.status === 401) {
+            localStorage.removeItem(KEY);
+            onLost();
+            return;
           }
+          if (!r.ok || !r.body) throw new Error(r.statusText);
+          const reader = r.body.getReader();
+          const decoder = new TextDecoder();
+          let rest = "";
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            attempt = 0;
+            const out = parseSSE(rest, decoder.decode(value, { stream: true }));
+            rest = out.rest;
+            for (const m of out.messages) {
+              if (m.id) lastId = m.id;
+              on(m);
+            }
+          }
+        } catch {
+          if (abort.signal.aborted) return;
         }
-      } catch {
         if (abort.signal.aborted) return;
+        onLost();
+        await new Promise((resolve) => setTimeout(resolve, reconnectDelay(attempt++)));
       }
-      if (abort.signal.aborted) return;
-      onLost();
-      await new Promise((resolve) => setTimeout(resolve, reconnectDelay(attempt++)));
-    }
-  })();
-  return () => abort.abort();
+    })();
+    return () => abort.abort();
+  });
 }
 
 // followSummary calls back with every summary the server sends; each connection

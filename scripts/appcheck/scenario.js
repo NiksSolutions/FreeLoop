@@ -843,6 +843,22 @@ await step("the panel's tabs clear its close button", async () => {
   check("the panel's tabs clear its close button", last.getBoundingClientRect().right <= close.getBoundingClientRect().left + 1 && list.scrollWidth <= list.clientWidth, `the last tab ends at ${Math.round(last.getBoundingClientRect().right)}, the button starts at ${Math.round(close.getBoundingClientRect().left)}`);
 });
 
+// The header's title is renamed in place; Escape leaves it as it was, and the blur
+// that follows saves nothing.
+await step("Escape cancels renaming in the header", async () => {
+  const title = await until("the header's title", () => activePane().querySelector(".session-header h2"));
+  const was = title.textContent;
+  title.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+  const field = await until("the title field", () => named(".session-header input", "Session title", activePane()), 2000);
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(field, "Half typed");
+  field.dispatchEvent(new Event("input", { bubbles: true }));
+  await sleep(50);
+  field.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  await until("the title back", () => activePane().querySelector(".session-header h2"), 2000);
+  await sleep(500);
+  check("Escape cancels a rename in the header", activePane().querySelector(".session-header h2").textContent === was && !withText(".session-row", "Half typed"), activePane().querySelector(".session-header h2").textContent);
+});
+
 await step("the year at a glance", async () => {
   named(".footer-links button", "Usage").click();
   const box = await until("the overview", () => document.querySelector(".usage-overview"), 8000);
@@ -2226,6 +2242,14 @@ await step("a workflow slices a brief and runs its issues AFK", async () => {
   withText(".workflow-next", "Next: Run the AFK issues", strip).click();
   const dialog = await until("the run's dialog", () => document.querySelector(".afk-dialog"), 8000);
   await until("the plan", () => dialog.textContent.includes("First:"), 8000);
+  // A modal dialog holds the focus (NFR-A11Y-002): its first control once the plan is
+  // read, and Tab from its last control goes round to the first.
+  const first = await until("the focus on its first control", () => document.activeElement?.tagName === "SELECT" && dialog.contains(document.activeElement) && document.activeElement, 4000).catch(() => null);
+  check("the run's dialog takes the focus", !!first, document.activeElement?.outerHTML.slice(0, 80));
+  const cancel = all("button", dialog).at(-1);
+  cancel.focus();
+  cancel.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true }));
+  check("Tab stays in the dialog", !!first && document.activeElement === first, document.activeElement?.outerHTML.slice(0, 80));
   check("the dialog says what it does first", dialog.textContent.includes("First slice"), dialog.textContent.slice(0, 160));
   check("the dialog offers the run's commands", dialog.textContent.includes("git commit *"), dialog.textContent.slice(0, 300));
   const queuePaused = dialog.textContent.includes("The queue is paused");

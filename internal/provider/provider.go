@@ -164,11 +164,16 @@ type ToolSpec struct {
 
 // ChatRequest is one model call.
 type ChatRequest struct {
-	Model     string
-	System    string
-	Messages  []Message
-	Tools     []ToolSpec
-	MaxTokens int
+	Model    string
+	System   string
+	Messages []Message
+	Tools    []ToolSpec
+	// NoToolCalls keeps the model from calling the tools, where the API can say
+	// so (Anthropic, OpenAI's Responses, Gemini; the others ignore it). The tools
+	// still go with the request, as an API may require when the history holds
+	// tool calls: compaction's summary request.
+	NoToolCalls bool
+	MaxTokens   int
 	// Effort is low, medium, high, xhigh or max; ignored when unsupported.
 	Effort string
 }

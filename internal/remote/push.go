@@ -27,12 +27,17 @@ var vapidRef = secrets.Ref{Service: "freeloop", Account: "phone/vapid"}
 
 var rawKey = base64.RawURLEncoding
 
-// vapidKey is the app's VAPID key, made on first use and read from Secrets after.
+// vapidKey is the app's VAPID key, made on first use and read from Secrets after. The
+// keyring may wait on the system's prompt, so it is asked outside s.mu: the phones'
+// calls and Settings' status go on meanwhile.
 func (s *Server) vapidKey() (*ecdsa.PrivateKey, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.vapid != nil {
-		return s.vapid, nil
+	if k := s.keptVapid(); k != nil {
+		return k, nil
+	}
+	s.vapidMu.Lock()
+	defer s.vapidMu.Unlock()
+	if k := s.keptVapid(); k != nil {
+		return k, nil // made while this call waited
 	}
 	stored, err := s.keys.Get(vapidRef)
 	var k *ecdh.PrivateKey
@@ -59,8 +64,16 @@ func (s *Server) vapidKey() (*ecdsa.PrivateKey, error) {
 	if err != nil {
 		return nil, err
 	}
+	s.mu.Lock()
 	s.vapid = key
+	s.mu.Unlock()
 	return key, nil
+}
+
+func (s *Server) keptVapid() *ecdsa.PrivateKey {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.vapid
 }
 
 // toECDSA converts the key to the form that signs the VAPID token (issue 029).

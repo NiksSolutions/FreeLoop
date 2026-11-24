@@ -153,12 +153,15 @@ var blanks = regexp.MustCompile(`[ \t]+`)
 func exactForm(cmd string) string { return strings.TrimSpace(blanks.ReplaceAllString(cmd, " ")) }
 
 // wrappers run the command that follows them, with the options that take a
-// separate value, which must not be read as the command.
+// value, which must not be read as the command. env's -S is read on its own (envSplit).
 var wrappers = map[string]string{
-	"env": "uCS", "command": "", "exec": "a", "nohup": "", "time": "fo", "builtin": "", "nice": "n", "sudo": "ughpCrtUD", "doas": "uC",
+	"env": "uCPLU", "command": "", "exec": "a", "nohup": "", "time": "fo", "builtin": "", "nice": "n", "sudo": "ughpCrtUD", "doas": "uC",
 	"ionice": "cnp", "stdbuf": "ioe", "caffeinate": "tw", "xargs": "EILPdnsJR", "watch": "n", "timeout": "ks",
-	// zsh's precommand modifiers, which run what follows them.
-	"noglob": "", "nocorrect": "",
+	// zsh's precommand modifiers, which run what follows them, and its repeat, which
+	// runs it a number of times.
+	"noglob": "", "nocorrect": "", "-": "", "repeat": "",
+	// Multi-call programs, which run the program they name: busybox sh -c '…'.
+	"busybox": "", "toybox": "",
 	// A token optimizer's front end (HRN-019).
 	"rtk": "",
 }
@@ -166,12 +169,133 @@ var wrappers = map[string]string{
 // rtkRunners are rtk's commands that run the command after them.
 var rtkRunners = []string{"proxy", "bypass", "run", "err", "test", "summary"}
 
-// keywords come before a command without being one.
-var keywords = []string{"!", "if", "then", "elif", "else", "do", "while", "until", "time"}
+// keywords come before a command without being one. time is a wrapper, so that its
+// options are not read as the command: time -p curl x runs curl.
+var keywords = []string{"!", "if", "then", "elif", "else", "do", "while", "until"}
 
-// shellC finds what sh -c runs. The program word has been through programName, so
-// /usr/bin/BASH and bash.exe are bash here.
-var shellC = regexp.MustCompile(`^(?:sh|bash|zsh|dash|ksh|ash|mksh|yash|fish|csh|tcsh)\s+(?:--?[a-zA-Z-]+\s+)*?-[a-z]*c[a-z]*\s+(.*)$`)
+// shells run the line after -c, or the commands they read from their input. The
+// program word has been through programName, so /usr/bin/BASH and bash.exe are bash.
+var shells = []string{"sh", "bash", "zsh", "dash", "ksh", "ash", "mksh", "yash", "fish", "csh", "tcsh"}
+
+// shellValued are the shells' long options that take a separate value.
+var shellValued = []string{"rcfile", "init-file", "emulate", "debug", "debug-output", "profile", "features"}
+
+// shellLine returns the line a shell runs with -c (fish's --command, and its -C, which
+// runs before what it reads), and whether it reads its commands from its input instead,
+// which no rule sees: with neither -c nor a script, with -s, or with - where the script
+// would be (echo 'git push' | sh, sh <<< …). The options that take a value (-o, +o, -O,
+// +O, --rcfile) are skipped with it, so bash -O extglob -c 'git push' runs git push. A
+// script runs its own lines, as a Makefile does.
+func shellLine(shell string, words []string) (line string, fromInput bool) {
+	command, stdin := false, false
+	i := 0
+options:
+	for ; i < len(words); i++ {
+		w := words[i]
+		switch {
+		case w == "--" || w == "-":
+			i++
+			break options
+		case strings.HasPrefix(w, "--"):
+			name, value, attached := strings.Cut(w[2:], "=")
+			switch {
+			case (name == "command" || name == "init-command") && attached:
+				return strings.Join(append([]string{value}, words[i+1:]...), " "), false
+			case name == "command" || name == "init-command":
+				command = true
+			case name == "version" || name == "help":
+				return "", false
+			case slices.Contains(shellValued, name) && !attached:
+				i++
+			}
+		case len(w) > 1 && (w[0] == '-' || w[0] == '+'):
+			command = command || (w[0] == '-' && (strings.ContainsRune(w[1:], 'c') || (shell == "fish" && strings.ContainsRune(w[1:], 'C'))))
+			stdin = stdin || (w[0] == '-' && strings.ContainsRune(w[1:], 's'))
+			i += strings.Count(w[1:], "o") + strings.Count(w[1:], "O")
+		default:
+			break options
+		}
+	}
+	switch {
+	case command:
+		return strings.Join(words[min(i, len(words)):], " "), false
+	case stdin || i >= len(words):
+		return "", true
+	}
+	return "", false
+}
+
+// envSplit reads env's -S (--split-string), which splits the string after it into the
+// command env runs: env -S 'git push' runs git push. It returns what of the string is in
+// opt itself (-S'git push'), and false for an option that is not -S.
+func envSplit(opt string) (string, bool) {
+	if long, ok := strings.CutPrefix(opt, "--"); ok {
+		name, value, _ := strings.Cut(long, "=")
+		return value, name != "" && strings.HasPrefix("split-string", name)
+	}
+	for i, c := range opt[1:] {
+		switch {
+		case c == 'S':
+			return opt[2+i:], true
+		case strings.ContainsRune(wrappers["env"], c):
+			return "", false // the rest of the word is this option's value
+		}
+	}
+	return "", false
+}
+
+// redirection is a word that redirects a command's input or output: an optional
+// descriptor, the operator, and the target when it is in the same word.
+var redirection = regexp.MustCompile(`^(?:[0-9]+|\{[A-Za-z_][A-Za-z0-9_]*\})?(?:<<<|<<-|<<|<>|<&|>&|>>!|>>|>\||>!|&>>|&>|<|>)(.*)$`)
+
+// withoutRedirections takes the redirections out of a command's words, with their
+// targets, as the shell does before it runs it, wherever they stand: </dev/null git
+// push, 2>&1 git push and git 2>/dev/null push all run git push.
+func withoutRedirections(words []string) []string {
+	var out []string
+	for i := 0; i < len(words); i++ {
+		m := redirection.FindStringSubmatch(words[i])
+		switch {
+		case m == nil:
+			out = append(out, words[i])
+		case m[1] != "":
+			i = wordEnd(words, i, m[1])
+		case i+1 < len(words):
+			i = wordEnd(words, i+1, words[i+1])
+		}
+	}
+	return out
+}
+
+// wordEnd returns the index of the field that ends the shell word whose text in
+// fields[i] starts with text: a quote opened there closes in a later field, or at the
+// end of the line ('git push' after <<< is one word).
+func wordEnd(fields []string, i int, text string) int {
+	var quote rune
+	escaped := false
+	for {
+		for _, c := range text {
+			switch {
+			case escaped:
+				escaped = false
+			case c == '\\' && quote != '\'':
+				escaped = true
+			case quote == 0 && (c == '\'' || c == '"'):
+				quote = c
+			case c == quote:
+				quote = 0
+			}
+		}
+		if quote == 0 || i+1 >= len(fields) {
+			return i
+		}
+		i++
+		text = " " + fields[i]
+	}
+}
+
+// findRunners are find's actions that run the command after them, up to ; or +.
+var findRunners = []string{"-exec", "-execdir", "-ok", "-okdir"}
 
 // programName is how a deny rule reads a program word, so that every spelling of one
 // program is one name: the last name of a path split at either slash, without the
@@ -251,8 +375,8 @@ func cmdLine(words []string) (inner string, hidden bool) {
 			return "", true
 		}
 	}
-	// Without /c, cmd runs what it reads, which no rule sees.
-	return "", len(words) > 0
+	// Without /c, cmd runs what it reads, which no rule sees: echo git push | cmd.
+	return "", true
 }
 
 // quotedOperator reports a shell operator inside quotes in line.
@@ -322,12 +446,9 @@ func psLine(words []string) (inner string, hidden bool) {
 		break
 	}
 	if inner == "" {
-		// -Command with nothing after it is read from the input, or its line was cut at
-		// an operator inside its quotes.
-		return "", slices.ContainsFunc(words, func(w string) bool {
-			n := strings.ToLower(strings.TrimLeft(unquoted(w), "-/"))
-			return n != "" && (strings.HasPrefix("command", n) || n == "cwa")
-		})
+		// Without a command, or with -Command and nothing after it, PowerShell runs what
+		// it reads from its input; or the line was cut at an operator inside its quotes.
+		return "", true
 	}
 	if strings.ContainsAny(inner, "$`(){}&@+[]%") || strings.TrimSpace(unquoted(inner)) == "-" {
 		return inner, true
@@ -340,12 +461,21 @@ func psLine(words []string) (inner string, hidden bool) {
 	return inner, false
 }
 
-// substitution finds what $(...) and backticks run.
-var substitution = regexp.MustCompile("\\$\\(([^()]*)\\)|`([^`]*)`")
+// substitution finds what $(...), backticks and process substitution, <(...) and
+// >(...), run.
+var substitution = regexp.MustCompile("[$<>]\\(([^()]*)\\)|`([^`]*)`")
 
 // unquoted is how the shell reads a word's plain spelling: 'rm', "rm" and r\m are rm.
 func unquoted(word string) string {
 	return strings.NewReplacer("'", "", `"`, "", `\`, "").Replace(word)
+}
+
+func unquotedWords(words []string) []string {
+	out := make([]string, len(words))
+	for i, w := range words {
+		out[i] = unquoted(w)
+	}
+	return out
 }
 
 // simpleCommands returns the commands a line runs, unwrapped for matching
@@ -360,9 +490,11 @@ func simpleCommands(cmd string, depth int) []string {
 }
 
 // commandsOf is simpleCommands and what it could not see: the programs whose
-// subcommand is built when the line runs ("git $sub"), and "" for a line whose program
-// is. A deny rule cannot be compared with those, so nothing that only a rule allows
-// may go ahead while one could apply (SEC-003).
+// subcommand is built or renamed when the line runs ("git $sub", "git -c alias.p=push
+// p"), a program with the glob that may spell its subcommand ("git pu*h"), and "" for a
+// line whose program is built or read from a shell's input. A deny rule cannot be
+// compared with those, so nothing that only a rule allows may go ahead while one could
+// apply (SEC-003).
 func commandsOf(cmd string, depth int) (out, unseen []string) {
 	cmd = joinLines(cmd)
 	// What runs a line of its own (a substitution, sh -c, eval, cmd /c, -Command) is
@@ -381,13 +513,17 @@ func commandsOf(cmd string, depth int) (out, unseen []string) {
 	}
 	for _, seg := range segments(cmd) {
 		seg = strings.Trim(seg, "(){} \t'\"")
-		fields := strings.Fields(seg)
+		fields := withoutRedirections(strings.Fields(seg))
+		// env -S splits a string into the command it runs, and a GIT_CONFIG_ variable
+		// before git may give it an alias.
+		envS, gitConfig := false, false
+		wrapped := 0
 		for len(fields) > 0 {
 			// A subshell or a group after a keyword or a launcher: ! (git push),
 			// time { git push; }, if (git push); then (found by fuzzing on 2026-11-20).
 			if g := strings.TrimLeft(fields[0], "({"); g != fields[0] {
-				if fields = fields[1:]; g != "" {
-					fields = append([]string{g}, fields...)
+				if fields[0] = g; g == "" {
+					fields = fields[1:]
 				}
 				continue
 			}
@@ -401,27 +537,55 @@ func commandsOf(cmd string, depth int) (out, unseen []string) {
 			}
 			valued, wrapper := wrappers[name]
 			switch {
+			case f == "coproc":
+				// bash's and zsh's coproc runs the command after it, or the group after the
+				// name it gives it: coproc p { git push; }.
+				fields = fields[1:]
+				if len(fields) > 1 && strings.ContainsAny(fields[1][:1], "({") {
+					fields = fields[1:]
+				}
 			case slices.Contains(keywords, f):
 				fields = fields[1:]
+			case f == "function" && len(fields) > 1:
+				fields = fields[2:] // function f { git push; }: the body is read as commands
+			case strings.Index(fields[0], "()") > 0:
+				// f() { git push; } and f(){ … }: so is this one's.
+				if fields[0] = fields[0][strings.Index(fields[0], "()")+2:]; fields[0] == "" {
+					fields = fields[1:]
+				}
 			case strings.Contains(f, "=") && !strings.HasPrefix(f, "="):
+				gitConfig = gitConfig || strings.HasPrefix(f, "GIT_CONFIG")
 				fields = fields[1:] // VAR=value
 			case wrapper:
-				// A rule can name rtk itself, which runs what follows it.
-				if name == "rtk" {
-					out = append(out, "rtk "+strings.Join(fields[1:], " "))
+				// A rule can name the wrapper itself, which runs what follows it: deny
+				// sudo * stops sudo, whatever it runs. Past maxWrappers in one command
+				// the line is one the rules no longer read whole, as past maxDepth.
+				if wrapped++; wrapped <= maxWrappers {
+					out = append(out, strings.Join(append([]string{name}, unquotedWords(fields[1:])...), " "))
+				} else if wrapped == maxWrappers+1 {
+					unseen = append(unseen, "")
 				}
 				fields = fields[1:]
 				// Wrapper options such as env -i, and those with a value, such as
-				// env -u NAME and sudo -u root.
-				for len(fields) > 0 && strings.HasPrefix(fields[0], "-") {
-					takes := len(fields[0]) == 2 && strings.ContainsRune(valued, rune(fields[0][1]))
+				// env -u NAME, sudo -u root and env -iu NAME, where the value is the rest
+				// of the word or else the next word. repeat has none: its count is next.
+				for len(fields) > 0 && strings.HasPrefix(fields[0], "-") && name != "repeat" {
+					opt := fields[0]
+					if s, ok := envSplit(opt); ok && name == "env" {
+						if envS = true; s != "" {
+							fields[0] = s
+						} else {
+							fields = fields[1:]
+						}
+						break
+					}
 					fields = fields[1:]
-					if takes && len(fields) > 0 {
+					if i := strings.IndexAny(opt[1:], valued); i >= 0 && i == len(opt)-2 && !strings.HasPrefix(opt, "--") && len(fields) > 0 {
 						fields = fields[1:]
 					}
 				}
-				// timeout's first word is the time.
-				if name == "timeout" && len(fields) > 0 {
+				// timeout's first word is the time, and repeat's the count.
+				if (name == "timeout" || name == "repeat") && len(fields) > 0 {
 					fields = fields[1:]
 				}
 				// Some of rtk's own commands run what follows them.
@@ -447,12 +611,31 @@ func commandsOf(cmd string, depth int) (out, unseen []string) {
 		// The program by the name every spelling of it shares (programName).
 		names := programNames(raw[0])
 		fields[0] = names[0]
+		// Where the subcommand is, after git's own options, and whether they, or a
+		// GIT_CONFIG_ variable, may rename it.
+		sub, renamed := 1, false
+		if fields[0] == "git" {
+			sub, renamed = gitSubcommand(raw, fields)
+			renamed = renamed || gitConfig
+		}
 		switch {
-		case strings.ContainsAny(raw[0], "$`") || (strings.ContainsAny(raw[0], "*?[") && raw[0] != "[" && raw[0] != "[["):
-			// A glob in the program word is expanded to the program that runs.
+		case strings.ContainsAny(raw[0], "$`{}") || (strings.ContainsAny(raw[0], "*?[") && raw[0] != "[" && raw[0] != "[["):
+			// A glob or a brace in the program word is expanded to the program that runs.
 			unseen = append(unseen, "")
-		case len(raw) > 1 && strings.ContainsAny(raw[1], "$`"):
+		case fields[0] == "alias" && slices.ContainsFunc(fields[1:], func(w string) bool { return strings.Contains(w, "=") }):
+			// An alias defined on the line may rename what runs after it.
+			unseen = append(unseen, "")
+		case envS && slices.ContainsFunc(raw, func(w string) bool { return strings.Contains(w, `\`) }):
+			// env -S reads escapes of its own: env -S 'git\_push' runs git push.
+			unseen = append(unseen, "")
+		case renamed:
 			unseen = append(unseen, fields[0])
+		case sub < len(raw) && strings.ContainsAny(raw[sub], "$`"):
+			unseen = append(unseen, fields[0])
+		case sub < len(raw) && strings.ContainsAny(raw[sub], "*?[{"):
+			// A glob or a brace may spell the subcommand: git pu*h runs git push. Which
+			// words it may spell is for hidesFromDenyRules to say (mayExpand).
+			unseen = append(unseen, fields[0]+" "+fields[sub])
 		}
 		simple := strings.Join(fields, " ")
 		out = append(out, simple)
@@ -462,8 +645,32 @@ func commandsOf(cmd string, depth int) (out, unseen []string) {
 		if g := withoutGitOptions(fields); g != "" {
 			out = append(out, g)
 		}
-		if m := shellC.FindStringSubmatch(simple); m != nil {
-			follow(strings.Trim(m[1], "'\""))
+		if slices.Contains(shells, fields[0]) {
+			line, fromInput := shellLine(fields[0], fields[1:])
+			if fromInput {
+				unseen = append(unseen, "")
+			}
+			if line != "" {
+				follow(strings.Trim(line, "'\""))
+			}
+		}
+		// find runs the command after -exec and the like, up to ; or +, and with {} as
+		// the program, each file it finds, which no rule sees.
+		if fields[0] == "find" {
+			for i := 1; i < len(fields); i++ {
+				if !slices.Contains(findRunners, fields[i]) {
+					continue
+				}
+				end := i + 1
+				for end < len(fields) && fields[end] != ";" && fields[end] != "+" {
+					end++
+				}
+				if end > i+1 && strings.Contains(fields[i+1], "{}") {
+					unseen = append(unseen, "")
+				}
+				follow(strings.Join(raw[i+1:end], " "))
+				i = end
+			}
 		}
 		// eval runs its words as a line.
 		if fields[0] == "eval" && len(fields) > 1 {
@@ -492,29 +699,77 @@ func commandsOf(cmd string, depth int) (out, unseen []string) {
 	return out, unseen
 }
 
-// hidesFromDenyRules reports a line that builds its program, or the subcommand of a
-// program a shell deny rule names, when it runs: "$a push", "git $sub".
+// shellDenyRule reports a deny rule that compares shell commands.
+func shellDenyRule(r Rule) bool {
+	ok, _ := path.Match(r.Tool, "shell")
+	return ok && r.Effect == Deny && r.Command != ""
+}
+
+// hidesFromDenyRules reports a line that may run what a shell deny rule names without
+// showing it: a program built when it runs or read from a shell's input ("$a push",
+// "echo git push | sh"), or the subcommand of a program a rule names, built, renamed or
+// spelled by a glob that may be the rule's word ("git $sub", "git -c alias.p=push p",
+// "git pu*h").
 func hidesFromDenyRules(rules []Rule, cmd string) bool {
 	if cmd == "" {
 		return false
 	}
-	var programs []string
+	var patterns [][]string
 	for _, r := range rules {
-		if ok, _ := path.Match(r.Tool, "shell"); r.Effect == Deny && r.Command != "" && ok {
-			if f := strings.Fields(denyPattern(r.Command)); len(f) > 0 {
-				programs = append(programs, f[0])
-			}
+		if f := strings.Fields(denyPattern(r.Command)); shellDenyRule(r) && len(f) > 0 {
+			patterns = append(patterns, f)
 		}
 	}
-	if len(programs) == 0 {
+	if len(patterns) == 0 {
 		return false
 	}
 	_, unseen := commandsOf(cmd, 0)
-	return slices.ContainsFunc(unseen, func(p string) bool { return p == "" || slices.Contains(programs, p) })
+	return slices.ContainsFunc(unseen, func(u string) bool {
+		program, glob, globbed := strings.Cut(u, " ")
+		return u == "" || slices.ContainsFunc(patterns, func(f []string) bool {
+			return f[0] == program && (!globbed || len(f) < 2 || mayExpand(glob, f[1]))
+		})
+	})
+}
+
+// flagLetters are what a cluster of flags is written with.
+const flagLetters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+// mayExpand reports whether a word with a glob or a brace in it may become word, a deny
+// rule's word after its program, once the shell expands it: pu*h may be push, and * or
+// -?f may be -rf, a cluster of flags read as a set (flagSetMatches), while *.o may be
+// neither. A brace may be anything.
+func mayExpand(glob, word string) bool {
+	if word == "*" || strings.Contains(glob, "{") {
+		return true
+	}
+	if ok, err := path.Match(glob, word); ok || err != nil {
+		return true
+	}
+	return isCluster(word) && strings.ContainsAny(glob[:1], "-*?[") && strings.Trim(glob, flagLetters+"-*?[]!^") == ""
 }
 
 // gitValueOptions are git's global options that take a separate value.
 var gitValueOptions = []string{"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--super-prefix", "--attr-source", "--exec-path"}
+
+// gitSubcommand returns where a git command's subcommand is, after git's own options, and
+// whether those may rename it: an alias or an included file set with -c, or a -c value
+// built when the line runs, or --config-env, which sets anything from a variable.
+func gitSubcommand(raw, fields []string) (int, bool) {
+	renamed := false
+	i := 1
+	for i < len(fields) && strings.HasPrefix(fields[i], "-") {
+		opt, _, attached := strings.Cut(fields[i], "=")
+		renamed = renamed || opt == "--config-env"
+		if slices.Contains(gitValueOptions, opt) && opt != "--exec-path" && !attached && i+1 < len(fields) {
+			i++
+			key := strings.ToLower(fields[i])
+			renamed = renamed || (opt == "-c" && (strings.ContainsAny(raw[i], "$`") || strings.HasPrefix(key, "alias.") || strings.HasPrefix(key, "include")))
+		}
+		i++
+	}
+	return i, renamed
+}
 
 // withoutGitOptions returns a git command without the global options before
 // its subcommand, so a deny rule for "git push *" also matches
@@ -524,15 +779,8 @@ func withoutGitOptions(fields []string) string {
 	if fields[0] != "git" || len(fields) < 2 || !strings.HasPrefix(fields[1], "-") {
 		return ""
 	}
-	rest := fields[1:]
-	for len(rest) > 0 && strings.HasPrefix(rest[0], "-") {
-		if slices.Contains(gitValueOptions, rest[0]) && len(rest) > 1 && rest[0] != "--exec-path" {
-			rest = rest[2:]
-			continue
-		}
-		rest = rest[1:]
-	}
-	return strings.Join(append([]string{"git"}, rest...), " ")
+	i, _ := gitSubcommand(fields, fields)
+	return strings.Join(append([]string{"git"}, fields[i:]...), " ")
 }
 
 // unquotedLine is a line with its lines joined and every quote and backslash taken out.
@@ -547,6 +795,11 @@ func unquotedLine(cmd string) string {
 
 // maxDepth is how deep commandsOf follows lines that run lines of their own.
 const maxDepth = 3
+
+// maxWrappers is how many wrappers in one command commandsOf gives a line of their own,
+// for a rule that names one; a long chain of them would otherwise cost the square of
+// its length.
+const maxWrappers = 16
 
 // joinLines removes each backslash before a line break, as a shell does before it
 // reads the line: `git \⏎ push origin` runs git push, and a deny rule compared with its
@@ -579,12 +832,18 @@ func joinLines(cmd string) string {
 	return b.String()
 }
 
-// segments splits a command line at shell operators.
+// segments splits a command line at shell operators. An & right after < or > is part of
+// a redirection (2>&1), not an operator, and splitting there would cut off the command
+// after it; &> is split, which in sh it is.
 func segments(cmd string) []string {
 	parts := []string{cmd}
 	for _, op := range shellOperators {
 		var next []string
 		for _, p := range parts {
+			if op == "&" {
+				next = append(next, splitAmpersand(p)...)
+				continue
+			}
 			next = append(next, strings.Split(p, op)...)
 		}
 		parts = next
@@ -596,6 +855,19 @@ func segments(cmd string) []string {
 		}
 	}
 	return out
+}
+
+// splitAmpersand splits p at each & that does not follow < or >.
+func splitAmpersand(p string) []string {
+	var out []string
+	start := 0
+	for i := 0; i < len(p); i++ {
+		if p[i] == '&' && (i == 0 || (p[i-1] != '<' && p[i-1] != '>')) {
+			out = append(out, p[start:i])
+			start = i + 1
+		}
+	}
+	return append(out, p[start:])
 }
 
 func commandMatches(pattern, cmd string) bool {
@@ -632,7 +904,7 @@ func flagForm(words []string) []string {
 				w = short
 			}
 		}
-		if i > 0 && len(w) > 1 && w[0] == '-' && w[1] != '-' && strings.Trim(w[1:], "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ") == "" {
+		if i > 0 && len(w) > 1 && w[0] == '-' && w[1] != '-' && strings.Trim(w[1:], flagLetters) == "" {
 			if words[0] == "rm" {
 				w = strings.ReplaceAll(w, "R", "r") // rm's -R is its -r
 			}

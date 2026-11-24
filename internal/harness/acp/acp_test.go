@@ -14,6 +14,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	sdk "github.com/coder/acp-go-sdk"
 
@@ -694,6 +695,95 @@ func TestATerminalsOutputLimitIsCapped(t *testing.T) {
 		if got := said(rec); got != c.want {
 			t.Errorf("outputByteLimit %s: %q", c.limit, got)
 		}
+	}
+}
+
+// HRN-005: terminal/output returns what a command has printed so far while it
+// runs, so an agent watching a dev server or a test watch sees it.
+func TestATerminalsOutputShowsWhileItRuns(t *testing.T) {
+	s, rec := refAgent(t, "", nil)
+	prompt(t, s, "WATCH echo ready; sleep 0.5")
+	if got := rec.text(event.AgentMessageChunk); !strings.Contains(got, "output: ready, ended false") || !strings.Contains(got, `"ended"`) {
+		t.Errorf("the agent said %s", got)
+	}
+}
+
+// HRN-005: past its limit a terminal keeps the latest output, cut at whole
+// characters, as the protocol asks; a character still being written waits for the
+// next read.
+func TestATerminalsOutputKeepsTheEnd(t *testing.T) {
+	o := &termOutput{limit: 5}
+	o.Write([]byte("ab\xc3"))
+	if got, truncated := o.text(); got != "ab" || truncated {
+		t.Errorf("half a character: %q, %v", got, truncated)
+	}
+	o.Write([]byte("\xa9"))
+	if got, truncated := o.text(); got != "abé" || truncated {
+		t.Errorf("the whole character: %q, %v", got, truncated)
+	}
+	for range 10 {
+		o.Write([]byte("wörld"))
+	}
+	if got, truncated := o.text(); got != "rld" && got != "örld" || !truncated || !utf8.ValidString(got) {
+		t.Errorf("past the limit: %q, %v", got, truncated)
+	}
+	if len(o.buf) > 2*o.limit {
+		t.Errorf("holds %d bytes", len(o.buf))
+	}
+}
+
+// HRN-005: a turn that ends cancelled stops every terminal the agent started in it,
+// so Stop does not leave an approved command running; one started in an earlier turn,
+// which an agent may read in a later one, runs on.
+func TestStopEndsTheTurnsTerminals(t *testing.T) {
+	s, rec := refAgent(t, "", nil)
+	root := s.(*session).env.Root()
+	prompt(t, s, "BG sleep 30")
+	if got := said(rec); got != "started term-1" {
+		t.Fatalf("the agent said %q", got)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	type ended struct {
+		stop harness.StopReason
+		err  error
+	}
+	done := make(chan ended, 1)
+	go func() {
+		stop, err := s.Prompt(ctx, harness.Prompt{Text: "WATCH echo ready; sleep 2; echo late > survived"})
+		done <- ended{stop, err}
+	}()
+	for deadline := time.Now().Add(10 * time.Second); !strings.HasPrefix(said(rec), "output: ready"); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("the command did not start: %q", said(rec))
+		}
+	}
+	stopped := time.Now()
+	cancel()
+	select {
+	case e := <-done:
+		if e.stop != harness.StopCancelled || e.err != nil {
+			t.Errorf("turn ended %s, %v", e.stop, e.err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the turn did not end")
+	}
+	if waited := time.Since(stopped); waited > time.Second {
+		t.Errorf("the turn took %s to end after Stop", waited)
+	}
+	time.Sleep(time.Until(stopped.Add(2500 * time.Millisecond)))
+	if _, err := os.Stat(filepath.Join(root, "survived")); err == nil {
+		t.Error("the stopped turn's command ran on")
+	}
+	bg, err := s.(*session).terminal("term-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-bg.done:
+		t.Error("Stop ended a terminal of an earlier turn")
+	default:
 	}
 }
 

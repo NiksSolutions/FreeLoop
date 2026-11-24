@@ -10,7 +10,8 @@ import (
 // Telling the phone (GUI-052, issue 029). The engine's notices already follow the
 // notification switches and the muted projects, so the phone gets exactly what the
 // desktop would show; here they go to every phone that turned notifications on and
-// has no stream open (one that does is being looked at).
+// has no event stream open (one that does is being looked at; the phone app closes its
+// streams while hidden, as on a locked phone). Other calls in flight do not count.
 
 // pushKind is the kind the service worker has words for, from a notice's kind.
 func pushKind(noticeKind string) string {
@@ -37,7 +38,7 @@ func (s *Server) Notify(n engine.Notice) {
 	s.mu.Lock()
 	var ids []string
 	for _, d := range s.devices {
-		if d.Push != nil && len(s.streams[d.ID]) == 0 {
+		if d.Push != nil && s.looking[d.ID] == 0 {
 			ids = append(ids, d.ID)
 		}
 	}

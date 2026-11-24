@@ -13,6 +13,8 @@ import (
 
 	"github.com/FinanceNik/Freeloop/internal/environment"
 	"github.com/FinanceNik/Freeloop/internal/event"
+	"github.com/FinanceNik/Freeloop/internal/permission"
+	"github.com/FinanceNik/Freeloop/internal/session"
 )
 
 // Checkpoints (SES-014): before each prompt the session's folder is
@@ -179,10 +181,115 @@ func (e *Engine) checkpoint(r *runtime) {
 	e.emit(r.sid, event.Checkpoint, d)
 }
 
+// RewindPreview says what a rewind to the checkpoint at seq would do beyond the
+// session's own work. A checkpoint holds the whole folder, so other sessions working
+// in it (no worktree of their own, subagents, profile switches) lose what they changed
+// since: Others are those that ran a tool that may have changed files since then, and
+// Busy names one in a turn, which holds the rewind back until its turn ends.
+type RewindPreview struct {
+	Others []event.SessionRef `json:"others"`
+	Busy   string             `json:"busy,omitempty"`
+}
+
+// RewindPreview says what a rewind of sid to the checkpoint at seq would do to the
+// other sessions in its folder.
+func (e *Engine) RewindPreview(ctx context.Context, sid string, seq int64) (RewindPreview, error) {
+	ses, err := e.store.GetSession(ctx, sid)
+	if err != nil {
+		return RewindPreview{}, err
+	}
+	events, err := e.store.EventsLimit(ctx, sid, seq-1, 1)
+	if err != nil {
+		return RewindPreview{}, err
+	}
+	if len(events) != 1 || events[0].Seq != seq || events[0].Type != event.Checkpoint {
+		return RewindPreview{}, errors.New("there is no checkpoint there")
+	}
+	p, _ := e.rewindPreview(ctx, ses, events[0].TS)
+	return p, nil
+}
+
+// rewindPreview is RewindPreview from the checkpoint's time, with the other sessions
+// in the folder.
+func (e *Engine) rewindPreview(ctx context.Context, ses session.Session, since time.Time) (RewindPreview, []session.Session) {
+	p := RewindPreview{Others: []event.SessionRef{}}
+	sharing := e.sharingFolder(ctx, ses)
+	for _, o := range sharing {
+		if p.Busy == "" && e.turnRunning(o.ID) {
+			p.Busy = o.Title
+		}
+		if e.changedFilesSince(ctx, o.ID, since) {
+			p.Others = append(p.Others, event.SessionRef{SessionID: o.ID, Title: o.Title})
+		}
+	}
+	return p, sharing
+}
+
+// sharingFolder lists the sessions other than ses that work in its folder, archived
+// ones left out.
+func (e *Engine) sharingFolder(ctx context.Context, ses session.Session) []session.Session {
+	list, err := e.store.ListSessions(ctx)
+	if err != nil {
+		return nil
+	}
+	root := environment.Canonical(ses.WorkRoot())
+	var out []session.Session
+	for _, s := range list {
+		if s.ID != ses.ID && s.Status != session.StatusArchived && environment.Canonical(s.WorkRoot()) == root {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// changedFilesSince reports whether a session ran a tool after since that may have
+// changed files: one of any kind but reading, searching, thinking, fetching and
+// switching modes, that started running (a call refused or cancelled before it ran
+// changed nothing). It reads the transcript back to since.
+func (e *Engine) changedFilesSince(ctx context.Context, sid string, since time.Time) bool {
+	ran := map[string]bool{}
+	changed := false
+	e.store.ScanBack(ctx, sid, func(ev event.Event) bool {
+		if !ev.TS.After(since) {
+			// A call that ran after since but began before it: its kind is not
+			// known here, so it counts.
+			changed = len(ran) > 0
+			return true
+		}
+		var d struct {
+			ToolCallID string `json:"toolCallId"`
+			Status     string `json:"status"`
+			Kind       string `json:"kind"`
+		}
+		switch ev.Type {
+		case event.ToolCallUpdate, event.ToolCall:
+			json.Unmarshal(ev.Data, &d)
+		default:
+			return false
+		}
+		if d.Status == "in_progress" || d.Status == "completed" {
+			ran[d.ToolCallID] = true
+		}
+		if ev.Type != event.ToolCall || !ran[d.ToolCallID] {
+			return false
+		}
+		delete(ran, d.ToolCallID)
+		switch permission.Kind(d.Kind) {
+		case permission.KindRead, permission.KindSearch, permission.KindThink, permission.KindFetch, permission.KindSwitchMode:
+			return false
+		}
+		changed = true
+		return true
+	})
+	return changed
+}
+
 // Rewind restores the files of the checkpoint recorded at seq, after a
 // snapshot of the current state, and cuts the built-in harness's context
 // back to that point. Turns after it stay in the transcript, marked as
-// rewound by the rewind event.
+// rewound by the rewind event. The checkpoint holds the whole folder, so the
+// rewind is refused while another session working in it is in a turn, and one
+// that changed files since is told its files were rewound.
 func (e *Engine) Rewind(ctx context.Context, sid string, seq int64) error {
 	events, err := e.store.Events(ctx, sid, seq-1)
 	if err != nil {
@@ -194,6 +301,14 @@ func (e *Engine) Rewind(ctx context.Context, sid string, seq int64) error {
 	}
 	var cp event.CheckpointData
 	json.Unmarshal(events[i].Data, &cp)
+	ses, err := e.store.GetSession(ctx, sid)
+	if err != nil {
+		return err
+	}
+	preview, sharing := e.rewindPreview(ctx, ses, events[i].TS)
+	if preview.Busy != "" {
+		return errSharedTurn(preview.Busy)
+	}
 	// A compaction or an earlier rewind after the checkpoint replaced the
 	// history, so the checkpoint's length no longer points into it.
 	replaced := slices.ContainsFunc(events[i+1:], func(ev event.Event) bool {
@@ -224,6 +339,12 @@ func (e *Engine) Rewind(ctx context.Context, sid string, seq int64) error {
 	if err != nil {
 		return fmt.Errorf("save the current files: %w", err)
 	}
+	// A turn may have begun in the folder while the snapshot was taken.
+	for _, o := range sharing {
+		if e.turnRunning(o.ID) {
+			return errSharedTurn(o.Title)
+		}
+	}
 	if _, err := e.shadowGit(ctx, r.host, sid, checkpointTimeout, "read-tree", "--reset", "-u", cp.Commit); err != nil {
 		return fmt.Errorf("restore the files: %w", err)
 	}
@@ -233,6 +354,18 @@ func (e *Engine) Rewind(ctx context.Context, sid string, seq int64) error {
 		d.Context = true
 	}
 	e.emit(sid, event.Rewind, d)
+	for _, o := range preview.Others {
+		e.emit(o.SessionID, event.Notice, event.NoticeData{
+			Message:   fmt.Sprintf("The session %q rewound the files of this folder to before one of its messages: changes this session made since may be undone.", ses.Title),
+			RewoundBy: &event.SessionRef{SessionID: sid, Title: ses.Title},
+		})
+		e.gitChanged(o.SessionID)
+	}
 	e.gitChanged(sid)
 	return nil
+}
+
+// errSharedTurn refuses a rewind while another session in the folder is in a turn.
+func errSharedTurn(title string) error {
+	return fmt.Errorf("the session %q is in a turn in the same folder, and a rewind would change its files under it: rewind when that turn ends, or stop it", title)
 }

@@ -295,12 +295,8 @@ func main() {
 			desk.badge(eng.AttentionCount(context.Background()))
 		}
 	}()
-	go func() {
-		for n := range notices {
-			go ph.srv.Notify(n) // the phone hears of it too (GUI-052, issue 029)
-			desk.notice(n)
-		}
-	}()
+	// The phone hears of each notice too (GUI-052, issue 029).
+	go relayNotices(notices, ph.srv.Notify, desk.notice)
 	go func() {
 		for c := range configChanges {
 			app.Event.Emit(ConfigEventName, c)
@@ -309,6 +305,27 @@ func main() {
 
 	if err := app.Run(); err != nil {
 		log.Fatal(err)
+	}
+}
+
+// relayNotices hands each notice to the phone and to the desktop. The desktop's can
+// wait minutes on the system's permission prompt, so it takes them from a queue of its
+// own: the phone's push and the notices after it are not held up behind it, and a
+// burst that fills that queue drops notices for the desktop only.
+func relayNotices(notices <-chan engine.Notice, phone, desktop func(engine.Notice)) {
+	queue := make(chan engine.Notice, 64)
+	defer close(queue)
+	go func() {
+		for n := range queue {
+			desktop(n)
+		}
+	}()
+	for n := range notices {
+		go phone(n)
+		select {
+		case queue <- n:
+		default: // the attention view has them all
+		}
 	}
 }
 

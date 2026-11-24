@@ -79,6 +79,34 @@ export function reconnectDelay(attempt: number): number {
   return Math.min(500 * 2 ** attempt, 15000);
 }
 
+// A page as whileShown needs it: whether it is shown, and word when that changes.
+export interface Shown {
+  readonly visibilityState: DocumentVisibilityState;
+  addEventListener(type: "visibilitychange", listener: () => void): void;
+  removeEventListener(type: "visibilitychange", listener: () => void): void;
+}
+
+// whileShown keeps open what open opens only while the page is shown, closing it when
+// the page is hidden, as when the phone locks or another app comes to the front, and
+// opening it again when it is shown. The computer pushes nothing to a phone with a
+// stream open, so a hidden page must hold none (issue 076). Returns how to stop.
+export function whileShown(page: Shown, open: () => () => void): () => void {
+  let close: (() => void) | null = null;
+  const sync = () => {
+    if (page.visibilityState === "hidden") {
+      close?.();
+      close = null;
+    } else if (!close) close = open();
+  };
+  sync();
+  page.addEventListener("visibilitychange", sync);
+  return () => {
+    page.removeEventListener("visibilitychange", sync);
+    close?.();
+    close = null;
+  };
+}
+
 // applicationServerKey reads the server's push key (base64url) as the bytes a
 // browser's subscribe call takes.
 export function applicationServerKey(b64: string): Uint8Array<ArrayBuffer> {

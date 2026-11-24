@@ -187,6 +187,9 @@ func (p *Provider) config(req provider.ChatRequest) *genai.GenerateContentConfig
 			decls = append(decls, &genai.FunctionDeclaration{Name: t.Name, Description: t.Description, ParametersJsonSchema: t.InputSchema})
 		}
 		cfg.Tools = []*genai.Tool{{FunctionDeclarations: decls}}
+		if req.NoToolCalls {
+			cfg.ToolConfig = &genai.ToolConfig{FunctionCallingConfig: &genai.FunctionCallingConfig{Mode: genai.FunctionCallingConfigModeNone}}
+		}
 	}
 	if thinks(req.Model) {
 		cfg.ThinkingConfig = thinking(req.Model, req.Effort)

@@ -927,6 +927,7 @@ export const de = translationOf<typeof en>()({
   "transcript.handedOffAnother": "Fortgesetzt in „{title}“ mit einem anderen Profil.",
   "transcript.rewound": "Auf den Stand vor den abgeblendeten Runden zurückgesetzt: Die Dateien sind wiederhergestellt, und das Gespräch geht von dort weiter.",
   "transcript.rewoundFiles": "Dateien auf den Stand vor den abgeblendeten Runden zurückgesetzt; der Agent erinnert sich weiterhin an sie.",
+  "transcript.rewoundBy": "Die Sitzung „{title}“ hat die Dateien dieses Ordners auf den Stand vor einer ihrer Nachrichten zurückgesetzt: Was diese Sitzung seitdem geändert hat, ist möglicherweise rückgängig gemacht.",
   "transcript.env.ready": "Umgebung bereit.",
   "transcript.env.readyDetail": "Umgebung bereit: {detail}.",
   "transcript.env.unhealthy": "Umgebung gestört: {detail}",

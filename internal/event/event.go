@@ -347,6 +347,16 @@ type LimitWindow struct {
 // that is not an error.
 type NoticeData struct {
 	Message string `json:"message"`
+	// RewoundBy names another session whose rewind put back the files of the folder
+	// this one works in (SES-014), for the window to say so in its language; Message
+	// says it in English.
+	RewoundBy *SessionRef `json:"rewoundBy,omitempty"`
+}
+
+// SessionRef names a session in another's event.
+type SessionRef struct {
+	SessionID string `json:"sessionId"`
+	Title     string `json:"title"`
 }
 
 // ModelChangedData is the payload of model_changed (PRV-006).

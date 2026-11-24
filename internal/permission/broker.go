@@ -473,10 +473,16 @@ func (b *Broker) decide(pc Context, req Request, rules []Rule, rulesErr error) (
 		!slices.ContainsFunc(rules, func(r Rule) bool { return r.Effect == Deny && r.Path != "" })
 	rewrittenHidesPath := req.Kind == KindExecute && req.RewrittenReadOnly && !rewrittenReadOnly
 
-	// A command whose program or subcommand is built when it runs cannot be compared
-	// with a deny rule that might apply to it, so no allow rule approves it, and bypass
-	// mode refuses it: bypass asks no one, and a deny rule wins at every scope (SEC-003).
+	// A command whose program or subcommand is built when it runs, renamed, or read from
+	// a shell's input cannot be compared with a deny rule that might apply to it, so no
+	// allow rule approves it, and bypass mode refuses it: bypass asks no one, and a deny
+	// rule wins at every scope (SEC-003).
 	unseen := req.Kind == KindExecute && hidesFromDenyRules(rules, req.Command)
+	// The sandbox needs no approval, so nothing but a shell deny rule stands between the
+	// model and a command there, and the rule reads a line that may hide its command:
+	// unseen, or in an expansion. While such a rule could apply, the user decides, in
+	// plan mode's read-only sandbox too (issue 068).
+	hidden := unseen || (req.Kind == KindExecute && !plain(req.Command) && slices.ContainsFunc(rules, shellDenyRule))
 
 	switch pc.Mode {
 	case ModeBypass:
@@ -486,7 +492,7 @@ func (b *Broker) decide(pc Context, req Request, rules []Rule, rulesErr error) (
 			return Decision{}, false
 		}
 		if unseen {
-			return deny(ActorPolicy, "the command builds its program or subcommand when it runs, so your deny rules cannot be checked against it")
+			return deny(ActorPolicy, "the command builds, renames or reads from its input what it runs, so your deny rules cannot be checked against it")
 		}
 		return allow(ActorMode, "bypass mode")
 	case ModePlan:
@@ -494,6 +500,8 @@ func (b *Broker) decide(pc Context, req Request, rules []Rule, rulesErr error) (
 		case req.Kind == KindSwitchMode:
 			return Decision{}, false
 		case req.Kind.reads() || req.Kind == KindThink:
+		case req.Kind == KindExecute && req.Contained == ContainedReadOnly && hidden:
+			return Decision{}, false
 		case req.Kind == KindExecute && req.Contained == ContainedReadOnly:
 			return allow(ActorSandbox, "it runs in the sandbox, read-only")
 		case rewrittenReadOnly:
@@ -513,9 +521,7 @@ func (b *Broker) decide(pc Context, req Request, rules []Rule, rulesErr error) (
 		return allow(ActorPolicy, "it only reads inside the project")
 	}
 	if req.Kind == KindExecute && req.Contained != "" {
-		// Nothing else stands between the model and a deny rule here, and the rule
-		// reads a line that may hide its command in an expansion.
-		if !plain(req.Command) && slices.ContainsFunc(rules, func(r Rule) bool { return r.Effect == Deny && r.Tool == "shell" && r.Command != "" }) {
+		if hidden {
 			return Decision{}, false
 		}
 		return allow(ActorSandbox, "it runs in the sandbox")

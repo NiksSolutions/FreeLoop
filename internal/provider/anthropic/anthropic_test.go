@@ -250,3 +250,64 @@ func TestImagesInRequests(t *testing.T) {
 		}
 	}
 }
+
+// MCP-002: an MCP tool's schema comes from json.Unmarshal, so its
+// required list is a []any, and it may use any JSON Schema keyword. All of
+// it reaches the model, not only the properties.
+func TestWholeToolSchemaIsSent(t *testing.T) {
+	const raw = `{"type":"object","properties":{"item":{"$ref":"#/$defs/item"}},"required":["item"],` +
+		`"additionalProperties":false,"$defs":{"item":{"type":"object","properties":{"id":{"type":"integer"}},"required":["id"]}}}`
+	var schema map[string]any
+	if err := json.Unmarshal([]byte(raw), &schema); err != nil {
+		t.Fatal(err)
+	}
+	p := New(Options{APIKey: "k"})
+	params := p.params(provider.ChatRequest{Model: "claude-opus-5-5",
+		Messages: []provider.Message{{Role: provider.RoleUser, Parts: []provider.Part{{Type: provider.PartText, Text: "hi"}}}},
+		Tools:    []provider.ToolSpec{{Name: "mcp__db__put", Description: "Put", InputSchema: schema}},
+	})
+	body, err := json.Marshal(params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sent struct {
+		Tools []struct {
+			InputSchema json.RawMessage `json:"input_schema"`
+		} `json:"tools"`
+	}
+	json.Unmarshal(body, &sent)
+	if len(sent.Tools) != 1 {
+		t.Fatalf("tools = %s", body)
+	}
+	var got, want any
+	json.Unmarshal(sent.Tools[0].InputSchema, &got)
+	json.Unmarshal([]byte(raw), &want)
+	if g, w := fmt.Sprint(got), fmt.Sprint(want); g != w {
+		t.Errorf("input_schema = %s\nwant           %s", sent.Tools[0].InputSchema, raw)
+	}
+
+	// A built-in tool's schema goes out as before.
+	params = p.params(provider.ChatRequest{Model: "claude-opus-5-5",
+		Tools: []provider.ToolSpec{{Name: "read_file", InputSchema: map[string]any{
+			"type": "object", "properties": map[string]any{"path": map[string]any{"type": "string"}}, "required": []string{"path"},
+		}}},
+	})
+	body, _ = json.Marshal(params)
+	if !strings.Contains(string(body), `"input_schema":{"properties":{"path":{"type":"string"}},"required":["path"],"type":"object"}`) {
+		t.Errorf("built-in schema changed: %s", body)
+	}
+}
+
+// HRN-013: a request that may not call tools still offers them, with
+// tool_choice none, so a history of tool calls stays valid.
+func TestNoToolCalls(t *testing.T) {
+	p := New(Options{APIKey: "k"})
+	req := provider.ChatRequest{Model: "claude-opus-5-5", Tools: []provider.ToolSpec{{Name: "read_file", InputSchema: map[string]any{"type": "object"}}}}
+	for _, no := range []bool{false, true} {
+		req.NoToolCalls = no
+		body, _ := json.Marshal(p.params(req))
+		if got := strings.Contains(string(body), `"tool_choice":{"type":"none"}`); got != no || !strings.Contains(string(body), `"tools":[`) {
+			t.Errorf("NoToolCalls %v: %s", no, body)
+		}
+	}
+}

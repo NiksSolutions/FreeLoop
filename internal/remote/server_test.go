@@ -421,3 +421,39 @@ func TestPhoneAppInstallFilesAreServed(t *testing.T) {
 		t.Errorf("policy does not allow the worker and manifest: %s", csp)
 	}
 }
+
+// 076: a phone is paired only once it took its key. One allowed that never came for it,
+// as when it lost its connection, leaves nothing when the window closes, and the answer
+// is not given once the window's time is up.
+func TestAPhoneIsPairedOnlyOnceItTookItsKey(t *testing.T) {
+	_, s, p := started(t)
+	ps, err := s.StartPairing()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, out := p.do("POST", "/api/pair", map[string]string{"code": ps.Code, "name": "Lost phone"}, nil)
+	id, _ := out["id"].(string)
+	if err := s.AnswerPairing(true); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(s.Status().Devices); n != 0 {
+		t.Errorf("a phone that has not taken its key is listed: %d", n)
+	}
+	if d, _ := config.LoadDevices(s.dataDir); len(d) != 0 {
+		t.Errorf("a phone that has not taken its key is saved: %+v", d)
+	}
+	// The window's time runs out before the phone asks again.
+	s.now = func() time.Time { return time.Now().Add(pairLife + time.Minute) }
+	if _, out := p.do("GET", "/api/pair/"+id, nil, nil); out["answer"] != "refused" || out["token"] != nil {
+		t.Errorf("after the window closed: %v", out)
+	}
+	s.now = time.Now
+	if d, _ := config.LoadDevices(s.dataDir); len(d) != 0 || len(s.Status().Devices) != 0 {
+		t.Errorf("an uncollected phone was kept: %+v", d)
+	}
+	// Taken in time, it is paired.
+	pairPhone(t, s, p)
+	if d, _ := config.LoadDevices(s.dataDir); len(d) != 1 || len(s.Status().Devices) != 1 {
+		t.Errorf("devices after pairing: %+v", d)
+	}
+}

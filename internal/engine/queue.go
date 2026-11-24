@@ -16,6 +16,7 @@ import (
 	"github.com/FinanceNik/Freeloop/internal/environment"
 	"github.com/FinanceNik/Freeloop/internal/event"
 	"github.com/FinanceNik/Freeloop/internal/session"
+	"github.com/FinanceNik/Freeloop/internal/store"
 )
 
 // A queue of tasks (SES-025). Each check of the schedule loop starts waiting tasks,
@@ -49,6 +50,9 @@ func (e *Engine) changeQueue(fn func(q *config.Queue) error) (config.Queue, erro
 	// The schedule loop looks every 30 seconds; a queue it left as it was stays unwritten.
 	if now, _ := json.Marshal(q); bytes.Equal(was, now) {
 		return q, nil
+	}
+	if e.queueSave != nil {
+		return q, e.queueSave(e.dataDir, q)
 	}
 	return q, config.SaveQueue(e.dataDir, q)
 }
@@ -111,14 +115,35 @@ func (e *Engine) SetQueue(paused bool, limit int) (config.Queue, error) {
 }
 
 // runQueue brings running tasks' states up to date and starts what there is room for.
+// A task is saved as starting, with the ID its session will have, before its session
+// starts, and sessions start outside queueMu. A task a pass finds still starting was
+// started by one that could not record it (the app stopped, or the save failed): it
+// runs if its session is there and waits again if not, so it never starts twice.
 func (e *Engine) runQueue(ctx context.Context, now time.Time) {
+	e.queueRun.Lock()
+	defer e.queueRun.Unlock()
 	changed := false
+	var start []config.Task
 	q, err := e.changeQueue(func(q *config.Queue) error {
 		running := 0
 		for i := range q.Tasks {
 			t := &q.Tasks[i]
 			if t.State != config.TaskRunning {
 				continue
+			}
+			if t.Starting {
+				_, err := e.store.GetSession(ctx, t.SessionID)
+				switch {
+				case err == nil:
+					t.Starting, changed = false, true
+				case errors.Is(err, store.ErrNotFound):
+					t.State, t.Starting, t.SessionID, t.StartedAt, changed = config.TaskWaiting, false, "", time.Time{}, true
+					continue
+				default:
+					// Not known yet: it holds its place and is looked at again.
+					running++
+					continue
+				}
 			}
 			if state := e.taskState(ctx, t.SessionID); state != t.State {
 				t.State, changed = state, true
@@ -150,24 +175,55 @@ func (e *Engine) runQueue(ctx context.Context, now time.Time) {
 				}
 				continue
 			}
-			sid, err := e.startTask(ctx, *t)
-			t.SessionID, t.StartedAt, t.Note, changed = sid, now.UTC(), "", true
-			if err != nil {
-				t.State, t.Note = config.TaskFailed, err.Error()
-				continue
-			}
-			t.State = config.TaskRunning
+			t.State, t.Starting, t.SessionID, t.StartedAt, t.Note, changed = config.TaskRunning, true, session.NewID(time.Now()), now.UTC(), "", true
+			start = append(start, *t)
 			running++
 		}
 		return nil
 	})
 	if err != nil {
+		// Nothing starts that was not saved as starting.
 		log.Printf("engine: queue: %v", err)
 		return
 	}
 	if changed {
 		e.notifyQueue(q)
 	}
+	if len(start) == 0 {
+		return
+	}
+	failed := map[string]error{}
+	sids := map[string]string{}
+	for _, t := range start {
+		if e.taskStarting != nil {
+			e.taskStarting(t)
+		}
+		sid, err := e.startTask(ctx, t)
+		sids[t.ID] = sid
+		if err != nil {
+			failed[t.ID] = err
+		}
+	}
+	q, err = e.changeQueue(func(q *config.Queue) error {
+		for i := range q.Tasks {
+			t := &q.Tasks[i]
+			sid, ok := sids[t.ID]
+			if !ok || !t.Starting {
+				continue
+			}
+			t.Starting = false
+			if err := failed[t.ID]; err != nil {
+				t.State, t.SessionID, t.Note = config.TaskFailed, sid, err.Error()
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		// The tasks stay saved as starting: the next pass finds their sessions.
+		log.Printf("engine: queue: recording %d started tasks: %v", len(start), err)
+		return
+	}
+	e.notifyQueue(q)
 }
 
 // notifyQueue tells the interface that the queue changed.
@@ -295,10 +351,10 @@ func (e *Engine) limitNote(ctx context.Context, root, profileID string) string {
 	return ""
 }
 
-// startTask starts a task's session and sends its prompt.
+// startTask starts a task's session, with the ID saved for it, and sends its prompt.
 func (e *Engine) startTask(ctx context.Context, t config.Task) (string, error) {
 	req := CreateSessionRequest{Title: t.Title, ProjectRoot: t.ProjectRoot, ProfileID: t.ProfileID, Worktree: t.Worktree, Mode: t.Mode, EnvironmentID: t.EnvironmentID, Workflow: t.Workflow,
-		doing: t.RunID != ""}
+		doing: t.RunID != "", id: t.SessionID}
 	if t.ShareWorktreeOf != "" {
 		anchor, err := e.store.GetSession(ctx, t.ShareWorktreeOf)
 		if err != nil || anchor.Worktree == "" || !environment.IsDir(anchor.Worktree) {

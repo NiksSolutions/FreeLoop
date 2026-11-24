@@ -75,10 +75,12 @@ dmg: package notices ## Build bin/Freeloop.dmg from bin/Freeloop.app
 # The speech program a Mac app carries (GUI-050), in its bill and notices.
 NATIVE = $(if $(wildcard bin/Freeloop.app/Contents/MacOS/whisper-cli),-native bin/whisper-cli.json)
 
-# The licenses of everything in the app, which its licenses say must go with it.
+# The licenses of everything in the app, which its licenses say must go with it:
+# Go's from the toolchain's own folder, and the build fails on anything without
+# one that internal/sbom/licenses has no text for.
 notices: ## Write bin/THIRD_PARTY_NOTICES.txt from what bin/Freeloop.app was built with
 	go run ./cmd/freeloop-sbom -notices -modcache "$$(go env GOMODCACHE)" -node-modules frontend/node_modules \
-		-binary bin/Freeloop.app/Contents/MacOS/Freeloop $(NATIVE) \
+		-goroot "$$(go env GOROOT)" -binary bin/Freeloop.app/Contents/MacOS/Freeloop $(NATIVE) \
 		-version $(VERSION) < frontend/package-lock.json > bin/THIRD_PARTY_NOTICES.txt
 
 # Windows (NFR-XPLAT-003) is pure Go (WebView2 through go-webview2), so it
@@ -114,11 +116,17 @@ linux-package: frontend/node_modules bindings ## Build the Linux AppImage and .d
 	cd frontend && npm run build
 	for arch in $(LINUX_ARCHS); do $(MAKE) linux-package-arch LINUX_ARCH=$$arch || exit 1; done
 
+# The commit the Linux build is stamped with, worked out here as Taskfile.yml's
+# COMMIT is (short hash, +dirty, nothing outside a repository): the container
+# builds from a copy without .git, and a worktree's .git points outside the mount.
+LINUX_COMMIT = $(shell c=$$(git -c safe.directory='*' rev-parse --short=7 HEAD 2>/dev/null) || exit 0; \
+	if [ -n "$$(git -c safe.directory='*' status --porcelain 2>/dev/null)" ]; then c="$$c+dirty"; fi; echo "$$c")
+
 linux-package-arch: linux-image
 	mkdir -p bin
 	docker run --rm --platform linux/$(LINUX_ARCH) -v "$(CURDIR)":/src:ro -v "$(CURDIR)/bin":/out \
 		-v freeloop-linux-cache:/home/build/go -v freeloop-linux-buildcache:/home/build/.cache \
-		$(LINUX_IMAGE) sh /src/build/linux/package.sh
+		-e FREELOOP_COMMIT="$(LINUX_COMMIT)" $(LINUX_IMAGE) sh /src/build/linux/package.sh
 
 # A release holds what this machine can build (RELEASE_PLATFORMS): the Mac on a
 # Mac, Windows where makensis is, Linux where Docker runs. Naming them builds

@@ -38,6 +38,18 @@ func TestMain(m *testing.M) {
 		newFakeOAuth(nil)
 		select {}
 	}
+	if os.Getenv("FREELOOP_MCP_TEST_SERVER") == "collide" {
+		// Two tools whose safe names are the same.
+		s := sdk.NewServer(&sdk.Implementation{Name: "test", Version: "1"}, nil)
+		for _, name := range []string{"read.file", "read_file"} {
+			sdk.AddTool(s, &sdk.Tool{Name: name},
+				func(context.Context, *sdk.CallToolRequest, struct{}) (*sdk.CallToolResult, struct{}, error) {
+					return &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: "ran " + name}}}, struct{}{}, nil
+				})
+		}
+		s.Run(context.Background(), &sdk.StdioTransport{})
+		return
+	}
 	if os.Getenv("FREELOOP_MCP_TEST_SERVER") == "1" {
 		s := sdk.NewServer(&sdk.Implementation{Name: "test", Version: "1"}, nil)
 		sdk.AddTool(s, &sdk.Tool{Name: "echo", Description: "Echo text."},
@@ -187,6 +199,99 @@ func TestMCPToolNames(t *testing.T) {
 	long := mcpToolName("server", strings.Repeat("x", 80))
 	if len(long) != 64 || !strings.HasPrefix(long, "mcp__server__") || long == mcpToolName("server", strings.Repeat("x", 81)) {
 		t.Errorf("long name = %q", long)
+	}
+}
+
+// Two tools of one server whose safe names collide (read.file, read_file)
+// both stay callable under names of their own, whatever order the server
+// lists them in, and a rule lands only on the tool it names.
+func TestMCPToolNameCollision(t *testing.T) {
+	for _, tools := range [][]string{{"read.file", "read_file"}, {"read_file", "read.file"}} {
+		names := mcpToolNames("srv", tools)
+		plain := names[slices.Index(tools, "read_file")]
+		dotted := names[slices.Index(tools, "read.file")]
+		if plain != "mcp__srv__read_file" || dotted == plain || !strings.HasPrefix(dotted, "mcp__srv__read_file_") || len(dotted) > 64 {
+			t.Errorf("%v named %v", tools, names)
+		}
+	}
+	if names := mcpToolNames("srv", []string{"a.b", "a/b"}); names[0] == names[1] {
+		t.Errorf("a.b and a/b named %v", names)
+	}
+	long := strings.Repeat("x", 70)
+	if names := mcpToolNames("srv", []string{long + ".y", long + "_y"}); names[0] == names[1] || len(names[0]) > 64 || len(names[1]) > 64 {
+		t.Errorf("long names %v", names)
+	}
+
+	ctx := context.Background()
+	e := openTest(t, t.TempDir())
+	defer e.Close()
+	ch, cancel := e.Subscribe()
+	defer cancel()
+	exe, _ := os.Executable()
+	info, err := e.SaveMCPServer(SaveMCPServerRequest{
+		Server: config.MCPServer{ID: "test", Name: "Test", Transport: "stdio", Command: exe, Env: map[string]string{"FREELOOP_MCP_TEST_SERVER": "collide"}, Enabled: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info, err = e.ApproveMCPServer(ctx, "test", info.Fingerprint); err != nil || info.Status.State != mcp.Running {
+		t.Fatalf("approve = %+v, %v", info, err)
+	}
+	setProvider := func(p *scripted.Provider) {
+		e.mu.Lock()
+		e.providers.built["p"] = &configuredProvider{cfg: config.Provider{ID: "p", Name: "p", Type: "scripted"}, p: p}
+		e.mu.Unlock()
+	}
+	setProvider(scripted.New("p"))
+	ses, err := e.CreateSession(ctx, CreateSessionRequest{ProjectRoot: t.TempDir(), ProviderID: "p", Model: "m"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sm := sessionMCP{e: e, sid: ses.ID, projectID: ses.ProjectID, root: ses.ProjectRoot}
+	byTool := map[string]string{}
+	for _, tool := range sm.Tools() {
+		byTool[tool.Tool] = tool.Name
+	}
+	plain, dotted := byTool["read_file"], byTool["read.file"]
+	if plain != "mcp__test__read_file" || dotted == "" || dotted == plain {
+		t.Fatalf("tools = %+v", sm.Tools())
+	}
+	for name, want := range map[string]string{plain: "ran read_file", dotted: "ran read.file"} {
+		if text, isError, err := sm.Call(ctx, name, json.RawMessage(`{}`)); text != want || isError || err != nil {
+			t.Errorf("%s ran %q, %v, %v", name, text, isError, err)
+		}
+	}
+
+	// Allow names one tool and deny the other; each lands on its own.
+	if err := e.AddRule(permission.Rule{Effect: permission.Allow, Tool: plain}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.AddRule(permission.Rule{Effect: permission.Deny, Tool: dotted}); err != nil {
+		t.Fatal(err)
+	}
+	prov := scripted.New("p",
+		scripted.Step{Calls: []scripted.Call{{Name: plain, Input: map[string]any{}}}},
+		scripted.Step{Calls: []scripted.Call{{Name: dotted, Input: map[string]any{}}}},
+		scripted.Step{Text: "done"},
+	)
+	setProvider(prov)
+	e.Prompt(ctx, ses.ID, "go")
+	waitIdle(t, ch, ses.ID)
+	reqs := prov.Requests()
+	if len(reqs) != 3 || lastToolResult(reqs[1]) != "ran read_file" || strings.Contains(lastToolResult(reqs[2]), "ran read.file") {
+		t.Fatalf("results = %d requests, %q", len(reqs), lastToolResult(reqs[len(reqs)-1]))
+	}
+	var outcomes []permission.Outcome
+	evs, _ := e.Events(ctx, ses.ID, 0, 0)
+	for _, ev := range evs {
+		if ev.Type == event.PermissionDecided {
+			var d permission.Decision
+			json.Unmarshal(ev.Data, &d)
+			outcomes = append(outcomes, d.Outcome)
+		}
+	}
+	if !slices.Equal(outcomes, []permission.Outcome{permission.Allowed, permission.Denied}) {
+		t.Errorf("decisions = %v", outcomes)
 	}
 }
 

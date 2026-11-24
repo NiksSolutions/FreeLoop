@@ -23,7 +23,7 @@ Wil de agent iets doen waarover het beleid niet beslist, dan verschijnt een kaar
 
 Met de muis naar een van de eigen berichten wijzen:
 
-- **Tot hier terugspoelen** zet de bestanden en het gesprek terug naar vóór dat bericht, en het bericht weer in het vak. Eerst komt er een vraag.
+- **Tot hier terugspoelen** zet de bestanden en het gesprek terug naar vóór dat bericht, en het bericht weer in het vak. Eerst komt er een vraag. Teruggezet wordt de hele map: zolang in een andere sessie in dezelfde map een beurt loopt, kan dat niet, en een sessie daar die sindsdien bestanden heeft gewijzigd, krijgt een melding in haar gesprek.
 - **Hier aftakken** start een nieuwe sessie met het gesprek tot aan dat bericht.
 
 Is de context voor 80% vol, dan vat **Context comprimeren** in de kop het gesprek samen, zodat elk bericht minder verstuurt.

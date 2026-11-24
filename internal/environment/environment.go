@@ -8,6 +8,7 @@ package environment
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -65,6 +66,11 @@ type ExecSpec struct {
 	// SeparateStderr keeps standard error apart, in ExecResult.Stderr;
 	// Output then holds standard output only (hooks, EXT-005).
 	SeparateStderr bool
+	// Live, when set, also gets what Output gets as the command writes it,
+	// uncapped, so a caller can show it before the command ends (an agent's
+	// terminal, HRN-005). A failed write would stop the command's output, so
+	// it must not fail.
+	Live io.Writer
 	// In a sandboxed environment (ENV-009): Network replaces its reach for the
 	// user's own commands; ReadOnly also keeps the project from being written;
 	// OutsideSandbox runs the command unconfined, once the user has approved

@@ -309,3 +309,26 @@ func TestDatabaseFilesArePrivate(t *testing.T) {
 		}
 	}
 }
+
+// SES-025: a session can be made with an ID the caller saved before, once, and only
+// with one session.NewID could have made.
+func TestCreateSessionWithAnID(t *testing.T) {
+	ctx := context.Background()
+	s := openTest(t, t.TempDir(), nil)
+	id := session.NewID(time.Now())
+	ses, err := s.CreateSession(ctx, session.Session{ID: id, Title: "saved", HarnessID: "builtin"})
+	if err != nil || ses.ID != id {
+		t.Fatalf("session = %+v, %v", ses, err)
+	}
+	if got, err := s.GetSession(ctx, id); err != nil || got.Title != "saved" {
+		t.Errorf("got %+v, %v", got, err)
+	}
+	if _, err := s.CreateSession(ctx, session.Session{ID: id, Title: "again", HarnessID: "builtin"}); err == nil {
+		t.Error("a second session with the same ID")
+	}
+	for _, bad := range []string{"../x", "ses_../../../../tmp/abcdefghjkmnpqrstvwx", "prj_" + id[4:], id + "0"} {
+		if _, err := s.CreateSession(ctx, session.Session{ID: bad, HarnessID: "builtin"}); err == nil {
+			t.Errorf("made a session with the ID %q", bad)
+		}
+	}
+}
