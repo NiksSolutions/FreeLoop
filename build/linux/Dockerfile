@@ -48,6 +48,19 @@ RUN arch=$(dpkg --print-architecture); ldarch=$([ "$arch" = arm64 ] && echo aarc
  && curl -fsSLo /opt/linuxdeploy/linuxdeploy.AppImage "https://github.com/linuxdeploy/linuxdeploy/releases/download/${LINUXDEPLOY_VERSION}/linuxdeploy-${ldarch}.AppImage" \
  && echo "${ld_sha}  /opt/linuxdeploy/linuxdeploy.AppImage" | sha256sum -c - \
  && chmod 755 /opt/linuxdeploy/linuxdeploy.AppImage
+# The AppImage runtime, the program in front of every AppImage and the first code a
+# user runs, pinned: left to itself appimagetool downloads the newest from the
+# runtime's continuous release at each build (issue 078). Checked against the SHA-256
+# GitHub records for the release assets; the AppImage steps take it from here
+# (build/linux/Taskfile.yml, APPIMAGE_RUNTIME).
+ARG APPIMAGE_RUNTIME_VERSION=20251108
+ARG APPIMAGE_RUNTIME_SHA256_amd64=2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d
+ARG APPIMAGE_RUNTIME_SHA256_arm64=00cbdfcf917cc6c0ff6d3347d59e0ca1f7f45a6df1a428a0d6d8a78664d87444
+RUN arch=$(dpkg --print-architecture); rtarch=$([ "$arch" = arm64 ] && echo aarch64 || echo x86_64) \
+ && rt_sha=$([ "$arch" = arm64 ] && echo "$APPIMAGE_RUNTIME_SHA256_arm64" || echo "$APPIMAGE_RUNTIME_SHA256_amd64") \
+ && curl -fsSLo /opt/linuxdeploy/runtime "https://github.com/AppImage/type2-runtime/releases/download/${APPIMAGE_RUNTIME_VERSION}/runtime-${rtarch}" \
+ && echo "${rt_sha}  /opt/linuxdeploy/runtime" | sha256sum -c - \
+ && chmod 644 /opt/linuxdeploy/runtime
 
 # pasta (package passt), which gives the sandbox's localhost the host's loopback
 # ports (OQ-037). Ubuntu 22.04 has none, so it is built from the source of Ubuntu

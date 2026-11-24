@@ -19,6 +19,9 @@ vars:
   # A pinned linuxdeploy (the Dockerfile puts it there); wails3 would otherwise
   # download the moving "continuous" build.
   LINUXDEPLOY: '{{.LINUXDEPLOY | default "/opt/linuxdeploy/linuxdeploy.AppImage"}}'
+  # The pinned AppImage runtime (build/linux/Dockerfile): both linuxdeploy runs put it
+  # in front of the AppImage instead of downloading one (issue 078).
+  APPIMAGE_RUNTIME: '{{.APPIMAGE_RUNTIME | default "/opt/linuxdeploy/runtime"}}'
 
 tasks:
   build:
@@ -95,6 +98,8 @@ tasks:
     preconditions:
       - sh: test -x "{{.LINUXDEPLOY}}"
         msg: "no linuxdeploy at {{.LINUXDEPLOY}}: build in the image (make linux-package) or set LINUXDEPLOY to a pinned linuxdeploy AppImage"
+      - sh: test -s "{{.APPIMAGE_RUNTIME}}"
+        msg: "no AppImage runtime at {{.APPIMAGE_RUNTIME}}: build in the image (make linux-package) or set APPIMAGE_RUNTIME to a pinned type2-runtime"
     cmds:
       - rm -rf "{{.LINUX_OUT}}/appimage"
       - mkdir -p "{{.LINUX_OUT}}/appimage/build"
@@ -104,6 +109,7 @@ tasks:
       # The notices say what linuxdeploy copies from the system (carried in
       # internal/sbom/notices.go).
       - >-
+        LDAI_RUNTIME_FILE="{{.APPIMAGE_RUNTIME}}" APPIMAGETOOL_RUNTIME_FILE="{{.APPIMAGE_RUNTIME}}"
         wails3 generate appimage -binary "{{.LINUX_OUT}}/{{.LINUX_BINARY}}"
         -icon "{{.LINUX_OUT}}/appimage/{{.LINUX_BINARY}}.png" -desktopfile build/linux/freeloop.desktop
         -outputdir "{{.LINUX_OUT}}/appimage" -builddir "{{.LINUX_OUT}}/appimage/build"
@@ -117,11 +123,18 @@ tasks:
       - rm "{{.LINUX_OUT}}/appimage/{{.APPIMAGE}}"
       - >-
         cd "{{.LINUX_OUT}}/appimage/build" && OUTPUT="{{.APPIMAGE}}" NO_STRIP=1 ARCH="{{.APPIMAGE_ARCH}}"
+        LDAI_RUNTIME_FILE="{{.APPIMAGE_RUNTIME}}" APPIMAGETOOL_RUNTIME_FILE="{{.APPIMAGE_RUNTIME}}"
         "./linuxdeploy-{{.APPIMAGE_ARCH}}.AppImage" --appimage-extract-and-run --appdir "{{.LINUX_BINARY}}-{{.APPIMAGE_ARCH}}.AppDir" --output appimage
       # The notices are in the AppImage: take that one file out of it again.
       - >-
         cd "{{.LINUX_OUT}}/appimage" && "./build/{{.APPIMAGE}}" --appimage-extract "usr/share/doc/{{.LINUX_BINARY}}/THIRD_PARTY_NOTICES.txt" >/dev/null
         && cmp "squashfs-root/usr/share/doc/{{.LINUX_BINARY}}/THIRD_PARTY_NOTICES.txt" ../THIRD_PARTY_NOTICES.txt
+      # And its runtime is the pinned one: the squashfs starts where that file ends, and
+      # the ELF header is the same (appimagetool writes into the runtime's own sections
+      # only, after it).
+      - >-
+        cd "{{.LINUX_OUT}}/appimage" && test "$("./build/{{.APPIMAGE}}" --appimage-offset)" = "$(stat -c %s "{{.APPIMAGE_RUNTIME}}")"
+        && cmp -n 64 "./build/{{.APPIMAGE}}" "{{.APPIMAGE_RUNTIME}}"
       - mv "{{.LINUX_OUT}}/appimage/build/{{.APPIMAGE}}" "{{.BIN_DIR}}/{{.LINUX_PACKAGE}}.AppImage"
       - rm -rf "{{.LINUX_OUT}}/appimage"
       - echo "{{.BIN_DIR}}/{{.LINUX_PACKAGE}}.AppImage"
