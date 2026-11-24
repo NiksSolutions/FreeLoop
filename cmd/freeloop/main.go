@@ -330,11 +330,14 @@ func relayNotices(notices <-chan engine.Notice, phone, desktop func(engine.Notic
 }
 
 // secretStore is one keyring item holding every secret (the login keychain on a Mac, the
-// Secret Service on Linux, the Credential Manager on Windows), so a rebuild asks once. A served build, for checking the UI on scratch
-// data, can keep what it stores in memory with FREELOOP_DEV_SECRETS=memory, so a
-// scratch folder leaves nothing in the keyring and asks it nothing.
+// Secret Service on Linux, the Credential Manager on Windows), so a rebuild asks once. A
+// development build on scratch data (the app check's served build, memcheck, a hand
+// check with FREELOOP_HOME) keeps what it stores in memory with
+// FREELOOP_DEV_SECRETS=memory, so it leaves nothing in the keyring and asks it nothing:
+// a new build asking for the user's item makes macOS ask the user. A shipped build
+// reads no such switch.
 func secretStore() secrets.Store {
-	if servedBuild && devEnv("FREELOOP_DEV_SECRETS") == "memory" {
+	if devEnv("FREELOOP_DEV_SECRETS") == "memory" {
 		return secrets.NewMemory()
 	}
 	return secrets.NewVault(thisPlatform.Keys, "freeloop")

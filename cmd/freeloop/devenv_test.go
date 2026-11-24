@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/FinanceNik/Freeloop/internal/secrets"
 	"slices"
 	"testing"
 )
@@ -49,5 +50,21 @@ func TestDevEnvFollowsTheLinkTimeFlag(t *testing.T) {
 	t.Logf("shipped = %q", shipped)
 	if got := devEnv("FREELOOP_DEV_GH"); got != want {
 		t.Errorf("shipped = %q: devEnv = %q, want %q", shipped, got, want)
+	}
+}
+
+// A development build on scratch data keeps its secrets in memory when told to, the
+// packaged app as well as the served one: it ran memcheck and a hand check on
+// scratch data against the login keychain, and macOS asked the user. A shipped build
+// keeps them in the keychain whatever the environment says.
+func TestDevSecretsStayInMemory(t *testing.T) {
+	t.Setenv("FREELOOP_DEV_SECRETS", "memory")
+	_, inMemory := secretStore().(*secrets.Memory)
+	if want := shipped != "1"; inMemory != want {
+		t.Errorf("shipped = %q: secrets in memory = %v, want %v", shipped, inMemory, want)
+	}
+	t.Setenv("FREELOOP_DEV_SECRETS", "")
+	if _, ok := secretStore().(*secrets.Memory); ok {
+		t.Error("without the switch, secrets are kept in memory")
 	}
 }
