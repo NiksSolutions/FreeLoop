@@ -253,10 +253,11 @@ func TestCancelAndRecovery(t *testing.T) {
 	}
 	evs, _ := e.Events(ctx, ses.ID, 0, 0)
 	var types []string
-	for _, ev := range evs[len(evs)-3:] {
+	for _, ev := range evs[len(evs)-4:] {
 		types = append(types, string(ev.Type))
 	}
-	if strings.Join(types, ",") != "permission_decided,turn_ended,session_status" {
+	// The request is cancelled, and its call, which never ran, ends failed.
+	if strings.Join(types, ",") != "permission_decided,tool_call_update,turn_ended,session_status" {
 		t.Errorf("recovery events = %v", types)
 	}
 }

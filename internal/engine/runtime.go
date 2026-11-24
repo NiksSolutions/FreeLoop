@@ -883,7 +883,8 @@ func (e *Engine) PendingPermissions() []permission.Request {
 }
 
 // recover closes out sessions the app left mid-turn: pending requests are
-// recorded as cancelled, the open turn as ended, and the session as idle. Which
+// recorded as cancelled, the tool calls still running as failed, the open turn as
+// ended, and the session as idle. Which
 // sessions those are, the transcripts say, read from their ends: after a power loss
 // the database can be behind them, a row saying idle while its transcript ends inside
 // a turn (NFR-REL-001). A session at rest is not written to, so a second start has
@@ -908,6 +909,14 @@ func (e *Engine) recover(ctx context.Context) {
 				RequestID: id, ToolCallID: call, Outcome: permission.Cancelled, Actor: permission.ActorUser, Reason: "the app quit",
 			})
 		}
+		// A call the app was stopped in the middle of, as by a kill, would show as
+		// running for ever: it ends failed, saying why.
+		for _, call := range tail.running {
+			e.emit(ses.ID, event.ToolCallUpdate, map[string]any{
+				"toolCallId": call, "status": "failed",
+				"content": []any{map[string]any{"type": "content", "content": map[string]any{"type": "text", "text": "Freeloop stopped before it finished."}}},
+			})
+		}
 		if tail.inTurn {
 			e.emit(ses.ID, event.TurnEnded, event.TurnEndedData{StopReason: string(harness.StopCancelled)})
 		}
@@ -927,12 +936,13 @@ func busy(s session.Status) bool {
 
 // transcriptTail is what the end of a transcript says about its last turn: whether
 // it is still open, which of its permission requests are undecided (requestId to
-// toolCallId), and whether the last status recorded is busy, or was lost after the
-// turn ended.
+// toolCallId), which of its tool calls never finished, oldest first, and whether the
+// last status recorded is busy, or was lost after the turn ended.
 type transcriptTail struct {
-	inTurn bool
-	busy   bool
-	open   map[string]string
+	inTurn  bool
+	busy    bool
+	open    map[string]string
+	running []string
 }
 
 // readTail reads a transcript from its end only as far as the answer needs: back to
@@ -941,6 +951,8 @@ type transcriptTail struct {
 func (e *Engine) readTail(ctx context.Context, sid string) (transcriptTail, error) {
 	tail := transcriptTail{open: map[string]string{}}
 	decided := map[string]bool{}
+	finished := map[string]bool{}
+	var running []string
 	status := false
 	err := e.store.ScanBack(ctx, sid, func(ev event.Event) bool {
 		var d struct {
@@ -966,8 +978,19 @@ func (e *Engine) readTail(ctx context.Context, sid string) (transcriptTail, erro
 			if json.Unmarshal(ev.Data, &d); !decided[d.RequestID] {
 				tail.open[d.RequestID] = d.ToolCallID
 			}
+		case event.ToolCallUpdate:
+			if json.Unmarshal(ev.Data, &d); d.Status == "completed" || d.Status == "failed" {
+				finished[d.ToolCallID] = true
+			}
+		case event.ToolCall:
+			if json.Unmarshal(ev.Data, &d); d.Status != "completed" && d.Status != "failed" && !finished[d.ToolCallID] {
+				running = append(running, d.ToolCallID)
+			}
 		case event.TurnStarted:
 			tail.inTurn = true
+			// Read from the end, the calls came newest first.
+			slices.Reverse(running)
+			tail.running = running
 			return true
 		case event.TurnEnded:
 			// Every turn's end is followed by a status; one missing was lost.

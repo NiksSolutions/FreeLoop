@@ -287,7 +287,7 @@ A workflow is a method of work the app knows the steps of, after Matt Pocock's t
 
 ### Reliability and maintainability (NFR-REL)
 
-- **NFR-REL-001** · MVP · A GUI crash never loses transcript events already received (SES-002); sessions recover on relaunch. A session whose transcript ends inside a turn is recovered whatever its database row says, since after a power loss the row can be behind the transcript: its open requests are cancelled, its turn ended and its status set idle, read from the transcript's end.
+- **NFR-REL-001** · MVP · A GUI crash never loses transcript events already received (SES-002); sessions recover on relaunch. A session whose transcript ends inside a turn is recovered whatever its database row says, since after a power loss the row can be behind the transcript: its open requests are cancelled, the tool calls it left running ended failed, its turn ended and its status set idle, read from the transcript's end.
 - **NFR-REL-002** · MVP · An external harness or MCP server crash is isolated to its session and shown as an error; the next message starts the agent again.
 - **NFR-REL-003** · MVP · Engine packages have unit tests; the provider and ACP layers have replayable fixtures; CI runs the tests on every commit (on Linux and, since 2026-11-08, on Windows; not on macOS: chosen for what its minutes cost while the repository was private, and kept since it went public on 2026-11-13, when CI's minutes became free) and the macOS build, lint and real-app check on every tag and by hand; the weekly run checks the real agents only.
 - **NFR-REL-004** · v1 · Contributor documentation: architecture overview, how to add a provider, a harness preset, an environment.

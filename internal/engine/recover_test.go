@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -79,7 +80,7 @@ func TestRecoverClosesATurnTheRowLost(t *testing.T) {
 	db.Close()
 
 	e = openTest(t, dir)
-	if got := lastTypes(t, e, ses.ID, 3); got != "permission_decided,turn_ended,session_status" {
+	if got := lastTypes(t, e, ses.ID, 4); got != "permission_decided,tool_call_update,turn_ended,session_status" {
 		t.Errorf("the transcript ends with %s", got)
 	}
 	if got, _ := e.store.GetSession(ctx, ses.ID); got.Status != session.StatusIdle {
@@ -152,5 +153,59 @@ func TestRecoverReadsTheTranscriptsEnds(t *testing.T) {
 	}
 	if got, _ := e.store.GetSession(ctx, failed.ID); got.Status != session.StatusError {
 		t.Errorf("the failed session's status became %s", got.Status)
+	}
+}
+
+// NFR-REL-001: a tool call the app was killed in the middle of ends failed at the next
+// start, so its card does not show it running for ever; one that finished is left as
+// it is (found in a hard kill of the app, checklist item 15).
+func TestRecoverEndsTheToolCallsAKillCutOff(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	e := openTest(t, dir)
+	ses, _ := demoSession(t, e, "killed", "ask")
+	e.write(ses.ID, event.TurnStarted, struct{}{})
+	e.write(ses.ID, event.SessionStatus, event.SessionStatusData{Status: string(session.StatusRunning)})
+	e.write(ses.ID, event.ToolCall, map[string]any{"toolCallId": "done", "status": "pending", "tool": "shell", "kind": "execute"})
+	e.write(ses.ID, event.ToolCallUpdate, map[string]any{"toolCallId": "done", "status": "completed"})
+	e.write(ses.ID, event.ToolCall, map[string]any{"toolCallId": "cut", "status": "pending", "tool": "shell", "kind": "execute"})
+	e.write(ses.ID, event.ToolCallUpdate, map[string]any{"toolCallId": "cut", "status": "in_progress"})
+	e.write(ses.ID, event.ToolCall, map[string]any{"toolCallId": "asked", "status": "pending", "tool": "shell", "kind": "execute"})
+	crash(e)
+
+	e = openTest(t, dir)
+	evs, err := e.Events(ctx, ses.ID, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ended := map[string]string{}
+	turnEnd := 0
+	for i, ev := range evs {
+		if ev.Type == event.TurnEnded {
+			turnEnd = i
+		}
+		var d struct {
+			ID     string `json:"toolCallId"`
+			Status string `json:"status"`
+		}
+		if ev.Type == event.ToolCallUpdate && json.Unmarshal(ev.Data, &d) == nil && d.Status == "failed" {
+			ended[d.ID] = string(ev.Data)
+			if turnEnd != 0 {
+				t.Errorf("%s ended after the turn", d.ID)
+			}
+		}
+	}
+	if len(ended) != 2 || ended["cut"] == "" || ended["asked"] == "" {
+		t.Errorf("failed at the start: %v", ended)
+	}
+	if !strings.Contains(ended["cut"], "Freeloop stopped before it finished") {
+		t.Errorf("the call does not say why: %s", ended["cut"])
+	}
+	recovered := lastSeq(t, e, ses.ID)
+	e.Close()
+	e = openTest(t, dir)
+	defer e.Close()
+	if got := lastSeq(t, e, ses.ID); got != recovered {
+		t.Errorf("a second start wrote again: seq %d, was %d", got, recovered)
 	}
 }
