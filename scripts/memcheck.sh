@@ -19,7 +19,9 @@ SETTLE=${SETTLE:-20}
 [ -x "$APP" ] || { echo "no app at $APP; run make package first" >&2; exit 2; }
 
 DATA=$(mktemp -d "${TMPDIR:-/tmp}/freeloop-memcheck.XXXXXX")
-export FREELOOP_HOME="$DATA/home" FREELOOP_DEV=1
+# Secrets stay in memory, as in the app check: a new build reading the login keychain
+# would have macOS ask the user, and the app waits on that before it answers.
+export FREELOOP_HOME="$DATA/home" FREELOOP_DEV=1 FREELOOP_DEV_SECRETS=memory
 mkdir -p "$FREELOOP_HOME"
 # The demo's one command runs without asking; its file edit is allowed by
 # accept_edits.

@@ -71,27 +71,40 @@ if [ "$got" != "$SHA256" ]; then
 	echo "whisper.cpp $VERSION's source is not the pinned one ($got); not building it" >&2
 	exit 1
 fi
-rm -rf "$WORK/src" "$WORK/out"
-mkdir -p "$WORK/src"
-tar -xzf "$TARBALL" -C "$WORK/src"
-SRC="$WORK/src/whisper.cpp-$VERSION"
+# cmake splits its compiler flags at spaces, so a checkout whose path has one (a
+# worktree under Application Support) builds in a temporary folder instead.
+BUILD="$WORK"
+case "$BUILD" in
+*" "*)
+	# Without TMPDIR's trailing slash: the compiler writes the path with one, and the
+	# prefix maps below would miss it.
+	tmp=${TMPDIR:-/tmp}
+	BUILD=$(mktemp -d "${tmp%/}/freeloop-whisper.XXXXXX")
+	case "$BUILD" in *" "*) BUILD=$(mktemp -d /tmp/freeloop-whisper.XXXXXX) ;; esac
+	trap 'rm -rf "$BUILD"' EXIT
+	;;
+esac
+rm -rf "$BUILD/src" "$BUILD/out"
+mkdir -p "$BUILD/src"
+tar -xzf "$TARBALL" -C "$BUILD/src"
+SRC="$BUILD/src/whisper.cpp-$VERSION"
 # The source's and the build's folders are left out of what is compiled in, so two
 # checkouts at different paths make the same program.
-MAP="-ffile-prefix-map=$SRC=whisper.cpp -ffile-prefix-map=$WORK/out=build"
+MAP="-ffile-prefix-map=$SRC=whisper.cpp -ffile-prefix-map=$BUILD/out=build"
 # ggml writes the commit of the git repository around its source into the program:
 # here Freeloop's, which would change it with every commit. Git is kept from looking
 # above the source.
-export ZERO_AR_DATE=1 MACOSX_DEPLOYMENT_TARGET=14.0 GIT_CEILING_DIRECTORIES="$WORK/src"
-cmake -S "$SRC" -B "$WORK/out" -DCMAKE_BUILD_TYPE=Release \
+export ZERO_AR_DATE=1 MACOSX_DEPLOYMENT_TARGET=14.0 GIT_CEILING_DIRECTORIES="$BUILD/src"
+cmake -S "$SRC" -B "$BUILD/out" -DCMAKE_BUILD_TYPE=Release \
 	-DBUILD_SHARED_LIBS=OFF -DGGML_NATIVE=OFF -DGGML_OPENMP=OFF \
 	-DGGML_METAL=ON -DGGML_METAL_EMBED_LIBRARY=ON -DGGML_METAL_MACOSX_VERSION_MIN=14.0 \
 	-DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
 	-DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_SERVER=OFF -DWHISPER_SDL2=OFF -DWHISPER_CURL=OFF \
 	"-DCMAKE_C_FLAGS=$MAP" "-DCMAKE_CXX_FLAGS=$MAP" "-DCMAKE_OBJC_FLAGS=$MAP" >"$WORK/cmake.log" 2>&1 ||
 	{ tail -20 "$WORK/cmake.log" >&2; exit 1; }
-cmake --build "$WORK/out" --config Release --target whisper-cli -j "$(sysctl -n hw.ncpu)" >"$WORK/build.log" 2>&1 ||
+cmake --build "$BUILD/out" --config Release --target whisper-cli -j "$(sysctl -n hw.ncpu)" >"$WORK/build.log" 2>&1 ||
 	{ tail -20 "$WORK/build.log" >&2; exit 1; }
-BUILT="$WORK/out/bin/whisper-cli"
+BUILT="$BUILD/out/bin/whisper-cli"
 
 # What the app may carry: one architecture, the minimum system, the system's libraries.
 test "$(lipo -archs "$BUILT")" = arm64 || { echo "whisper-cli is not arm64 only" >&2; exit 1; }

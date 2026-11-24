@@ -110,12 +110,13 @@ tasks:
       # wails3 takes no other file and leaves the AppDir it packed in the build folder:
       # the notices go in where the .deb has them, and linuxdeploy packs it again as
       # wails3's last step did. Nothing is left to deploy; NO_STRIP keeps it from
-      # touching what is there.
+      # touching what is there. ARCH names the runtime to put in front: left to guess,
+      # appimagetool took armhf on arm64, and the AppImage would not run.
       - mkdir -p "{{.APPDIR}}/usr/share/doc/{{.LINUX_BINARY}}"
       - cp "{{.LINUX_OUT}}/THIRD_PARTY_NOTICES.txt" "{{.APPDIR}}/usr/share/doc/{{.LINUX_BINARY}}/"
       - rm "{{.LINUX_OUT}}/appimage/{{.APPIMAGE}}"
       - >-
-        cd "{{.LINUX_OUT}}/appimage/build" && OUTPUT="{{.APPIMAGE}}" NO_STRIP=1
+        cd "{{.LINUX_OUT}}/appimage/build" && OUTPUT="{{.APPIMAGE}}" NO_STRIP=1 ARCH="{{.APPIMAGE_ARCH}}"
         "./linuxdeploy-{{.APPIMAGE_ARCH}}.AppImage" --appimage-extract-and-run --appdir "{{.LINUX_BINARY}}-{{.APPIMAGE_ARCH}}.AppDir" --output appimage
       # The notices are in the AppImage: take that one file out of it again.
       - >-
