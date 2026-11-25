@@ -69,8 +69,10 @@ func TestRecoverClosesATurnTheRowLost(t *testing.T) {
 	unsub()
 	crash(e)
 
-	// The database lost what it was told after the turn began.
-	db, err := sql.Open("sqlite", filepath.Join(dir, "freeloop.db"))
+	// The database lost what it was told after the turn began. The crashed engine's
+	// goroutines may still be letting go of it, as no process would after a real power
+	// loss, so this waits as the store does (busy_timeout); it failed on CI's Mac.
+	db, err := sql.Open("sqlite", filepath.Join(dir, "freeloop.db")+"?_pragma=busy_timeout(5000)")
 	if err != nil {
 		t.Fatal(err)
 	}
