@@ -514,7 +514,7 @@ internal/netguard/         local-only switch, engine-call guard, a sandboxed ses
 internal/web/              HTML to text for web_fetch
 internal/archtest/         architecture boundary test
 internal/platform/darwin/  Keychain, Seatbelt, process table, openers, menu, keeping awake, updating in place, system details
-internal/platform/linux/   Secret Service, bubblewrap, /proc, xdg-open, keeping awake, updating in place, system details
+internal/platform/linux/   Secret Service, bubblewrap, /proc, xdg-open, keeping awake, updating in place, system details, the web view's microphone
 internal/platform/windows/ Credential Manager, Notepad and File Explorer, keeping awake, updating in place, system details
 frontend/                  React + TypeScript; src/phone/ is the phone's web app, lint/ the ESLint rules
 schemas/                   events.json

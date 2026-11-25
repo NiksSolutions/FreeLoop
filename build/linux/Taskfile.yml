@@ -120,6 +120,11 @@ tasks:
       # appimagetool took armhf on arm64, and the AppImage would not run.
       - mkdir -p "{{.APPDIR}}/usr/share/doc/{{.LINUX_BINARY}}"
       - cp "{{.LINUX_OUT}}/THIRD_PARTY_NOTICES.txt" "{{.APPDIR}}/usr/share/doc/{{.LINUX_BINARY}}/"
+      # linuxdeploy copies the Debian copyright file of each library it takes; the GTK
+      # plugin's typelibs and GSettings schemas come from packages it takes none from.
+      # Every package the AppDir has files of gets its own (and fails the build on a
+      # file no package has; build/linux/package.sh then adds their source, OQ-059).
+      - sh build/linux/sources.sh copyrights "{{.APPDIR}}"
       - rm "{{.LINUX_OUT}}/appimage/{{.APPIMAGE}}"
       - >-
         cd "{{.LINUX_OUT}}/appimage/build" && OUTPUT="{{.APPIMAGE}}" NO_STRIP=1 ARCH="{{.APPIMAGE_ARCH}}"

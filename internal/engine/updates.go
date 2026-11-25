@@ -24,7 +24,7 @@ import (
 // app, and a failure is silent (NFR-OFF-002).
 
 // AppVersion is this build's version; build/config.yml says the same.
-const AppVersion = "0.1.0-beta.1"
+const AppVersion = "0.1.0-beta.2"
 
 // latestReleaseURL is the GitHub API for the project's latest release.
 const latestReleaseURL = "https://api.github.com/repos/NiksSolutions/FreeLoop/releases/latest"

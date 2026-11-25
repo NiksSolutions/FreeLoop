@@ -553,3 +553,29 @@ pre {
   border-radius: var(--r-md);
   background: var(--surface);
 }
+/* The passkey (OQ-052): asked for in place of the answer or the message it holds back,
+   and on the first screen of a phone that has none yet. */
+.phone-passkey {
+  display: grid;
+  gap: 8px;
+  font-size: 14px;
+}
+.phone-passkey p {
+  margin: 0;
+}
+.phone-main > .phone-passkey,
+.phone-composer .phone-passkey,
+.phone-settings .phone-passkey {
+  padding: 12px;
+  border: 1px solid var(--accent);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+.phone-main > .phone-passkey {
+  margin: 0 0 12px;
+}
+.phone-composer .phone-passkey {
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+}

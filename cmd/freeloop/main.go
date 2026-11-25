@@ -67,7 +67,8 @@ func init() {
 
 // windowPermissions lets the page open the microphone for dictation (GUI-050)
 // without the web view asking on top of the system, which still asks once. The
-// page is the app's own, and model output never reaches it as markup.
+// page is the app's own, and model output never reaches it as markup. On Linux
+// the platform answers first and Wails never sees the request (PrepareWebViews).
 var windowPermissions = map[application.PermissionType]application.Permission{
 	application.PermissionMicrophone: application.PermissionAllow,
 }
@@ -231,6 +232,9 @@ func main() {
 	// MCP sign-ins open in the user's browser (MCP-006).
 	eng.SetOpenURL(func(u string) error { return app.Browser.OpenURL(u) })
 
+	if thisPlatform.PrepareWebViews != nil {
+		thisPlatform.PrepareWebViews()
+	}
 	win := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:      mainWindowName,
 		Title:     "Freeloop",

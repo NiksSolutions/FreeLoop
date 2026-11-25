@@ -63,14 +63,23 @@ depends:
 # The sandbox (bubblewrap, and passt for the commands given all of the network,
 # OQ-058), a Secret Service for API keys, git for the
 # project's state and the Diff tab, and for voice input (GUI-050) GStreamer's
-# microphone source for the web view and the OpenMP library whisper.cpp loads.
+# microphone source for the web view (OQ-048) and the OpenMP library whisper.cpp
+# loads. The PulseAudio source has been in gstreamer1.0-plugins-good since
+# GStreamer 1.18 (gstreamer1.0-pulseaudio is an empty transitional package), and
+# libwebkit2gtk-4.1-0 depends on it in Ubuntu 22.04 and 24.04 and Debian 12; it
+# records through PulseAudio, Ubuntu 22.04's, and through PipeWire's
+# pipewire-pulse on later systems.
 recommends:
   - bubblewrap
   - passt
   - gnome-keyring | kwalletmanager
   - git
-  - gstreamer1.0-pipewire | gstreamer1.0-pulseaudio
+  - gstreamer1.0-plugins-good
   - libgomp1
+# PipeWire's own source, for a system on PipeWire without pipewire-pulse; only
+# suggested, since Ubuntu 22.04's sound is PulseAudio's.
+suggests:
+  - gstreamer1.0-pipewire
 
 scripts:
   postinstall: ./build/linux/nfpm/scripts/postinstall.sh

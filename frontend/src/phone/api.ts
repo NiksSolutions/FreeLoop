@@ -4,6 +4,7 @@
 // as a cookie, which the browser would send to every port of the same host (SEC-020).
 import type { TranscriptEvent } from "../transcript.ts";
 import { parseSSE, reconnectDelay, retryAfter, whileShown, type PhoneOption, type Shown, type SSEMessage } from "./phone.ts";
+import { assertion, creationOptions, registration, requestOptions, type Challenge, type MadeCredential, type Need, type ShownCredential } from "./passkey.ts";
 
 const KEY = "freeloop.phone.key";
 
@@ -13,6 +14,16 @@ function authHeaders(): Record<string, string> {
 }
 
 export class Unpaired extends Error {}
+
+// PasskeyNeeded is the server refusing an answer or a message until the phone makes its
+// passkey or shows it again (OQ-052); need says which.
+export class PasskeyNeeded extends Error {
+  need: Exclude<Need, "">;
+  constructor(need: Exclude<Need, "">, message: string) {
+    super(message);
+    this.need = need;
+  }
+}
 
 // SlowDown is the server looking at no pairing code for a while after wrong ones
 // (SEC-020); seconds is how long.
@@ -76,7 +87,9 @@ async function call<T>(method: "GET" | "POST", path: string, body?: unknown): Pr
   }
   if (r.status === 429) throw new SlowDown(retryAfter(r.headers.get("Retry-After")));
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error((j as { error?: string }).error ?? r.statusText);
+  const { error, passkey } = j as { error?: string; passkey?: Exclude<Need, ""> };
+  if (r.status === 403 && passkey) throw new PasskeyNeeded(passkey, error ?? r.statusText);
+  if (!r.ok) throw new Error(error ?? r.statusText);
   return j as T;
 }
 
@@ -99,7 +112,22 @@ export const api = {
   pushSubscribe: (body: { endpoint: string; keys: { p256dh: string; auth: string } }) => call("POST", "/api/push/subscribe", body),
   pushUnsubscribe: () => call("POST", "/api/push/unsubscribe", {}),
   logout: () => call("POST", "/api/logout", {}).then((r) => (localStorage.removeItem(KEY), r)),
+  passkey: () => call<{ need: Need; until?: string }>("GET", "/api/passkey"),
+  passkeyChallenge: () => call<Challenge>("POST", "/api/passkey/challenge", {}),
+  passkeyRegister: (body: ReturnType<typeof registration>) => call<{ until: string }>("POST", "/api/passkey/register", body),
+  passkeyVerify: (body: ReturnType<typeof assertion>) => call<{ until: string }>("POST", "/api/passkey/verify", body),
 };
+
+// passkeyCeremony makes the phone's passkey or shows it, for a challenge the server
+// gave, and hands the browser's answer to the server. It asks the browser before
+// anything else, so call it straight from a tap: Safari asks for a passkey only then.
+export function passkeyCeremony(ch: Challenge, creds: Pick<CredentialsContainer, "create" | "get"> = navigator.credentials): Promise<{ until: string }> {
+  const asked = "create" in ch ? creds.create({ publicKey: creationOptions(ch.create) }) : creds.get({ publicKey: requestOptions(ch.get) });
+  return asked.then((cred) => {
+    if (!cred) throw new DOMException("no passkey was given", "NotAllowedError");
+    return "create" in ch ? api.passkeyRegister(registration(cred as unknown as MadeCredential)) : api.passkeyVerify(assertion(cred as unknown as ShownCredential));
+  });
+}
 
 // follow reads a server-sent stream with fetch, so the key goes as a header, and takes
 // it up again after a pause when it drops, from the last message's ID. It tells onLost

@@ -348,7 +348,9 @@ jobs:
 
   # The Linux AppImage and .deb, each architecture natively on its own runner, in the
   # image from build/linux/Dockerfile as `make linux-package` does on a Mac. No cache, as
-  # for the Windows files.
+  # for the Windows files. Beside each AppImage, Freeloop-<version>-linux-<arch>-sources.tar,
+  # the source of the Ubuntu packages it carries (OQ-059), which the release job lists in
+  # SHA256SUMS with every other file.
   package-linux:
     if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     strategy:

@@ -7,7 +7,7 @@
 ;
 ; makensis runs with -NOCD and is given, from the Taskfile (absolute paths):
 ;   ARCH          amd64 or arm64
-;   VERSION       the app's version, as in build/config.yml (0.1.0-beta.1)
+;   VERSION       the app's version, as in build/config.yml (0.1.0-beta.2)
 ;   VERSION4      the same as four numbers for the version resource (0.1.0.0)
 ;   BINARY        the Freeloop.exe to install
 ;   NOTICES       its THIRD_PARTY_NOTICES.txt

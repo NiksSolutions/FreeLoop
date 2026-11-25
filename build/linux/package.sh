@@ -1,10 +1,12 @@
 #!/bin/sh
 # Runs inside the image from build/linux/Dockerfile (`make linux-package`): builds
 # the shipped Linux app for the container's architecture and packages it as an
-# AppImage and a .deb. /src is the repository, read-only, with frontend/dist
+# AppImage and a .deb, with the source of the Ubuntu packages the AppImage carries
+# beside it (OQ-059). /src is the repository, read-only, with frontend/dist
 # already built on the host; /out is the host's bin/, where the results go:
 #   /out/linux-<arch>/freeloop, THIRD_PARTY_NOTICES.txt, BUILDINFO.txt
 #   /out/Freeloop-<version>-linux-<arch>.AppImage and .deb
+#   /out/Freeloop-<version>-linux-<arch>-sources.tar
 # FREELOOP_COMMIT is the commit as Taskfile.yml's COMMIT has it, worked out on the
 # host: the copy built here has no .git, and a worktree's .git points outside /src.
 set -eu
@@ -21,6 +23,10 @@ cd /tmp/app
 ln -s /src/frontend/node_modules frontend/node_modules
 ARCH="$arch" wails3 task linux:build:binary SHIPPED=1 COMMIT="${FREELOOP_COMMIT:-}"
 ARCH="$arch" wails3 task linux:package:files
+# Fetched, at the versions the image installed, and checked by build/linux/sources.sh;
+# internal/sbom/notices.go names the archive.
+appimage=$(ls bin/Freeloop-*-linux-"$arch".AppImage)
+sh build/linux/sources.sh archive "$appimage" "${appimage%.AppImage}-sources.tar"
 {
 	echo "linux/$arch built in build/linux/Dockerfile"
 	. /etc/os-release && echo "$PRETTY_NAME, glibc $(ldd --version | head -1 | sed 's/.* //')"
@@ -32,5 +38,5 @@ ARCH="$arch" wails3 task linux:package:files
 } > "bin/linux-$arch/BUILDINFO.txt"
 mkdir -p "/out/linux-$arch"
 cp "bin/linux-$arch/freeloop" "bin/linux-$arch/THIRD_PARTY_NOTICES.txt" "bin/linux-$arch/BUILDINFO.txt" "/out/linux-$arch/"
-cp bin/Freeloop-*-linux-"$arch".AppImage bin/Freeloop-*-linux-"$arch".deb /out/
-ls -l /out/Freeloop-*-linux-"$arch".*
+cp bin/Freeloop-*-linux-"$arch".AppImage bin/Freeloop-*-linux-"$arch".deb bin/Freeloop-*-linux-"$arch"-sources.tar /out/
+ls -l /out/Freeloop-*-linux-"$arch".* /out/Freeloop-*-linux-"$arch"-sources.tar

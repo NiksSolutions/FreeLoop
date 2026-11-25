@@ -41,6 +41,10 @@ type platform struct {
 	// which its engine calls carry and which is then taken (netguard.RuntimeCallAllowed);
 	// empty where the page comes from Wails' wails: URL scheme.
 	PageOrigin string
+	// PrepareWebViews readies the system's web view for what Wails does not, before
+	// the first window opens: on Linux, the microphone for voice input (GUI-050).
+	// Nil where nothing is needed.
+	PrepareWebViews func()
 	// UpdateKind, ApplyUpdate and FinishUpdate replace this copy of the app with a
 	// release's file (SET-008): which kind of file, putting it in place, and
 	// clearing up once the new copy runs.

@@ -15,7 +15,7 @@ Nachrichten und Entscheidungen vom Telefon sagen das in der Sitzung, mit dem Nam
 1. Unter **Einstellungen → Telefon** **Dem Telefon antworten** einschalten. Freeloop antwortet dann nur auf einem Port dieses Computers und läuft weiter, wenn das Fenster geschlossen wird.
 2. Tailscale auf diesem Computer und dem Telefon installieren, beide mit demselben Konto anmelden und in der Tailscale-Verwaltung HTTPS-Zertifikate einschalten.
 3. Den Befehl, den die Seite zeigt, einmal in einem Terminal ausführen. Er stellt Freeloop nur im eigenen Tailnet bereit. Die Seite zeigt auch, wie man ihn beendet.
-4. **Telefon koppeln…** wählen, den angezeigten QR-Code mit der Kamera des Telefons scannen (oder die Adresse daneben auf dem Telefon öffnen) und auf dem Computer bestätigen.
+4. **Telefon koppeln…** wählen, den angezeigten QR-Code mit der Kamera des Telefons scannen (oder die Adresse daneben auf dem Telefon öffnen) und auf dem Computer bestätigen. Danach auf dem Telefon einen Passkey hinzufügen, wenn es fragt: Anfragen beantworten und Nachrichten senden brauchen ihn.
 
 Auf einem iPhone gibt **Zum Home-Bildschirm** in Safari ein eigenes Symbol; fragt es dort erneut nach dem Koppeln, einfach noch einmal koppeln.
 
@@ -30,6 +30,7 @@ Auf einem iPhone gibt **Zum Home-Bildschirm** in Safari ein eigenes Symbol; frag
 
 - Freeloop antwortet nur auf diesem Computer. Tailscale bringt es verschlüsselt zum Telefon, und kein fremdes Gerät erreicht es.
 - Nur gekoppelte und auf dem Computer bestätigte Telefone kommen hinein. **Alle Telefone abmelden** auf der Seite beendet sie alle, samt ihrer offenen Streams, sofort.
+- Eine Anfrage vom Telefon beantworten oder eine Nachricht senden fragt 18 Stunden nach dem letzten Mal erneut nach dem Passkey des Telefons (Face ID, Touch ID oder der Code des Telefons). Wer ein entsperrtes Telefon in die Hände bekommt, kann Sitzungen lesen und anhalten, aber nicht lange in ihnen handeln. Ein Telefon, das vor den Passkeys gekoppelt wurde, wird gebeten, einen hinzuzufügen; **Einstellungen → Telefon** zeigt, welche Telefone einen haben, und das Entfernen eines Telefons entfernt seinen Passkey.
 - Der Schlüssel eines Telefons liegt im eigenen Speicher der Telefon-App und wird als Header gesendet, nie als Cookie. Eine andere Seite unter demselben Tailscale-Namen erhält ihn daher nie, und er gilt nicht unter einem anderen Tailscale-Login oder nach 90 Tagen ohne Nutzung. Ein Telefon, das mit einem früheren Build gekoppelt wurde, muss neu koppeln.
 - Eine Benachrichtigung läuft über den Push-Dienst deines Telefons (den von Apple, Google oder Mozilla), so verschlüsselt, dass nur dieses Telefon sie liest, und enthält nur, was geschehen ist, und die ID einer Sitzung. Der Push-Dienst erfährt, dass eine Nachricht gesendet wurde und wann. Der Nur-lokal-Modus sendet keine.
 - Befehle, die Agenten ausführen, erreichen den Port wie jeden auf diesem Computer, bekommen dort aber ohne gekoppeltes Telefon nichts.

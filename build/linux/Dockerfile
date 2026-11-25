@@ -5,12 +5,17 @@
 FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# The source indexes (deb-src) of the same archive and pockets are fetched with the
+# packages and kept, the binary ones not: they name the source of exactly the
+# versions installed here, however long the image is kept, for the archive of what
+# the AppImage carries (build/linux/sources.sh, OQ-059).
+RUN sed -n 's/^deb /deb-src /p' /etc/apt/sources.list > /etc/apt/sources.list.d/deb-src.list \
+ && apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl git build-essential pkg-config file xz-utils \
       libgtk-3-dev libwebkit2gtk-4.1-dev \
       bubblewrap dbus dbus-x11 gnome-keyring libsecret-tools openssh-client \
       xvfb xauth \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -f /var/lib/apt/lists/*_Packages*
 
 # Checked against the SHA-256 the projects publish (go.dev/dl, nodejs.org SHASUMS256.txt).
 ARG GO_VERSION=1.27.4

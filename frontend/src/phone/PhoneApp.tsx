@@ -1,18 +1,23 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { language, LANGUAGES, setLanguage, t, type Language } from "../i18n.ts";
 import { Markdown } from "../Markdown.tsx";
 import { createBatcher } from "../eventBatch.ts";
 import { apply, viewOf, emptyTranscript, phoneName, transcriptFrom, type Item, type Transcript, type TranscriptEvent } from "../transcript.ts";
 import { MAX_IMAGES, room } from "../images.ts";
 import { prepareImage } from "../imageprep.ts";
-import { api, followSession, followSummary, SlowDown, Unpaired, type Picture, type PhoneRequest, type Summary } from "./api.ts";
+import { api, followSession, followSummary, PasskeyNeeded, passkeyCeremony, SlowDown, Unpaired, type Picture, type PhoneRequest, type Summary } from "./api.ts";
 import { applicationServerKey, deviceName, onceOptions, pairCode, pastedPictures, pushBody, sessionFromHash, pushSupported, toolCommand } from "./phone.ts";
+import { cancelled, OldBrowser, passkeysSupported, type Challenge, type Need } from "./passkey.ts";
 
 // The phone app (GUI-052): what needs the user, the sessions, one session live with
 // a message box, and settings. From here a plain request is allowed or denied once;
 // anything more is answered on the computer.
 
 type Screen = { kind: "needs" } | { kind: "sessions" } | { kind: "session"; id: string } | { kind: "settings" };
+
+// The phone's passkey as the server last said (null before it has), and how to say it
+// changed: every passkey prompt on screen then asks for a new challenge.
+const PasskeyState = createContext<{ need: Need | null; round: number; changed: () => void }>({ need: null, round: 0, changed: () => {} });
 
 export default function PhoneApp() {
   const [paired, setPaired] = useState<boolean | null>(null);
@@ -67,6 +72,23 @@ export default function PhoneApp() {
     };
   }, [unpaired]);
 
+  // Whether the phone has its passkey (OQ-052): one paired before passkeys is asked to
+  // add one on the first screen, and Settings says.
+  const [passkeyNeed, setPasskeyNeed] = useState<Need | null>(null);
+  const [passkeyRound, setPasskeyRound] = useState(0);
+  useEffect(() => {
+    if (!paired) return;
+    let live = true;
+    api
+      .passkey()
+      .then((p) => live && setPasskeyNeed(p.need))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [paired, passkeyRound]);
+  const passkey = useMemo(() => ({ need: passkeyNeed, round: passkeyRound, changed: () => setPasskeyRound((n) => n + 1) }), [passkeyNeed, passkeyRound]);
+
   // While the app is open its icon shows how many requests wait, from the summary the
   // authenticated stream keeps fresh (never from a push).
   const waiting = summary?.attention.reduce((n, a) => n + a.requests.length + (a.error ? 1 : 0), 0) ?? 0;
@@ -77,7 +99,12 @@ export default function PhoneApp() {
   }, [waiting]);
 
   if (paired === null) return <p className="phone-note">{t("phone.loading")}</p>;
-  if (!paired) return <Pairing onPaired={() => setPaired(true)} />;
+  if (!paired)
+    return (
+      <PasskeyState.Provider value={passkey}>
+        <Pairing onPaired={() => setPaired(true)} />
+      </PasskeyState.Provider>
+    );
 
   const title =(sid: string) => summary?.sessions.find((s) => s.id === sid)?.title ?? sid;
   // Below the title in the lists, above the message box in a session: where the eye is.
@@ -88,43 +115,124 @@ export default function PhoneApp() {
     </p>
   );
   return (
-    <div className="phone">
-      {screen.kind === "session" ? (
-        <SessionScreen id={screen.id} title={title(screen.id)} banner={banner} onBack={() => setScreen({ kind: "sessions" })} />
-      ) : (
-        <>
-          <header className="phone-bar">
-            <h1>Freeloop</h1>
-          </header>
-          <main className="phone-main">
-            {banner}
-            {screen.kind === "needs" && <Needs summary={summary} title={title} onOpen={(id) => setScreen({ kind: "session", id })} />}
-            {screen.kind === "sessions" && <Sessions summary={summary} onOpen={(id) => setScreen({ kind: "session", id })} />}
-            {screen.kind === "settings" && (
-              <Settings
-                onLanguage={(l) => {
-                  setLanguage(l, navigator.languages);
-                  localStorage.setItem("freeloop.phone.language", l);
-                  setLang(l);
-                }}
-                onSignedOut={() => setPaired(false)}
-              />
-            )}
-          </main>
-          <nav className="phone-tabs" aria-label={t("phone.tabs")}>
-            <button aria-current={screen.kind === "needs" ? "page" : undefined} onClick={() => setScreen({ kind: "needs" })}>
-              {t("phone.needs")}
-              {waiting > 0 && <span className="phone-count">{waiting}</span>}
+    <PasskeyState.Provider value={passkey}>
+      <div className="phone">
+        {screen.kind === "session" ? (
+          <SessionScreen id={screen.id} title={title(screen.id)} banner={banner} onBack={() => setScreen({ kind: "sessions" })} />
+        ) : (
+          <>
+            <header className="phone-bar">
+              <h1>Freeloop</h1>
+            </header>
+            <main className="phone-main">
+              {banner}
+              {screen.kind === "needs" && (passkeyNeed === "missing" || passkeyNeed === "pair-again") && <PasskeyCheck need={passkeyNeed} onDone={() => {}} />}
+              {screen.kind === "needs" && <Needs summary={summary} title={title} onOpen={(id) => setScreen({ kind: "session", id })} />}
+              {screen.kind === "sessions" && <Sessions summary={summary} onOpen={(id) => setScreen({ kind: "session", id })} />}
+              {screen.kind === "settings" && (
+                <Settings
+                  onLanguage={(l) => {
+                    setLanguage(l, navigator.languages);
+                    localStorage.setItem("freeloop.phone.language", l);
+                    setLang(l);
+                  }}
+                  onSignedOut={() => setPaired(false)}
+                />
+              )}
+            </main>
+            <nav className="phone-tabs" aria-label={t("phone.tabs")}>
+              <button aria-current={screen.kind === "needs" ? "page" : undefined} onClick={() => setScreen({ kind: "needs" })}>
+                {t("phone.needs")}
+                {waiting > 0 && <span className="phone-count">{waiting}</span>}
+              </button>
+              <button aria-current={screen.kind === "sessions" ? "page" : undefined} onClick={() => setScreen({ kind: "sessions" })}>
+                {t("phone.sessions")}
+              </button>
+              <button aria-current={screen.kind === "settings" ? "page" : undefined} onClick={() => setScreen({ kind: "settings" })}>
+                {t("phone.settings")}
+              </button>
+            </nav>
+          </>
+        )}
+      </div>
+    </PasskeyState.Provider>
+  );
+}
+
+// The challenge every passkey prompt on screen shares: the server keeps one per phone, the
+// newest, for two minutes, so it is fetched again after 90 seconds, and once used.
+let shared: { at: number; challenge: Promise<Challenge> } | null = null;
+function currentChallenge(): Promise<Challenge> {
+  if (!shared || Date.now() - shared.at > 90_000) {
+    const mine = { at: Date.now(), challenge: api.passkeyChallenge() };
+    shared = mine;
+    mine.challenge.catch(() => {
+      if (shared === mine) shared = null;
+    });
+  }
+  return shared.challenge;
+}
+
+// PasskeyCheck asks for the phone's passkey (OQ-052): to make it when the phone has none,
+// or to show it with Face ID, Touch ID or the phone's code once the last check is 18
+// hours old. The challenge is fetched before the tap, so that the tap asks the browser at
+// once: Safari asks for a passkey only straight from one.
+function PasskeyCheck({ need, onDone, onCancel, cancelLabel }: { need: Exclude<Need, "">; onDone: () => void; onCancel?: () => void; cancelLabel?: string }) {
+  const { round, changed } = useContext(PasskeyState);
+  const supported = passkeysSupported({ PublicKeyCredential: (window as { PublicKeyCredential?: unknown }).PublicKeyCredential, credentials: navigator.credentials, isSecureContext: window.isSecureContext });
+  const usable = supported && need !== "pair-again";
+  const [ch, setCh] = useState<Challenge | null>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!usable) return;
+    let live = true;
+    const take = () => {
+      if (document.visibilityState === "hidden") return;
+      currentChallenge()
+        .then((c) => live && setCh(c))
+        .catch((err) => live && setError(String(err.message ?? err)));
+    };
+    take();
+    const timer = setInterval(take, 30_000);
+    return () => {
+      live = false;
+      clearInterval(timer);
+    };
+  }, [usable, round]);
+  const making = ch ? "create" in ch : need === "missing";
+  const go = () => {
+    if (!ch) return;
+    setBusy(true);
+    setError("");
+    passkeyCeremony(ch)
+      .then(() => onDone())
+      .catch((err) => setError(cancelled(err) ? t("phone.passkey.cancelled") : err instanceof OldBrowser ? t("phone.passkey.oldBrowser") : String(err.message ?? err)))
+      .finally(() => {
+        shared = null;
+        setBusy(false);
+        changed();
+      });
+  };
+  const text = need === "pair-again" ? t("phone.passkey.pairAgain") : !supported ? t("phone.passkey.unsupported") : making ? t("phone.passkey.add.why") : t("phone.passkey.check.why");
+  return (
+    <div className="phone-passkey">
+      <p>{text}</p>
+      {(usable || onCancel) && (
+        <div className="phone-row">
+          {usable && (
+            <button className="primary" disabled={!ch || busy} onClick={go}>
+              {making ? t("phone.passkey.add") : t("phone.passkey.check")}
             </button>
-            <button aria-current={screen.kind === "sessions" ? "page" : undefined} onClick={() => setScreen({ kind: "sessions" })}>
-              {t("phone.sessions")}
+          )}
+          {onCancel && (
+            <button disabled={busy} onClick={onCancel}>
+              {cancelLabel ?? t("common.cancel")}
             </button>
-            <button aria-current={screen.kind === "settings" ? "page" : undefined} onClick={() => setScreen({ kind: "settings" })}>
-              {t("phone.settings")}
-            </button>
-          </nav>
-        </>
+          )}
+        </div>
       )}
+      {error && <p role="alert">{error}</p>}
     </div>
   );
 }
@@ -132,7 +240,7 @@ export default function PhoneApp() {
 function Pairing({ onPaired }: { onPaired: () => void }) {
   const [code, setCode] = useState(pairCode(location.hash));
   const [name, setName] = useState(deviceName(navigator.userAgent));
-  const [state, setState] = useState<"idle" | "waiting" | "refused">("idle");
+  const [state, setState] = useState<"idle" | "waiting" | "passkey" | "refused">("idle");
   const [error, setError] = useState("");
   const pair = () => {
     setError("");
@@ -144,7 +252,8 @@ function Pairing({ onPaired }: { onPaired: () => void }) {
           api.pairAnswer(id).then(({ answer }) => {
             if (answer === "allowed") {
               history.replaceState(null, "", location.pathname);
-              onPaired();
+              // Paired: now its passkey, before it can answer (OQ-052).
+              setState("passkey");
             } else if (answer === "refused") setState("refused");
             else setTimeout(ask, 1000);
           });
@@ -156,7 +265,14 @@ function Pairing({ onPaired }: { onPaired: () => void }) {
     <main className="phone-pair">
       <h1>{t("phone.pair.title")}</h1>
       <p>{t("phone.pair.how")}</p>
-      {state === "waiting" ? (
+      {state === "passkey" ? (
+        <>
+          <p role="status" className="phone-waiting">
+            {t("phone.pair.passkey")}
+          </p>
+          <PasskeyCheck need="missing" onDone={onPaired} onCancel={onPaired} cancelLabel={t("phone.passkey.later")} />
+        </>
+      ) : state === "waiting" ? (
         <p role="status" className="phone-waiting">
           {t("phone.pair.confirm")}
         </p>
@@ -184,6 +300,8 @@ function Pairing({ onPaired }: { onPaired: () => void }) {
 function RequestCard({ req, onDone }: { req: PhoneRequest; onDone?: () => void }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  // An answer the server holds back until the phone shows its passkey, and what it needs.
+  const [held, setHeld] = useState<{ need: Exclude<Need, "">; optionId: string } | null>(null);
   const { allow, deny } = onceOptions(req.options);
   const answer = (optionId: string) => {
     setBusy(true);
@@ -191,7 +309,7 @@ function RequestCard({ req, onDone }: { req: PhoneRequest; onDone?: () => void }
     api
       .decide(req.requestId, optionId)
       .then(() => onDone?.())
-      .catch((err) => setError(String(err.message ?? err)))
+      .catch((err) => (err instanceof PasskeyNeeded ? setHeld({ need: err.need, optionId }) : setError(String(err.message ?? err))))
       .finally(() => setBusy(false));
   };
   return (
@@ -202,6 +320,15 @@ function RequestCard({ req, onDone }: { req: PhoneRequest; onDone?: () => void }
       {req.leavesSandbox && <p className="phone-warn">{t("phone.request.leavesSandbox")}</p>}
       {req.onLaptop || !allow ? (
         <p className="phone-note">{t("phone.request.onLaptop")}</p>
+      ) : held ? (
+        <PasskeyCheck
+          need={held.need}
+          onDone={() => {
+            setHeld(null);
+            answer(held.optionId);
+          }}
+          onCancel={() => setHeld(null)}
+        />
       ) : (
         <div className="phone-row">
           <button className="primary" disabled={busy} onClick={() => answer(allow.optionId)}>
@@ -342,6 +469,8 @@ function SessionScreen({ id, title, banner, onBack }: { id: string; title: strin
   // keeps for it (issue 060).
   const [typing, setTyping] = useState(false);
   const [sending, setSending] = useState(false);
+  // A message the server holds back until the phone shows its passkey (OQ-052).
+  const [held, setHeld] = useState<Exclude<Need, ""> | null>(null);
   const chooser = useRef<HTMLInputElement>(null);
   const nextPicture = useRef(0);
   const attach = (files: Blob[]) => {
@@ -374,7 +503,7 @@ function SessionScreen({ id, title, banner, onBack }: { id: string; title: strin
         setText("");
         setPictures([]);
       })
-      .catch((err) => setError(String(err.message ?? err)))
+      .catch((err) => (err instanceof PasskeyNeeded ? setHeld(err.need) : setError(String(err.message ?? err))))
       .finally(() => setSending(false));
   };
   return (
@@ -394,6 +523,16 @@ function SessionScreen({ id, title, banner, onBack }: { id: string; title: strin
       <footer className="phone-composer" ref={composer} data-keyboard={typing ? "" : undefined}>
         {banner}
         {error && <p role="alert">{error}</p>}
+        {held && (
+          <PasskeyCheck
+            need={held}
+            onDone={() => {
+              setHeld(null);
+              send();
+            }}
+            onCancel={() => setHeld(null)}
+          />
+        )}
         {pictures.length > 0 && (
           <ul className="phone-pictures" aria-label={t("composer.pictures")}>
             {pictures.map((p, i) => (
@@ -560,6 +699,7 @@ function Settings({ onLanguage, onSignedOut }: { onLanguage: (l: Language) => vo
         </select>
       </label>
       <Notify />
+      <PasskeySetting />
       <p className="phone-note">{t("phone.settings.about")}</p>
       <p className="phone-note">{t("phone.settings.install")}</p>
       <button
@@ -575,6 +715,14 @@ function Settings({ onLanguage, onSignedOut }: { onLanguage: (l: Language) => vo
       {error && <p role="alert">{error}</p>}
     </div>
   );
+}
+
+// PasskeySetting says whether the phone has its passkey, and offers to add one.
+function PasskeySetting() {
+  const { need } = useContext(PasskeyState);
+  if (need === null) return null;
+  if (need === "missing" || need === "pair-again") return <PasskeyCheck need={need} onDone={() => {}} />;
+  return <p className="phone-note">{t("phone.passkey.has")}</p>;
 }
 
 // Notify is the phone's switch for push: on a tap it asks the browser's permission,

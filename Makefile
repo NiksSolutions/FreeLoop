@@ -111,7 +111,7 @@ windows: windows-tools windows-exe ## Build the Windows installers and portable 
 # QEMU-only Docker. build/linux/package.sh runs inside and writes into bin/.
 LINUX_ARCHS ?= $(subst aarch64,arm64,$(subst x86_64,amd64,$(shell docker info --format '{{.Architecture}}' 2>/dev/null)))
 
-linux-package: frontend/node_modules bindings ## Build the Linux AppImage and .deb for LINUX_ARCHS (default: Docker's own) into bin/
+linux-package: frontend/node_modules bindings ## Build the Linux AppImage, the source of what it carries, and the .deb for LINUX_ARCHS (default: Docker's own) into bin/
 	@test -n "$(LINUX_ARCHS)" || { echo "Docker is not running (Colima: colima start); Linux packages build in it"; exit 1; }
 	cd frontend && npm run build
 	for arch in $(LINUX_ARCHS); do $(MAKE) linux-package-arch LINUX_ARCH=$$arch || exit 1; done
@@ -173,12 +173,13 @@ release-windows: windows
 		echo "wails3 $(WAILS_VERSION)"; } > bin/release/BUILDINFO-windows.txt
 	cd bin && ls $(foreach a,$(WINDOWS_ARCHS),windows-$(a)/Freeloop.exe) | LC_ALL=C sort | xargs $(SHA256) > release/WINDOWS-FILES.sha256
 
-# Linux: the AppImage and the .deb per architecture, a bill per binary, and what
-# the image built them with.
+# Linux: the AppImage, the source of the Ubuntu packages it carries (OQ-059) and the
+# .deb per architecture, a bill per binary, and what the image built them with.
 release-linux: linux-package
 	mkdir -p bin/release
 	for arch in $(LINUX_ARCHS); do \
-		cp bin/Freeloop-$(VERSION)-linux-$$arch.AppImage bin/Freeloop-$(VERSION)-linux-$$arch.deb bin/release/ && \
+		cp bin/Freeloop-$(VERSION)-linux-$$arch.AppImage bin/Freeloop-$(VERSION)-linux-$$arch-sources.tar \
+			bin/Freeloop-$(VERSION)-linux-$$arch.deb bin/release/ && \
 		go run ./cmd/freeloop-sbom -binary bin/linux-$$arch/freeloop -version $(VERSION) \
 			< frontend/package-lock.json > bin/release/Freeloop-linux-$$arch.sbom.cdx.json || exit 1; \
 	done

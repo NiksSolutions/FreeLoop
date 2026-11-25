@@ -41,6 +41,14 @@ func TestAppVersionMatchesTheBuild(t *testing.T) {
 			t.Errorf("%s gives version %s %d times", file, bundleVersion, n)
 		}
 	}
+	// The lockfile, at its top and for the root package, as npm writes it.
+	b, err := os.ReadFile("../../frontend/package-lock.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(b), `"version": "`+AppVersion+`"`); n != 2 {
+		t.Errorf("frontend/package-lock.json gives version %s %d times, not 2 (its top and the root package)", AppVersion, n)
+	}
 }
 
 func TestVersionOrder(t *testing.T) {

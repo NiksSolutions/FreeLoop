@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -246,7 +247,8 @@ func (e *Engine) CreatePullRequest(ctx context.Context, req CreatePullRequestReq
 		return event.PullRequestData{}, fmt.Errorf("the remote name %q cannot be passed to git", info.Remote)
 	}
 	// Hooks do not run (safeGit), so a pre-push hook cannot either; the ext
-	// and fd transports would run a program the remote's URL names.
+	// and fd transports would run a program the remote's URL names. On Windows
+	// the push signs in through the system's Git Credential Manager (systemGit).
 	res, err := gitRunOver(ctx, env, prTimeout, "https:http:ssh:git:file", "-c", "protocol.ext.allow=never", "-c", "protocol.fd.allow=never", "push", "--porcelain", "--set-upstream", info.Remote, "HEAD:refs/heads/"+info.Branch)
 	if err != nil {
 		return event.PullRequestData{}, err
@@ -264,7 +266,7 @@ func (e *Engine) CreatePullRequest(ctx context.Context, req CreatePullRequestReq
 		Argv:           argv,
 		LoginShell:     true,
 		Stdin:          []byte(req.Body),
-		Env:            pushEnv(env),
+		Env:            pushEnv(ctx, env),
 		SeparateStderr: true,
 		MaxOutput:      64 << 10,
 		Timeout:        prTimeout,
@@ -307,7 +309,8 @@ func prURL(out string) string {
 // that a push (ssh, credential helpers, a local remote's receive-pack, a
 // transport a rewritten URL or protocol setting allows, a proxy or a turned-off
 // certificate check that would hand it the user's token) or gh's own git calls
-// (fsmonitor) run. Those come from the user's global config only.
+// (fsmonitor) run. Those come from the user's own config only: the global one,
+// and on Windows the system's (systemGit).
 func pushBlocked(ctx context.Context, env environment.Environment) string {
 	keys, ok := repoConfigKeys(ctx, env, `^(core\.(sshcommand|gitproxy|askpass|fsmonitor)|credential\..*helper|remote\..*\.(receivepack|uploadpack|pushurl|proxy)|url\..*|protocol\..*|http\..*)$`)
 	if len(keys) > 0 {
@@ -319,12 +322,32 @@ func pushBlocked(ctx context.Context, env environment.Environment) string {
 	return ""
 }
 
-// pushEnv is gh's environment for a call that pushes in env: ghEnv, and no system
-// git config, except on Windows (see gitEnvOn).
-func pushEnv(env environment.Environment) map[string]string {
-	vars := maps.Clone(ghEnv)
+// pushEnv is gh's environment for a call that pushes in env: ghEnv, and git's system
+// config as the app's own git calls get it (pushEnvOn).
+func pushEnv(ctx context.Context, env environment.Environment) map[string]string {
 	if !localWindows(env) {
-		vars["GIT_CONFIG_NOSYSTEM"] = "1"
+		return pushEnvOn("", systemGit{}, nil)
+	}
+	sys := systemGitOf(env)
+	return pushEnvOn("windows", sys, systemGitPairs(ctx, env, sys, nil, true, true))
+}
+
+// pushEnvOn is pushEnv for a git on goos, given what its system config gives (sys) and
+// what that passes to gh's git calls (pairs): no system config, except on Windows with
+// (a). With (b) the pairs go in GIT_CONFIG_COUNT, GIT_CONFIG_KEY_n and
+// GIT_CONFIG_VALUE_n, which git reads like -c.
+func pushEnvOn(goos string, sys systemGit, pairs [][2]string) map[string]string {
+	vars := maps.Clone(ghEnv)
+	if goos == "windows" && !sys.Narrow {
+		return vars
+	}
+	vars["GIT_CONFIG_NOSYSTEM"] = "1"
+	if len(pairs) > 0 {
+		vars["GIT_CONFIG_COUNT"] = strconv.Itoa(len(pairs))
+		for i, kv := range pairs {
+			vars["GIT_CONFIG_KEY_"+strconv.Itoa(i)] = kv[0]
+			vars["GIT_CONFIG_VALUE_"+strconv.Itoa(i)] = kv[1]
+		}
 	}
 	return vars
 }

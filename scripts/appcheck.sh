@@ -52,11 +52,23 @@ YAML
 # A paired phone that turned notifications on (issue 027): Settings, Phone lists it so.
 # And the phone the phone pass drives (issues 057, 058), seen today, so its key is good:
 # PHONE_KEY is 32 bytes, 1 to 32, made for this check only; tokenHash is their SHA-256.
+# Its passkey (OQ-052), for phone.test, the name scenario.js and phone-on.js set, was last
+# shown 19 hours ago, so its first message asks for it again; PASSKEY_JWK is its private
+# key, made for this check only, which the stand-in authenticator signs with
+# (appcheck/phone-authenticator.js). And a phone paired before passkeys, with none:
+# OLD_PHONE_KEY is 32 bytes, 33 to 64.
 PHONE_KEY=AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA
+OLD_PHONE_KEY=ISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0-P0A
+PASSKEY_ID=Y2hlY2staXBob25lLXBhc3NrZXk
+PASSKEY_SPKI=MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEQCQjD025HTclKVfV6eYrWU3ej4pF9pHjdX19UZnM_Bl1GYf2NdVrXKRILOo0u59T4fNWhj7MxXsYF6pp_YxriA
+PASSKEY_JWK='{"kty":"EC","crv":"P-256","x":"QCQjD025HTclKVfV6eYrWU3ej4pF9pHjdX19UZnM_Bk","y":"dRmH9jXVa1ykSCzqNLufU-HzVoY-zMV7GBeqaf2Ma4g","d":"bmLQMAqKBOUD5aQThVnKZSE0OdDrw3mFo6UPbOHfbik"}'
 now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+checked=$(date -u -v-19H +%Y-%m-%dT%H:%M:%SZ)
 cat > "$FREELOOP_HOME/devices.json" <<JSON
 [{"id":"dev_0000000000000001","name":"Check phone","tokenHash":"00","paired":"2026-11-01T10:00:00Z","lastSeen":"2026-11-01T10:00:00Z","push":{"endpoint":"https://fcm.googleapis.com/fcm/send/check","p256dh":"x","auth":"y"}},
- {"id":"dev_0000000000000002","name":"Check iPhone","tokenHash":"ae216c2ef5247a3782c135efa279a3e4cdc61094270f5d2be58c6204b7a612c9","paired":"$now","lastSeen":"$now"}]
+ {"id":"dev_0000000000000002","name":"Check iPhone","tokenHash":"ae216c2ef5247a3782c135efa279a3e4cdc61094270f5d2be58c6204b7a612c9","paired":"$now","lastSeen":"$now",
+  "passkey":{"id":"$PASSKEY_ID","publicKey":"$PASSKEY_SPKI","algorithm":-7,"rpId":"phone.test","signCount":0,"added":"$checked","checked":"$checked"}},
+ {"id":"dev_0000000000000003","name":"Check old iPhone","tokenHash":"7eee5800ddcd3b3cc9fd047831cd8536e3c3f57f44d746f515da93f048ee9e91","paired":"$now","lastSeen":"$now"}]
 JSON
 
 . "$HERE/appcheck/lived-in.sh"
@@ -210,6 +222,10 @@ printf 'localStorage.setItem("freeloop.phone.key", "%s");\n' "$PHONE_KEY" > "$DA
 cat >> "$DATA/phone-init.js" <<'JS'
 Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" });
 JS
+# The view has no authenticator: a stand-in makes and shows passkeys (OQ-052), and holds
+# this phone's.
+cat "$HERE/appcheck/phone-authenticator.js" >> "$DATA/phone-init.js"
+printf 'localStorage.setItem("appcheck.passkeys", JSON.stringify({ "%s": %s }));\n' "$PASSKEY_ID" "$PASSKEY_JWK" >> "$DATA/phone-init.js"
 cat "$HERE/appcheck/lib.js" "$HERE/appcheck/phone.js" > "$DATA/phone.js"
 APPCHECK_INIT="$DATA/phone-init.js" APPCHECK_WIDTH=390 APPCHECK_HEIGHT=844 APPCHECK_DEADLINE=120 \
   ${APPCHECK_SLOW:+taskpolicy -c background} "$DATA/drive" "http://127.0.0.1:$((PORT + 1))/phone/" "$DATA/phone.js" >> "$OUT/results-phone.txt" || status=1
@@ -223,6 +239,15 @@ JS
 cat "$HERE/appcheck/lib.js" "$HERE/appcheck/phone-unreachable.js" > "$DATA/phone-unreachable.js"
 APPCHECK_INIT="$DATA/phone-unreachable-init.js" APPCHECK_WIDTH=390 APPCHECK_HEIGHT=844 APPCHECK_DEADLINE=60 \
   ${APPCHECK_SLOW:+taskpolicy -c background} "$DATA/drive" "http://127.0.0.1:$((PORT + 1))/phone/" "$DATA/phone-unreachable.js" >> "$OUT/results-phone.txt" || status=1
+# A phone paired before passkeys (OQ-052): it is asked to add one, with the stand-in.
+printf 'localStorage.setItem("freeloop.phone.key", "%s");\n' "$OLD_PHONE_KEY" > "$DATA/phone-old-init.js"
+cat >> "$DATA/phone-old-init.js" <<'JS'
+Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" });
+JS
+cat "$HERE/appcheck/phone-authenticator.js" >> "$DATA/phone-old-init.js"
+cat "$HERE/appcheck/lib.js" "$HERE/appcheck/phone-passkey.js" > "$DATA/phone-passkey.js"
+APPCHECK_INIT="$DATA/phone-old-init.js" APPCHECK_WIDTH=390 APPCHECK_HEIGHT=844 APPCHECK_DEADLINE=60 \
+  ${APPCHECK_SLOW:+taskpolicy -c background} "$DATA/drive" "http://127.0.0.1:$((PORT + 1))/phone/" "$DATA/phone-passkey.js" >> "$OUT/results-phone.txt" || status=1
 cat "$OUT/results-phone.txt"
 
 # The second pass: the same app on a lived-in data folder.

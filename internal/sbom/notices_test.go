@@ -186,11 +186,15 @@ func TestFallbackLicensesSayWhereTheyCameFrom(t *testing.T) {
 }
 
 // The packages carry things no license file covers: the AppImage the system's
-// GTK and WebKitGTK, the Windows installer Microsoft's WebView2 bootstrapper.
+// GTK and WebKitGTK, whose source is published beside it under the names
+// build/linux/package.sh gives the archives, the Windows installer Microsoft's
+// WebView2 bootstrapper.
 func TestNoticesSayWhatThePackagesCarry(t *testing.T) {
 	src, _ := noticeFolder(t, map[string]string{"goroot/LICENSE": "go license"})
 	for goos, want := range map[string][]string{
-		"linux":   {"AppImage", "GTK 3", "WebKitGTK 4.1", "usr/share/doc", ".deb"},
+		"linux": {"AppImage", "GTK 3", "WebKitGTK 4.1", "usr/share/doc", ".deb",
+			"Freeloop-0.1.0-linux-amd64-sources.tar", "Freeloop-0.1.0-linux-arm64-sources.tar",
+			"https://github.com/NiksSolutions/FreeLoop/releases/tag/v0.1.0"},
 		"windows": {"installer", "WebView2 bootstrapper", "MicrosoftEdgeWebview2Setup.exe", "portable zip"},
 		"darwin":  nil,
 	} {

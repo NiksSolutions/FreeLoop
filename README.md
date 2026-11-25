@@ -9,7 +9,7 @@ Freeloop is an open-source desktop app for macOS, Windows and Linux that puts yo
 
 The limits: this decides what an agent asks to do. An approved shell command runs as you unless the environment is sandboxed, and only a sandbox or a container holds against an agent that does not ask. [docs/VISION.md](docs/VISION.md) says what has been tested with which agent, and [docs/SECURITY.md](docs/SECURITY.md) the rest.
 
-Status: early. The first beta, 0.1.0-beta.1, is out for a few testers (2026-11-22). Most of what v1 lists is built; [docs/ROADMAP.md](docs/ROADMAP.md) says what each milestone covers and what remains. The Mac app is in daily use; the Windows and Linux builds are new and have not yet been run on a Windows or Linux desktop, so expect rough edges there. The release files are not signed for Apple or Microsoft. The specification is in `docs/`.
+Status: early. The second beta, 0.1.0-beta.2, follows the first (0.1.0-beta.1, 2026-11-22) for a few testers. Most of what v1 lists is built; [docs/ROADMAP.md](docs/ROADMAP.md) says what each milestone covers and what remains. The Mac app is in daily use; the Windows and Linux builds are new and have not yet been run on a Windows or Linux desktop, so expect rough edges there. The release files are not signed for Apple or Microsoft. The specification is in `docs/`.
 
 ## What it does
 
@@ -31,7 +31,7 @@ Status: early. The first beta, 0.1.0-beta.1, is out for a few testers (2026-11-2
 
 ### Download a release
 
-Releases are on the repository's Releases page; the first is a beta, 0.1.0-beta.1. Download the file for your system, `SHA256SUMS` and `SHA256SUMS.sig` into one folder, keeping their names, and check the download before opening it. In that folder, the checksum:
+Releases are on the repository's Releases page; so far they are betas, the latest 0.1.0-beta.2. The update check offers no beta, so install a new one from there over the one you have. Download the file for your system, `SHA256SUMS` and `SHA256SUMS.sig` into one folder, keeping their names, and check the download before opening it. In that folder, the checksum:
 
 ```sh
 shasum -a 256 -c SHA256SUMS --ignore-missing   # macOS
@@ -41,8 +41,8 @@ sha256sum -c SHA256SUMS --ignore-missing       # Linux, or Git Bash on Windows
 That shows the file is the one the list names, but the list came from the same page, so it does not show who made it. The list is signed with the project's key. To check that signature you need Go and the source at the release's tag, whose `freeloop-sign` carries the project's public key; give it the release's version and the folder you downloaded into:
 
 ```sh
-git clone https://github.com/FinanceNik/Freeloop.git
-cd Freeloop
+git clone https://github.com/NiksSolutions/FreeLoop.git
+cd FreeLoop
 git checkout v<version>
 go run ./cmd/freeloop-sign verify -version <version> -dir <download folder> -ignore-missing
 ```
@@ -51,7 +51,7 @@ It checks the signature over the whole list, then each listed file the folder ho
 
 - **macOS:** `Freeloop.dmg`. Open it and drag Freeloop to Applications. macOS blocks it the first time: try to open it, then choose Open Anyway in System Settings, under Privacy & Security. The Keychain asks again after each update, because the signature changes with every build. Needs a Mac with Apple Silicon (M1 or later) and macOS 14 or later; there is no Intel build.
 - **Windows:** `Freeloop-<version>-windows-<arch>-setup.exe` installs Freeloop for your user alone, without administrator rights; the `-portable.zip` runs from any folder. Take `amd64` for most PCs and `arm64` for ARM ones. If SmartScreen stops it, choose More info, then Run anyway. Needs Windows 10 version 1809 or later with the Microsoft Edge WebView2 Runtime, which Windows 11 includes and the installer offers otherwise, and [Git for Windows](https://git-scm.com), since commands, hooks and the terminal run through Git Bash.
-- **Linux:** `Freeloop-<version>-linux-<arch>.AppImage`, which carries its own WebKitGTK, or the `.deb` for Debian and Ubuntu, which depends on GTK 3 and WebKitGTK 4.1 and recommends bubblewrap, passt and git; `amd64` or `arm64`. Saving a key needs a running Secret Service, such as GNOME Keyring or KWallet. In the sandbox, the Run button and a worktree's setup and archive commands need passt for the network; without it they are refused and say so (Ubuntu 22.04 has no package for it).
+- **Linux:** `Freeloop-<version>-linux-<arch>.AppImage`, which carries its own WebKitGTK (the source of the libraries it carries is beside it, `…-linux-<arch>-sources.tar`), or the `.deb` for Debian and Ubuntu, which depends on GTK 3 and WebKitGTK 4.1 and recommends bubblewrap, passt and git; `amd64` or `arm64`. Saving a key needs a running Secret Service, such as GNOME Keyring or KWallet. In the sandbox, the Run button and a worktree's setup and archive commands need passt for the network; without it they are refused and say so (Ubuntu 22.04 has no package for it).
 
 ### Build from source
 

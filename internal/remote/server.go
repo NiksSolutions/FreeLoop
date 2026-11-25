@@ -3,7 +3,8 @@
 // only; the user makes it reachable over their own private network, such as with
 // `tailscale serve`, and only phones they paired, confirming on this computer, get
 // in. From there a session can be read live, sent a message, stopped, and a plain
-// request allowed or denied once; nothing else of the engine is reachable.
+// request allowed or denied once, a message and an answer only after a passkey check
+// (passkey.go); nothing else of the engine is reachable.
 package remote
 
 import (
@@ -78,8 +79,10 @@ type Server struct {
 	// looking counts each phone's open event streams: a phone with one is being looked
 	// at, and gets no push.
 	looking map[string]int
-	nextRun int
-	vapid   *ecdsa.PrivateKey
+	// challenges are the passkey challenges the phones were given, by phone (passkey.go).
+	challenges map[string]challenge
+	nextRun    int
+	vapid      *ecdsa.PrivateKey
 	// vapidMu makes the push key once. It is held while the keyring is read or written,
 	// which can wait on the system's prompt, so s.mu is not.
 	vapidMu sync.Mutex
@@ -203,6 +206,9 @@ type Device struct {
 	LastSeen time.Time `json:"lastSeen"`
 	// Notify is whether the phone turned notifications on.
 	Notify bool `json:"notify"`
+	// Passkey is whether the phone made its passkey (OQ-052): until it has, it cannot
+	// answer requests or send messages.
+	Passkey bool `json:"passkey"`
 }
 
 // Status says how the phone server is.
@@ -217,7 +223,7 @@ func (s *Server) Status() Status {
 		}
 	}
 	for _, d := range s.devices {
-		st.Devices = append(st.Devices, Device{ID: d.ID, Name: d.Name, Login: d.Login, Paired: d.Paired, LastSeen: d.LastSeen, Notify: d.Push != nil})
+		st.Devices = append(st.Devices, Device{ID: d.ID, Name: d.Name, Login: d.Login, Paired: d.Paired, LastSeen: d.LastSeen, Notify: d.Push != nil, Passkey: d.Passkey != nil})
 	}
 	return st
 }
@@ -288,8 +294,8 @@ func (s *Server) CancelPairing() {
 	s.mu.Unlock()
 }
 
-// RemoveDevice forgets a paired phone; its next request is refused. An empty id
-// forgets them all.
+// RemoveDevice forgets a paired phone, its passkey with it; its next request is
+// refused. An empty id forgets them all.
 func (s *Server) RemoveDevice(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -303,6 +309,11 @@ func (s *Server) RemoveDevice(id string) error {
 		return err
 	}
 	s.devices = keep
+	for did := range s.challenges {
+		if id == "" || did == id {
+			delete(s.challenges, did)
+		}
+	}
 	for did, open := range s.streams {
 		if id == "" || did == id {
 			for _, cancel := range open {
@@ -457,10 +468,7 @@ func (s *Server) allowedHost(r *http.Request) bool {
 	if (host == "127.0.0.1" || host == "localhost") && port == strconv.Itoa(st.Port) {
 		return true
 	}
-	want := strings.ToLower(strings.TrimSuffix(st.Host, "."))
-	if h, _, err := net.SplitHostPort(want); err == nil {
-		want = h
-	}
+	want := hostName(st.Host)
 	return want != "" && strings.EqualFold(strings.TrimSuffix(host, "."), want)
 }
 
@@ -489,10 +497,15 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/stream", s.authed(s.summaryStream))
 	mux.HandleFunc("GET /api/sessions/{id}/events", s.authed(s.events))
 	mux.HandleFunc("GET /api/sessions/{id}/stream", s.authed(s.sessionStream))
-	mux.HandleFunc("POST /api/sessions/{id}/prompt", s.authed(s.prompt))
+	// A message and an answer need a passkey check less than 18 hours old (passkey.go).
+	mux.HandleFunc("POST /api/sessions/{id}/prompt", s.checked(s.prompt))
 	mux.HandleFunc("GET /api/sessions/{id}/attachments/{name}", s.authed(s.attachment))
 	mux.HandleFunc("POST /api/sessions/{id}/cancel", s.authed(s.cancel))
-	mux.HandleFunc("POST /api/decide", s.authed(s.decide))
+	mux.HandleFunc("POST /api/decide", s.checked(s.decide))
+	mux.HandleFunc("GET /api/passkey", s.authed(s.passkeyStatus))
+	mux.HandleFunc("POST /api/passkey/challenge", s.authed(s.passkeyChallenge))
+	mux.HandleFunc("POST /api/passkey/register", s.authed(s.passkeyRegister))
+	mux.HandleFunc("POST /api/passkey/verify", s.authed(s.passkeyVerify))
 	mux.HandleFunc("GET /api/push/key", s.authed(s.pushKey))
 	mux.HandleFunc("POST /api/push/subscribe", s.authed(s.pushSubscribe))
 	mux.HandleFunc("POST /api/push/unsubscribe", s.authed(s.pushUnsubscribe))

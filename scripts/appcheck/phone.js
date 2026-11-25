@@ -1,6 +1,7 @@
 // The phone app (GUI-052) at an iPhone's width, 390 px, on the session phonesession.ts
 // writes (issue 057), with a phone paired by a key put in the page's storage before it
-// loads (APPCHECK_INIT). Helpers are in lib.js.
+// loads (APPCHECK_INIT), and its passkey last shown 19 hours ago, which a stand-in
+// authenticator shows when asked (phone-authenticator.js). Helpers are in lib.js.
 const snap = (name) => window.webkit.messageHandlers.snap?.postMessage(name)?.catch(() => {});
 const rgb = (hex) => `rgb(${parseInt(hex.slice(1, 3), 16)}, ${parseInt(hex.slice(3, 5), 16)}, ${parseInt(hex.slice(5, 7), 16)})`;
 const box = (el) => el.getBoundingClientRect();
@@ -213,7 +214,23 @@ await step("pictures go from the phone", async () => {
   const send = withText(".phone-composer button", "Send");
   check("a picture alone can be sent", send && !send.disabled);
   send.click();
+  // OQ-052: the phone last showed its passkey 19 hours ago (appcheck.sh), so the message
+  // waits for it, with its picture, and goes once the stand-in shows it.
+  const check18 = () => document.querySelector(".phone-composer .phone-passkey");
+  const confirm = await until("the passkey prompt", () => check18() && withText("button", "Confirm with passkey", check18()), 10000).catch(() => null);
+  check("the message waits for the phone's passkey, its last check 19 hours old", !!confirm && check18().textContent.includes("more than 18 hours ago"), check18()?.textContent);
+  check("its picture waits with it", thumbs().length === 1, `${thumbs().length} thumbnails`);
+  await snap("phone-passkey-check");
+  await until("the challenge", () => confirm && !confirm.disabled, 5000).catch(() => null);
+  confirm?.click();
   await until("sent", () => !document.querySelector(".phone-pictures"), 10000);
+  const asked = window.__passkeys.got[0];
+  check(
+    "the passkey was asked of this phone alone, for the tailnet name, its user verified",
+    window.__passkeys.got.length === 1 && asked.rpId === "phone.test" && asked.userVerification === "required" && asked.allowCredentials.length === 1,
+    JSON.stringify({ checks: window.__passkeys.got.length, rpId: asked?.rpId, uv: asked?.userVerification }),
+  );
+  check("and once shown, the prompt goes", !check18());
   const sent = await until("the message's picture", () => all(".phone-user .phone-sent-pictures img").find((i) => i.complete && i.naturalWidth > 0), 10000).catch(() => null);
   check("the sent message shows its picture, read back with the phone's key", !!sent);
   check("and says it came from the phone", sent?.closest(".phone-user").textContent.includes("From the phone (Check iPhone)"), sent?.closest(".phone-user").textContent);
@@ -223,5 +240,16 @@ await step("pictures go from the phone", async () => {
   sent?.scrollIntoView({ block: "center" });
   await sleep(100);
   await snap("phone-picture");
+});
+
+// OQ-052: within 18 hours of the check just made, an answer from the phone goes at once.
+await step("a request is answered from the phone, without the passkey again", async () => {
+  const card = await until("the agent's request", () => all(".phone-conversation .phone-request").find((c) => withText("button", "Allow once", c)), 20000).catch(() => null);
+  check("the demo agent's request shows on the phone", !!card);
+  if (!card) return;
+  withText("button", "Allow once", card).click();
+  const answered = await until("answered", () => !card.isConnected || !withText("button", "Allow once", card), 10000).catch(() => null);
+  check("Allow once goes at once", !!answered, card.textContent.slice(0, 120));
+  check("and asks for no passkey", window.__passkeys.got.length === 1 && !document.querySelector(".phone-passkey"), `${window.__passkeys.got.length} checks`);
 });
 return results;

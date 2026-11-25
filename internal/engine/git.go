@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/FinanceNik/Freeloop/internal/environment"
@@ -79,29 +80,265 @@ var gitPatterns = map[string]string{"GIT_LITERAL_PATHSPECS": "0"}
 // gitEnvFor is gitEnv for git in env.
 func gitEnvFor(env environment.Environment, more map[string]string) map[string]string {
 	if localWindows(env) {
-		return gitEnvOn("windows", more)
+		return gitEnvOn("windows", systemGitOf(env), more)
 	}
 	return gitEnv(more)
 }
 
-// gitEnvOn is gitEnv for a git running on goos. Git for Windows keeps in its system
-// config, under Program Files where only an administrator writes, what makes it work
-// there: core.autocrlf, without which every file checked out with \r\n shows as
-// changed, the credential manager a push signs in with, and its certificates. So on
-// Windows the system config is read (NFR-XPLAT-003).
-func gitEnvOn(goos string, more map[string]string) map[string]string {
+// gitEnvOn is gitEnv for a git running on goos, given what its system config gives it
+// (systemGit). Git for Windows keeps in its system config, under Program Files where
+// only an administrator writes, what makes it work there: core.autocrlf, without which
+// every file checked out with \r\n shows as changed, and the credential manager a push
+// signs in with (NFR-XPLAT-003). With (b) git still reads no system config and gets
+// those two on its command line (systemGitArgs); with (a) it reads the system config.
+func gitEnvOn(goos string, sys systemGit, more map[string]string) map[string]string {
 	out := gitEnv(more)
-	if goos == "windows" {
+	if goos == "windows" && !sys.Narrow {
 		delete(out, "GIT_CONFIG_NOSYSTEM")
 	}
 	return out
+}
+
+// gitArgvFor is gitArgv for a command of the app's own in env, with what git's system
+// config gives a local git on Windows (systemGitArgs) before args, so that the
+// command's own settings win.
+func gitArgvFor(ctx context.Context, env environment.Environment, args ...string) []string {
+	if localWindows(env) {
+		args = append(systemGitArgs(ctx, env, systemGitOf(env), args), args...)
+	}
+	return gitArgv(env, args...)
+}
+
+// systemGit is what Git for Windows' system config gives the app's git (OQ-046, decided
+// 2026-11-25). Narrow is (b): git reads no system config and gets core.autocrlf and the
+// credential helpers, Git Credential Manager by its own path, on its command line, so no
+// other program the file names runs. Otherwise it is (a): git reads the system config,
+// which only an administrator can change, with hooks off (safeGitOn).
+type systemGit struct {
+	Narrow   bool
+	AutoCRLF string   // "" where the system config does not set it
+	Helpers  []string // credential.helper's values, as configured
+	// TLS is the system's http.sslbackend and http.sslcainfo, which Git for Windows
+	// sets so its curl finds a CA bundle: a name and a file, not a program. Without
+	// them an https push can fail on the certificate.
+	TLS [][2]string
+}
+
+// systemGitQuery asks git for the system settings systemGitFrom decides on. It exits 1
+// when none is set, as with no system config.
+var systemGitQuery = []string{"config", "--system", "--includes", "-z", "--get-regexp", `^(core\.autocrlf|http\.sslbackend|http\.sslcainfo|credential\.(.*\.)?helper)$`}
+
+// sslBackends are the values Git for Windows reads for http.sslbackend.
+var sslBackends = []string{"openssl", "schannel"}
+
+// autoCRLFValues are the values git reads for core.autocrlf, in any case.
+var autoCRLFValues = []string{"true", "false", "input", "yes", "no", "on", "off", "1", "0"}
+
+// systemGitFrom decides from what systemGitQuery printed: (b) when the credential
+// helpers left after the last empty one, which clears those before it, are all Git
+// Credential Manager by its own path (gcmHelper); (a) for any other helper, a helper
+// for one address, or none at all, as with no system config. The empty one is not
+// passed on: on the command line it would clear the user's own helpers too, which git
+// reads after the system's.
+func systemGitFrom(out string) systemGit {
+	var helpers []string
+	autocrlf, other := "", false
+	backend, bundle := "", ""
+	for _, entry := range strings.Split(out, "\x00") {
+		key, value, hasValue := strings.Cut(entry, "\n")
+		switch {
+		case entry == "":
+		case key == "http.sslbackend":
+			backend = ""
+			if slices.Contains(sslBackends, strings.ToLower(value)) {
+				backend = strings.ToLower(value)
+			}
+		case key == "http.sslcainfo":
+			bundle = value
+		case key == "core.autocrlf":
+			if !hasValue {
+				value = "true" // a key with no value is true to git
+			}
+			autocrlf = ""
+			if slices.Contains(autoCRLFValues, strings.ToLower(value)) {
+				autocrlf = value
+			}
+		case key == "credential.helper" && hasValue && value == "":
+			helpers = nil
+		case key == "credential.helper" && hasValue:
+			helpers = append(helpers, value)
+		default: // a helper for one address, or one with no value, which git refuses
+			other = true
+		}
+	}
+	if other || len(helpers) == 0 || slices.ContainsFunc(helpers, func(h string) bool { return !gcmHelper(h) }) {
+		return systemGit{}
+	}
+	var tls [][2]string
+	if backend != "" {
+		tls = append(tls, [2]string{"http.sslbackend", backend})
+	}
+	if bundle != "" {
+		tls = append(tls, [2]string{"http.sslcainfo", bundle})
+	}
+	return systemGit{Narrow: true, AutoCRLF: autocrlf, Helpers: helpers, TLS: tls}
+}
+
+// gcmNames are Git Credential Manager's file names, under its name and its older one,
+// GCM Core.
+var gcmNames = []string{"git-credential-manager.exe", "git-credential-manager", "git-credential-manager-core.exe", "git-credential-manager-core"}
+
+// gcmHelper reports a credential helper that is Git Credential Manager by its own path:
+// manager, which Git for Windows writes and git runs as git-credential-manager from its
+// own folders, manager-core, its older name, or the absolute path of that program with
+// nothing after it. Git runs a helper through the shell, so such a path spells folders
+// with / and escapes a space or a bracket with \, and holds nothing else the shell reads.
+func gcmHelper(h string) bool {
+	if h == "manager" || h == "manager-core" {
+		return true
+	}
+	if len(h) < 3 || !isLetter(h[0]) || h[1] != ':' || h[2] != '/' {
+		return false
+	}
+	var path strings.Builder
+	path.WriteString(h[:3])
+	for i := 3; i < len(h); i++ {
+		c := h[i]
+		switch {
+		case c == '\\' && i+1 < len(h) && strings.IndexByte(" ()", h[i+1]) >= 0:
+			i++
+			path.WriteByte(h[i])
+		case isLetter(c) || c >= '0' && c <= '9' || strings.IndexByte("/.-_", c) >= 0:
+			path.WriteByte(c)
+		default:
+			return false
+		}
+	}
+	p := path.String()
+	name := p[strings.LastIndexByte(p, '/')+1:]
+	return slices.ContainsFunc(gcmNames, func(n string) bool { return strings.EqualFold(n, name) })
+}
+
+// systemGitRead is what git's system config gives, read once a run: the file needs an
+// administrator to change, and reading it for each call would double them.
+var systemGitRead struct {
+	sync.Mutex
+	done bool
+	sys  systemGit
+}
+
+// systemGitOf is what git's system config gives git in env, a local environment on
+// Windows. A git that did not run, not installed or too slow, is asked again next time
+// and gives (a) meanwhile, which passes nothing.
+func systemGitOf(env environment.Environment) systemGit {
+	systemGitRead.Lock()
+	defer systemGitRead.Unlock()
+	if !systemGitRead.done {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		res, err := env.Exec(ctx, environment.ExecSpec{
+			Argv:           gitArgv(env, systemGitQuery...),
+			Env:            gitEnv(nil),
+			Cwd:            neutralDirFor(env),
+			SeparateStderr: true,
+			MaxOutput:      1 << 16,
+		})
+		if err == nil && !res.TimedOut {
+			systemGitRead.done = true
+			if res.ExitCode == 0 { // 1: nothing set, or no system config
+				systemGitRead.sys = systemGitFrom(res.Output)
+			}
+		}
+	}
+	return systemGitRead.sys
+}
+
+// systemGitArgs is what sys gives a git command of args in env, as -c options
+// (systemGitPairs).
+func systemGitArgs(ctx context.Context, env environment.Environment, sys systemGit, args []string) []string {
+	opts, command := gitCommandOf(args)
+	var out []string
+	for _, kv := range systemGitPairs(ctx, env, sys, opts, command != "" && !slices.Contains(convertsNothing, command), slices.Contains(talksToRemotes, command)) {
+		out = append(out, "-c", kv[0]+"="+kv[1])
+	}
+	return out
+}
+
+// systemGitPairs is what sys gives a git command with git's own options opts, as keys
+// and values: the credential helpers; for a command that talks to a remote, the TLS
+// settings the user's own config does not set; and, for a command that converts line
+// endings, core.autocrlf, unless opts or the user's own config set it. Passed on the
+// command line a value would win over the user's, while git reads the system's below
+// them; so git is asked first, without the system's file.
+func systemGitPairs(ctx context.Context, env environment.Environment, sys systemGit, opts []string, converts, network bool) [][2]string {
+	if !sys.Narrow {
+		return nil
+	}
+	var out [][2]string
+	for _, h := range sys.Helpers {
+		out = append(out, [2]string{"credential.helper", h})
+	}
+	if network && len(sys.TLS) > 0 {
+		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		res, err := env.Exec(ctx, environment.ExecSpec{
+			Argv: gitArgv(env, append(slices.Clone(opts), "config", "--name-only", "--get-regexp", `^http\.(sslbackend|sslcainfo)$`)...),
+			Env:  gitEnv(nil),
+		})
+		cancel()
+		// Exit 1 is nothing set; anything else unread passes nothing, as a guess
+		// could put the system's bundle above the user's.
+		if err == nil && !res.TimedOut && (res.ExitCode == 0 || res.ExitCode == 1) {
+			set := strings.Fields(strings.ToLower(res.Output))
+			for _, kv := range sys.TLS {
+				if !slices.Contains(set, kv[0]) {
+					out = append(out, kv)
+				}
+			}
+		}
+	}
+	if sys.AutoCRLF == "" || !converts || slices.ContainsFunc(opts, func(o string) bool { return strings.HasPrefix(strings.ToLower(o), "core.autocrlf=") }) {
+		return out
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	res, err := env.Exec(ctx, environment.ExecSpec{
+		Argv: gitArgv(env, append(slices.Clone(opts), "config", "--get", "core.autocrlf")...),
+		Env:  gitEnv(nil),
+	})
+	if err == nil && !res.TimedOut && res.ExitCode == 1 {
+		out = append(out, [2]string{"core.autocrlf", sys.AutoCRLF})
+	}
+	return out
+}
+
+// talksToRemotes are the git commands, as the app runs them, that reach a remote, and so
+// need the system's TLS settings.
+var talksToRemotes = []string{"push", "fetch", "ls-remote", "pull", "clone"}
+
+// convertsNothing are the git commands, as the app runs them, that never move a file
+// between the working tree and the repository, so core.autocrlf means nothing to them
+// and git is not asked about it. A command not listed is asked, which costs a git config.
+var convertsNothing = []string{"config", "rev-parse", "symbolic-ref", "rev-list", "log", "merge-base", "remote", "branch", "cat-file", "check-ignore", "diff-tree", "ls-tree", "init", "push", "fetch", "ls-remote", "for-each-ref", "show-ref"}
+
+// gitCommandOf splits what follows "git" into git's own options and the command they
+// come before.
+func gitCommandOf(args []string) (opts []string, command string) {
+	for i := 0; i < len(args); i++ {
+		switch a := args[i]; {
+		case !strings.HasPrefix(a, "-"):
+			return args[:i:i], a
+		case slices.Contains([]string{"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env"}, a):
+			i++ // its value
+		}
+	}
+	return args, ""
 }
 
 func git(ctx context.Context, env environment.Environment, args ...string) (string, bool) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	res, err := env.Exec(ctx, environment.ExecSpec{
-		Argv:      gitArgv(env, args...),
+		Argv:      gitArgvFor(ctx, env, args...),
 		Env:       gitEnvFor(env, nil),
 		MaxOutput: 1 << 20,
 	})
@@ -167,7 +404,7 @@ func gitCode(ctx context.Context, env environment.Environment, args ...string) (
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	res, err := env.Exec(ctx, environment.ExecSpec{
-		Argv: gitArgv(env, args...),
+		Argv: gitArgvFor(ctx, env, args...),
 		Env:  gitEnvFor(env, nil),
 	})
 	if err != nil || res.TimedOut {

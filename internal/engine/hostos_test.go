@@ -124,11 +124,98 @@ func TestGitOnWindows(t *testing.T) {
 	if got := safeGitOn("darwin", `C:\Windows`); !slices.Equal(got, safeGit) {
 		t.Errorf("safeGitOn(darwin) = %q", got)
 	}
-	if _, ok := gitEnvOn("windows", nil)["GIT_CONFIG_NOSYSTEM"]; ok {
-		t.Error("Windows' git does not read its system config")
+	// OQ-046: (a) reads the system config, (b) does not and passes what it needs.
+	narrow := systemGit{Narrow: true, AutoCRLF: "true", Helpers: []string{"manager"}}
+	if _, ok := gitEnvOn("windows", systemGit{}, nil)["GIT_CONFIG_NOSYSTEM"]; ok {
+		t.Error("(a): Windows' git does not read its system config")
 	}
-	if gitEnvOn("linux", map[string]string{"A": "b"})["GIT_CONFIG_NOSYSTEM"] != "1" || gitEnvOn("linux", map[string]string{"A": "b"})["A"] != "b" {
+	if gitEnvOn("windows", narrow, nil)["GIT_CONFIG_NOSYSTEM"] != "1" {
+		t.Error("(b): Windows' git reads all of its system config")
+	}
+	if gitEnvOn("linux", systemGit{}, map[string]string{"A": "b"})["GIT_CONFIG_NOSYSTEM"] != "1" || gitEnvOn("linux", systemGit{}, map[string]string{"A": "b"})["A"] != "b" {
 		t.Error("gitEnvOn(linux)")
+	}
+
+	// gh's git calls get the same, through the environment.
+	pairs := [][2]string{{"credential.helper", "manager"}, {"core.autocrlf", "true"}}
+	vars := pushEnvOn("windows", narrow, pairs)
+	for k, v := range map[string]string{"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_COUNT": "2", "GIT_CONFIG_KEY_0": "credential.helper", "GIT_CONFIG_VALUE_0": "manager", "GIT_CONFIG_KEY_1": "core.autocrlf", "GIT_CONFIG_VALUE_1": "true", "GH_PROMPT_DISABLED": "1"} {
+		if vars[k] != v {
+			t.Errorf("pushEnvOn(windows, (b))[%s] = %q, want %q", k, vars[k], v)
+		}
+	}
+	vars = pushEnvOn("windows", systemGit{}, nil)
+	if _, ok := vars["GIT_CONFIG_NOSYSTEM"]; ok || vars["GIT_CONFIG_COUNT"] != "" {
+		t.Errorf("pushEnvOn(windows, (a)) = %v", vars)
+	}
+	if vars = pushEnvOn("darwin", systemGit{}, nil); vars["GIT_CONFIG_NOSYSTEM"] != "1" || vars["GIT_CONFIG_COUNT"] != "" {
+		t.Errorf("pushEnvOn(darwin) = %v", vars)
+	}
+}
+
+// OQ-046, decided 2026-11-25: from what `git config --system` reports, the app's git on
+// Windows gets core.autocrlf and the credential helper when that is Git Credential
+// Manager by its own path, and no other system setting (b). Any other helper, or none,
+// and it reads the system config with hooks off, as built on 2026-11-08 (a).
+func TestSystemGitConfigOnWindows(t *testing.T) {
+	gcm := `C:/Program\ Files/Git/mingw64/bin/git-credential-manager.exe`
+	own := `C:/Program\ Files\ \(x86\)/Git\ Credential\ Manager/git-credential-manager.exe`
+	// What git prints with -z: each entry is its key, a newline and its value, then a
+	// NUL; a key with no value at all has neither newline nor value.
+	out := func(entries ...string) string {
+		var b strings.Builder
+		for _, e := range entries {
+			b.WriteString(strings.Replace(e, "=", "\n", 1) + "\x00")
+		}
+		return b.String()
+	}
+	helper := func(v string) string { return "credential.helper=" + v }
+	for _, c := range []struct {
+		name     string
+		out      string
+		autocrlf string
+		helpers  []string // nil for (a)
+	}{
+		{"Git for Windows", out("core.autocrlf=true", helper("manager")), "true", []string{"manager"}},
+		{"autocrlf false", out("core.autocrlf=false", helper("manager")), "false", []string{"manager"}},
+		{"autocrlf input", out("core.autocrlf=input", helper("manager")), "input", []string{"manager"}},
+		{"no autocrlf", out(helper("manager")), "", []string{"manager"}},
+		{"autocrlf twice, the last wins", out("core.autocrlf=true", "core.autocrlf=false", helper("manager")), "false", []string{"manager"}},
+		{"autocrlf git would not read", out("core.autocrlf=maybe", helper("manager")), "", []string{"manager"}},
+		{"manager-core", out("core.autocrlf=true", helper("manager-core")), "true", []string{"manager-core"}},
+		{"GCM by its path in Git", out("core.autocrlf=true", helper(gcm)), "true", []string{gcm}},
+		{"GCM by its path in its own folder", out(helper(own)), "", []string{own}},
+		{"GCM without .exe", out(helper("C:/Git/mingw64/bin/git-credential-manager")), "", []string{"C:/Git/mingw64/bin/git-credential-manager"}},
+		{"GCM Core by its path", out(helper("D:/Git/mingw64/libexec/git-core/git-credential-manager-core.exe")), "", []string{"D:/Git/mingw64/libexec/git-core/git-credential-manager-core.exe"}},
+		{"an empty helper first", out(helper(""), helper("manager")), "", []string{"manager"}},
+		{"another helper cleared before GCM", out(helper("wincred"), helper(""), helper("manager")), "", []string{"manager"}},
+		{"GCM twice", out(helper("manager"), helper(gcm)), "", []string{"manager", gcm}},
+
+		{"no system config", "", "", nil},
+		{"autocrlf and no helper", out("core.autocrlf=true"), "", nil},
+		{"wincred", out("core.autocrlf=true", helper("wincred")), "", nil},
+		{"store", out(helper("store")), "", nil},
+		{"Manager in capitals", out(helper("Manager")), "", nil},
+		{"another program by its path", out(helper("C:/Tools/helper.exe")), "", nil},
+		{"a shell snippet", out(helper(`!sh -c 'echo password=x'`)), "", nil},
+		{"GCM as a shell snippet", out(helper("!" + gcm)), "", nil},
+		{"GCM with an argument", out(helper(gcm + " --no-ui")), "", nil},
+		{"GCM and a second command", out(helper(gcm + ";calc.exe")), "", nil},
+		{"GCM by a path the shell would split", out(helper("C:/Program Files/Git/mingw64/bin/git-credential-manager.exe")), "", nil},
+		{"GCM by a path with backslashes", out(helper(`C:\Program Files\Git\mingw64\bin\git-credential-manager.exe`)), "", nil},
+		{"GCM by a path with a variable", out(helper("C:/$GIT/git-credential-manager.exe")), "", nil},
+		{"GCM by a relative path", out(helper("bin/git-credential-manager.exe")), "", nil},
+		{"a program named after GCM", out(helper("C:/Tools/not-git-credential-manager.exe")), "", nil},
+		{"GCM and another helper", out(helper("manager"), helper("wincred")), "", nil},
+		{"GCM, then cleared", out(helper("manager"), helper("")), "", nil},
+		{"a helper for one address", out(helper("manager"), "credential.https://dev.azure.com.helper=manager"), "", nil},
+		{"a helper without a value", out("credential.helper", helper("manager")), "", nil},
+	} {
+		got := systemGitFrom(c.out)
+		want := systemGit{Narrow: c.helpers != nil, AutoCRLF: c.autocrlf, Helpers: c.helpers}
+		if got.Narrow != want.Narrow || got.AutoCRLF != want.AutoCRLF || !slices.Equal(got.Helpers, want.Helpers) {
+			t.Errorf("%s: systemGitFrom(%q) = %+v, want %+v", c.name, c.out, got, want)
+		}
 	}
 }
 
@@ -197,5 +284,26 @@ func TestCachesFollowTheHome(t *testing.T) {
 	home := environment.Canonical(e.home)
 	if got := e.appCache("updates"); !strings.HasPrefix(got, home+string(filepath.Separator)) {
 		t.Errorf("appCache = %q, not in the home folder %q", got, home)
+	}
+}
+
+// OQ-046 (b) keeps Git for Windows' TLS settings: its system config names the CA
+// bundle and the TLS backend its curl needs, and without them an https push fails.
+// They are a file and a name, not a program, so they are passed; a backend git would
+// not read is not, and they do not change the choice between (a) and (b).
+func TestSystemGitKeepsTLS(t *testing.T) {
+	bundle := "C:/Program Files/Git/mingw64/etc/ssl/certs/ca-bundle.crt"
+	out := "core.autocrlf\ntrue\x00http.sslbackend\nopenssl\x00http.sslcainfo\n" + bundle + "\x00credential.helper\nmanager\x00"
+	got := systemGitFrom(out)
+	want := [][2]string{{"http.sslbackend", "openssl"}, {"http.sslcainfo", bundle}}
+	if !got.Narrow || !slices.Equal(got.TLS, want) {
+		t.Errorf("Git for Windows' own: %+v", got)
+	}
+	got = systemGitFrom("http.sslbackend\nschannel\x00http.sslbackend\nmagic\x00http.sslcainfo\n\x00credential.helper\nmanager\x00")
+	if !got.Narrow || len(got.TLS) != 0 {
+		t.Errorf("a backend git does not know, an empty bundle: %+v", got)
+	}
+	if got = systemGitFrom("http.sslcainfo\n" + bundle + "\x00credential.helper\nwincred\x00"); got.Narrow {
+		t.Errorf("another helper still means (a): %+v", got)
 	}
 }

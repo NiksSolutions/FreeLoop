@@ -29,6 +29,8 @@ type phone struct {
 	// token is the key the phone holds, sent as a header (never a cookie, which every
 	// port of the same host would receive).
 	token string
+	// passkey is the phone's passkey (OQ-052), once it made one.
+	passkey *authenticator
 }
 
 // authorize puts the phone's key and login on a request, as the phone app does.
@@ -117,7 +119,15 @@ func started(t *testing.T) (*engine.Engine, *Server, *phone) {
 	return e, s, &phone{t: t, base: "http://127.0.0.1:" + strconv.Itoa(st.Port), client: &http.Client{}}
 }
 
+// pairPhone pairs the phone and makes its passkey, as the phone app does.
 func pairPhone(t *testing.T, s *Server, p *phone) {
+	t.Helper()
+	pairOnly(t, s, p)
+	p.addPasskey()
+}
+
+// pairOnly pairs the phone and makes no passkey, as a phone paired before passkeys.
+func pairOnly(t *testing.T, s *Server, p *phone) {
 	t.Helper()
 	ps, err := s.StartPairing()
 	if err != nil {

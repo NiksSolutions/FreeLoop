@@ -70,7 +70,7 @@ func gitRunWith(ctx context.Context, env environment.Environment, timeout time.D
 	vars := map[string]string{"GIT_EDITOR": "true"}
 	maps.Copy(vars, more)
 	res, err := env.Exec(ctx, environment.ExecSpec{
-		Argv:      gitArgv(env, args...),
+		Argv:      gitArgvFor(ctx, env, args...),
 		Env:       gitEnvFor(env, vars),
 		MaxOutput: 1 << 20,
 		Timeout:   timeout,

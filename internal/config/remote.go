@@ -58,6 +58,28 @@ type Device struct {
 	LastSeen time.Time `json:"lastSeen"`
 	// Push is the phone's Web Push subscription, once it turned notifications on.
 	Push *PushSubscription `json:"push,omitempty"`
+	// Passkey is the phone's passkey, once it made one (OQ-052); removing the phone
+	// removes it.
+	Passkey *Passkey `json:"passkey,omitempty"`
+}
+
+// Passkey is a phone's passkey (WebAuthn, SEC-020), made on the phone for the name it
+// reaches this computer by. Only its public key is kept. An answer to a request or a
+// message from the phone needs a check of it less than 18 hours old.
+type Passkey struct {
+	// ID is the credential's ID, base64url.
+	ID string `json:"id"`
+	// PublicKey is its public key as SPKI DER, base64url, of the COSE algorithm
+	// Algorithm (-7, ES256).
+	PublicKey string `json:"publicKey"`
+	Algorithm int    `json:"algorithm"`
+	// RPID is the name it was made for: remote.host when it was made.
+	RPID string `json:"rpId"`
+	// SignCount is the authenticator's counter at the last check; it may not go back.
+	SignCount uint32    `json:"signCount"`
+	Added     time.Time `json:"added"`
+	// Checked is when the phone last showed it, its user verified.
+	Checked time.Time `json:"checked"`
 }
 
 // PushSubscription is what a browser's push service gave the phone app: where to

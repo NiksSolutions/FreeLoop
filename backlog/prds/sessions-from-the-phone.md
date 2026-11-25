@@ -54,5 +54,5 @@ Built so far (2026-11-11, phase 1): the phone server, pairing, the phone app wit
 ## Open questions
 
 - OQ-051: the phone without Tailscale, through a self-hostable relay.
-- OQ-052: a passkey to re-confirm approvals after some hours (issue 032 waits on it).
+- OQ-052: a passkey to re-confirm approvals after some hours (issue 032 waits on it). *Closed 2026-11-25: a passkey after 18 hours, for answers and messages; built in issue 086.*
 - Issue 031: may the app use `rsc.io/qr` for the pairing QR code? *Yes, the user agreed on 2026-11-22; built the same day.*

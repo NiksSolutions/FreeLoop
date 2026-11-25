@@ -145,7 +145,9 @@ func TestPanelRefusesMoreOfARepositorysConfig(t *testing.T) {
 }
 
 // Review finding: a URL rewrite or a protocol setting in a repository's own
-// config let a push run a program.
+// config let a push run a program. A credential helper is refused there too: on
+// Windows the push gets the system's Git Credential Manager (OQ-046), never one a
+// repository names.
 func TestPushRefusesRewrittenTransports(t *testing.T) {
 	ctx := context.Background()
 	e := openTest(t, t.TempDir())
@@ -154,6 +156,8 @@ func TestPushRefusesRewrittenTransports(t *testing.T) {
 		{"url./tmp/bare.insteadOf", "HEAD:refs/heads/feat"},
 		{"protocol.ext.allow", "always"},
 		{"core.sshCommand", "touch x"},
+		{"credential.helper", "!touch pwned"},
+		{"credential.https://example.com.helper", "manager"},
 	} {
 		repo := gitRepo(t)
 		env, _ := e.localEnv(repo, nil)

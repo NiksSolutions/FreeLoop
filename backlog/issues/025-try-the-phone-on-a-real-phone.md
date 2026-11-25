@@ -17,6 +17,7 @@ In a rebuilt app, with Tailscale on the Mac and the iPhone, set up the phone as 
 - A message sent from the phone reaches the session; Stop stops a running turn.
 - With the window closed the app keeps answering; with "Keep this computer awake" on, the Mac does not sleep while the session works.
 - Removing the phone in Settings signs it out at its next request.
+- The passkey (OQ-052, issue 086): pairing ends with the iPhone asking for Face ID to add a passkey for the tailnet name, in Safari and in the home-screen app, and Settings → Phone then says the phone has one; a phone paired before 2026-11-25 is asked to add one on its first screen. Then, 18 hours or more after the last Face ID, allowing a request and sending a message each ask for Face ID first and then go through; within the 18 hours they go at once. Whether iOS asks from the tap without a second tap, and what the Passwords app shows for the passkey, is written into this issue.
 
 ## Notes
 - Needs a person, an iPhone and Tailscale on both.

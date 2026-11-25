@@ -38,13 +38,21 @@ var fallbackLicenses embed.FS
 
 // carried says what a system's packages carry that neither the binary's build
 // information nor the lockfile lists: what the packaging takes from the build
-// machine or from Wails (build/linux/Taskfile.yml's appimage task,
+// machine or from Wails (build/linux/Taskfile.yml's appimage task and
+// build/linux/sources.sh, which build/linux/package.sh names the archive of;
 // build/windows/Taskfile.yml's package:files). Change one with the other.
+// <version> is the app's.
 var carried = map[string]string{
-	"linux": `The AppImage also carries GTK 3, WebKitGTK 4.1 and the libraries they use,
-copied from the system it was built on, each under its own license; the
-copyright file of each library's package is in the AppImage, under
-usr/share/doc. The .deb carries none of them: it uses the system's.`,
+	"linux": `The AppImage also carries GTK 3, WebKitGTK 4.1 and the libraries and data
+files they use, copied from the Ubuntu packages of the system it was built on,
+each under its own license; the copyright file of each of those packages is in
+the AppImage, under usr/share/doc. The source of each, at the version the
+AppImage carries, is published beside it on the release's page,
+https://github.com/NiksSolutions/FreeLoop/releases/tag/v<version>, as
+Freeloop-<version>-linux-amd64-sources.tar and
+Freeloop-<version>-linux-arm64-sources.tar, each listing the packages and the
+files of the AppImage each one gave. The .deb carries none of them: it uses the
+system's.`,
 	"windows": `The installer also carries Microsoft's WebView2 bootstrapper
 (MicrosoftEdgeWebview2Setup.exe, as the Wails CLI the build is pinned to
 provides it), under Microsoft's terms, and runs it only when the Microsoft Edge
@@ -105,7 +113,7 @@ func Notices(app App, info *debug.BuildInfo, packageLock []byte, src NoticeSourc
 	var missing []string
 	fmt.Fprintf(&out, "%s %s includes the following software, under these licenses.\n", app.Name, app.Version)
 	if text := carried[setting(info, "GOOS")]; text != "" {
-		out.WriteString("\n" + text + "\n")
+		out.WriteString("\n" + strings.ReplaceAll(text, "<version>", app.Version) + "\n")
 	}
 	heading(&out, "Go standard library and runtime", strings.TrimPrefix(info.GoVersion, "go"))
 	out.WriteString("\n")
