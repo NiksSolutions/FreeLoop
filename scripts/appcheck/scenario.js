@@ -1034,13 +1034,17 @@ await step("a shortcut is recorded after a click on its key", async () => {
   document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: "L", metaKey: true, shiftKey: true, bubbles: true, cancelable: true }));
   await sleep(300);
   check("the press is taken", key.textContent === "⌘⇧L", key.textContent);
+  // Each change waits for its Saved, as a person's would: two saves of the whole
+  // config under way at once, this page's and the text size keys', can end in either
+  // order, which a slow runner showed (issue 091).
+  const savedNote = () => withText(".settings-content span.ok", "Saved");
+  await until("the press saved", savedNote, 8000).catch(() => null);
+  await until("its Saved gone", () => !savedNote(), 4000).catch(() => null);
   (await until("Reset", () => document.querySelector('button[aria-label="Reset Larger text"]'))).click();
   await until("the key as it was", () => key.textContent === "⌘+", 3000).catch(() => null);
   check("Reset gives it back", key.textContent === "⌘+", key.textContent);
-  // Saved by itself, also when the save of the press was still under way: a save
-  // that ended after the Reset used to put the press back, or leave the Reset unsaved.
-  const settled = await until("nothing left to save", () => !document.querySelector(".settings-save"), 4000).catch(() => false);
-  check("the Reset saves by itself", settled, withText(".settings-save button", "Revert") ? "Save and Revert are offered" : "");
+  const settled = await until("the Reset saved", () => savedNote() && !document.querySelector(".settings-save"), 8000).catch(() => false);
+  check("the Reset saves by itself", settled, withText(".settings-save button", "Revert") ? "Save and Revert are offered" : "no Saved");
   withText(".settings-save button", "Revert")?.click();
   document.querySelector(".settings-nav .settings-back").click();
   await sleep(100);
