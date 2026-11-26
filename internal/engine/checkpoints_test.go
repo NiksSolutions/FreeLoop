@@ -161,8 +161,21 @@ func TestRewindAfterHistoryResetKeepsContext(t *testing.T) {
 	e.Prompt(ctx, ses.ID, "write b.txt two")
 	waitIdle(t, ch, ses.ID)
 	e.mu.Lock()
-	h := e.runtimes[ses.ID].hs.(History)
+	r := e.runtimes[ses.ID]
+	h := r.hs.(History)
 	e.mu.Unlock()
+	// The turn's end is sent before the session is free, and the Windows runner
+	// rewound in between ("stop the running turn").
+	r.mu.Lock()
+	done := r.done
+	r.mu.Unlock()
+	if done != nil {
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+			t.Fatal("the session stayed busy after its turn ended")
+		}
+	}
 	// What a compaction does to the history: replace it, shorter.
 	h.TruncateHistory(1)
 	before := h.HistoryLen()
