@@ -327,6 +327,65 @@ func TestTheSandboxHidesWhatADenyRuleCovers(t *testing.T) {
 	}
 }
 
+// OQ-060: the files something reads in any folder are found in every folder, in any
+// case, but not in installed code, which ships its own and must still be removed.
+func TestProtectedNamesAreFound(t *testing.T) {
+	project, _ := filepath.EvalSymlinks(t.TempDir())
+	cache, _ := filepath.EvalSymlinks(t.TempDir())
+	for _, f := range []string{"AGENTS.md", "src/AGENTS.md", "src/deep/claude.md", "sub/.envrc", "src/AGENTS.txt", "node_modules/next/AGENTS.md", "web/Node_Modules/x/CLAUDE.md", ".venv/lib/AGENTS.md"} {
+		os.MkdirAll(filepath.Join(project, filepath.Dir(f)), 0o755)
+		os.WriteFile(filepath.Join(project, f), []byte("x"), 0o644)
+	}
+	os.WriteFile(filepath.Join(cache, "AGENTS.md"), []byte("x"), 0o644)
+	c := environment.Confinement{
+		Write: []string{project}, Scratch: []string{cache},
+		ProtectedNames: []string{"AGENTS.md", "CLAUDE.md", ".envrc"}, Installed: []string{"node_modules", ".venv"},
+	}
+	w, err := matching(c, []string{project, cache})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, p := range w.protected {
+		rel, _ := filepath.Rel(project, p)
+		got = append(got, filepath.ToSlash(rel))
+	}
+	slices.Sort(got)
+	if want := []string{"AGENTS.md", "src/AGENTS.md", "src/deep/claude.md", "sub/.envrc"}; !slices.Equal(got, want) {
+		t.Errorf("protected = %q, want %q", got, want)
+	}
+}
+
+func TestTheSandboxKeepsInstructionsBelowTheTop(t *testing.T) {
+	home, project, run := sandboxed(t)
+	for _, d := range []string{"node_modules/next", "lib"} {
+		os.MkdirAll(filepath.Join(project, d), 0o755)
+	}
+	os.WriteFile(filepath.Join(project, "src", "AGENTS.md"), []byte("ours"), 0o644)
+	os.WriteFile(filepath.Join(project, "node_modules", "next", "AGENTS.md"), []byte("next's"), 0o644)
+	c := base(home, project)
+	c.ProtectedNames, c.Installed = []string{"AGENTS.md", "CLAUDE.md", ".envrc"}, []string{"node_modules"}
+	for _, step := range []struct {
+		name, script string
+		ok           bool
+	}{
+		{"one below the top is not changed", "echo x >> src/AGENTS.md", false},
+		{"nor replaced", "echo x > src/new && mv src/new src/AGENTS.md", false},
+		{"nor removed", "rm src/AGENTS.md", false},
+		{"one in installed code is changed", "echo x >> node_modules/next/AGENTS.md", true},
+		{"and installed code is removed", "rm -rf node_modules && test ! -e node_modules", true},
+		{"other files are written", "echo x > src/AGENTS.txt", true},
+	} {
+		out, err := run(c, step.script)
+		if (err == nil) != step.ok {
+			t.Errorf("%s: err = %v, output %q", step.name, err, out)
+		}
+	}
+	if b, _ := os.ReadFile(filepath.Join(project, "src", "AGENTS.md")); string(b) != "ours" {
+		t.Errorf("src/AGENTS.md = %q", b)
+	}
+}
+
 func TestTheSandboxIsolatesProcessesAndSockets(t *testing.T) {
 	home, project, run := sandboxed(t)
 	outside := exec.Command("sleep", "30")

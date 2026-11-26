@@ -564,6 +564,22 @@ func TestSandboxClosesNestedRepositoriesAndAgentConfig(t *testing.T) {
 	}
 }
 
+// OQ-060: the built-in agent loads an AGENTS.md beside the files it touches, Claude
+// Code a CLAUDE.md and direnv an .envrc, so a command cannot plant one in a
+// subfolder; a package's own, in node_modules, can still be unpacked and removed.
+func TestSandboxKeepsInstructionsInEveryFolder(t *testing.T) {
+	_, env, repo, _ := sandboxedProject(t)
+	for _, rel := range []string{"src/AGENTS.md", "src/deep/CLAUDE.md", "web/GEMINI.md", "sub/.envrc"} {
+		inSandbox(t, env, "mkdir -p \"$(dirname "+rel+")\"; echo x > "+rel)
+		if _, err := os.Stat(filepath.Join(repo, rel)); err == nil {
+			t.Errorf("a sandboxed command wrote %s", rel)
+		}
+	}
+	if out, code := inSandbox(t, env, "mkdir -p node_modules/next && echo x > node_modules/next/AGENTS.md && rm -rf node_modules && echo y > src/README.md"); code != 0 {
+		t.Errorf("installed code: %s", out)
+	}
+}
+
 // A folder with HEAD, objects and refs is a repository to git. A sandboxed command
 // could build one, and the user's own git would run what its config names outside
 // the sandbox. Git still has to replace its own HEAD.

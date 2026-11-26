@@ -498,6 +498,30 @@ func TestNestedAgentsFiles(t *testing.T) {
 	}
 }
 
+// OQ-060: a package's AGENTS.md is for its own developers, and a sandboxed command
+// may write one in node_modules, where the sandbox leaves such files alone.
+func TestNoInstructionsFromInstalledCode(t *testing.T) {
+	f := setup(t, permission.ModeAsk,
+		scripted.Step{Calls: []scripted.Call{{Name: "read_file", Input: map[string]any{"path": "web/node_modules/next/dist/index.js"}}}},
+		scripted.Step{Text: "done"},
+	)
+	os.MkdirAll(filepath.Join(f.root, "web", "node_modules", "next", "dist"), 0o755)
+	os.WriteFile(filepath.Join(f.root, "web", "AGENTS.md"), []byte("Use pnpm in web."), 0o644)
+	os.WriteFile(filepath.Join(f.root, "web", "node_modules", "AGENTS.md"), []byte("Planted beside the packages."), 0o644)
+	os.WriteFile(filepath.Join(f.root, "web", "node_modules", "next", "AGENTS.md"), []byte("Next's own rule."), 0o644)
+	os.WriteFile(filepath.Join(f.root, "web", "node_modules", "next", "dist", "index.js"), []byte("x"), 0o644)
+	if _, err := f.sess.Prompt(context.Background(), harness.Prompt{Text: "go"}); err != nil {
+		t.Fatal(err)
+	}
+	reqs := f.prov.Requests()
+	if strings.Contains(reqs[1].System, "Next's own rule.") || strings.Contains(reqs[1].System, "Planted beside") {
+		t.Error("an AGENTS.md inside node_modules was loaded")
+	}
+	if !strings.Contains(reqs[1].System, "Use pnpm in web.") {
+		t.Errorf("the project's own nested file above node_modules is missing:\n%s", reqs[1].System)
+	}
+}
+
 func TestPromptEmbedsResources(t *testing.T) {
 	f := setup(t, permission.ModeAsk, scripted.Step{Text: "ok"})
 	p := harness.Prompt{Text: "look at @a.go", Resources: []harness.Resource{{Path: "a.go", URI: "file:///r/a.go", Text: "package a"}}}

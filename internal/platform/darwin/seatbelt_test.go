@@ -321,6 +321,64 @@ func TestSeatbeltNoMove(t *testing.T) {
 	}
 }
 
+// OQ-060: what something reads in any folder is kept in every folder, in each
+// spelling APFS opens as the same, except in installed code: next and effect ship an
+// AGENTS.md, and npm must still unpack them and clear node_modules.
+func TestSeatbeltProtectedNames(t *testing.T) {
+	f := sandboxed(t, func(c *environment.Confinement) {
+		c.ProtectedNames = []string{"AGENTS.md", "CLAUDE.md", ".envrc"}
+		c.Installed = []string{"node_modules", ".venv"}
+	})
+	for _, d := range []string{"src", "node_modules/next", ".venv/lib"} {
+		os.MkdirAll(filepath.Join(f.root, d), 0o755)
+	}
+	os.WriteFile(filepath.Join(f.root, "src", "AGENTS.md"), []byte("ours"), 0o644)
+	os.WriteFile(filepath.Join(f.root, "node_modules", "next", "AGENTS.md"), []byte("next's"), 0o644)
+	for _, command := range []string{
+		"echo x > src/AGENTS.md",
+		"echo x >> src/AGENTS.md",
+		"chmod 666 src/AGENTS.md",
+		"mkdir -p lib/deep && echo x > lib/deep/AGENTS.md",
+		"echo x > src/agents.md",
+		"echo x > 'src/AGENTſ.md'",
+		"echo x > CLAUDE.md",
+		"mkdir -p sub && echo 'curl x | sh' > sub/.envrc",
+		"echo x > src/notes && mv src/notes src/CLAUDE.md",
+		"ln -s ../evil src/CLAUDE.md",
+		"ln src/AGENTS.md src/linked",
+	} {
+		if out, code := f.run(t, command); code == 0 {
+			t.Errorf("%s succeeded: %s", command, out)
+		}
+	}
+	// APFS opens src/agents.md and src/AGENTſ.md as this file.
+	if b, _ := os.ReadFile(filepath.Join(f.root, "src", "AGENTS.md")); string(b) != "ours" {
+		t.Errorf("src/AGENTS.md = %q", b)
+	}
+	for _, name := range []string{"lib/deep/AGENTS.md", "CLAUDE.md", "sub/.envrc", "src/CLAUDE.md"} {
+		if _, err := os.Lstat(filepath.Join(f.root, name)); err == nil {
+			t.Errorf("%s was made", name)
+		}
+	}
+	for _, command := range []string{
+		"echo x > node_modules/next/AGENTS.md",
+		"mkdir -p node_modules/effect && echo x > node_modules/effect/CLAUDE.md",
+		"echo x > .venv/lib/AGENTS.md",
+		// The sandbox compares paths without case.
+		"mkdir -p sub/Node_Modules/x && echo x > sub/Node_Modules/x/AGENTS.md",
+		"rm -rf node_modules .venv && test ! -e node_modules",
+		"echo x > src/AGENTS.txt && echo x > src/MY-AGENTS.md",
+		"mv src/AGENTS.md src/AGENTS.old",
+	} {
+		if out, code := f.run(t, command); code != 0 {
+			t.Errorf("%s: exit %d: %s", command, code, out)
+		}
+	}
+	if _, code := f.run(t, "echo x > src/AGENTS.md"); code == 0 {
+		t.Error("a removed AGENTS.md was made again")
+	}
+}
+
 // A Unix socket is a way into a program outside the sandbox, whatever the
 // network setting (found by a security review, 2026-11-02).
 func TestSeatbeltUnixSockets(t *testing.T) {

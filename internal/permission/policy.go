@@ -263,6 +263,12 @@ var ActedOnLater = append([]string{
 	".rtx.toml", "mise.*.toml", ".mise.*.toml", "mise/config.toml", "mise/config.*.toml", ".config/mise", ".config/mise.*.toml",
 }, environment.LefthookFiles()...)
 
+// ReadFromSubfolders are those of ActedOnLater that something reads in any folder of a
+// project, not only at its top: AGENTS.md, which the built-in agent loads beside the
+// files it touches, Claude Code's CLAUDE.md, Gemini CLI's GEMINI.md and direnv's
+// .envrc. A sandbox keeps these at any depth and the rest at the top (OQ-060).
+var ReadFromSubfolders = []string{"AGENTS.md", "CLAUDE.md", "GEMINI.md", ".envrc"}
+
 // actedOn reports a path that is or is inside one of ActedOnLater.
 func (p *Policy) actedOn(root string, paths []string) bool {
 	roots := canonical(root)

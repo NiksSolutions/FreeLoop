@@ -25,6 +25,12 @@ func TestActedOnLaterCoversTheSync(t *testing.T) {
 			t.Errorf("the sync holds %s back, and accept-edits mode would write it without asking", n)
 		}
 	}
+	// What a sandbox keeps at any depth is acted on later, so the file tools ask too.
+	for _, n := range ReadFromSubfolders {
+		if !slices.Contains(ActedOnLater, n) {
+			t.Errorf("%s is read from subfolders but not acted on later", n)
+		}
+	}
 }
 
 // SEC-005: a secret's file is read only with the user's say, even inside the project.

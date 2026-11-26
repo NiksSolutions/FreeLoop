@@ -134,7 +134,8 @@ type session struct {
 const maxNested = 20
 
 // discover records AGENTS.md files in the folders a tool call touched, from
-// the touched folder up to (not including) the project root.
+// the touched folder up to (not including) the project root, none inside
+// installed code (OQ-060).
 func (s *session) discover(paths []string, isDir bool) {
 	root := s.env.Root()
 	for _, p := range paths {
@@ -146,6 +147,10 @@ func (s *session) discover(paths []string, isDir bool) {
 			rel, err := filepath.Rel(root, dir)
 			if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 				break
+			}
+			if installed(rel) {
+				dir = filepath.Dir(dir)
+				continue
 			}
 			file := filepath.ToSlash(filepath.Join(rel, "AGENTS.md"))
 			s.mu.Lock()
@@ -163,6 +168,14 @@ func (s *session) discover(paths []string, isDir bool) {
 			dir = filepath.Dir(dir)
 		}
 	}
+}
+
+// installed reports a folder, relative to the project, inside one where a package
+// manager unpacks other people's code.
+func installed(rel string) bool {
+	return slices.ContainsFunc(strings.Split(filepath.ToSlash(rel), "/"), func(part string) bool {
+		return slices.ContainsFunc(environment.InstalledDirs, func(d string) bool { return strings.EqualFold(d, part) })
+	})
 }
 
 func (s *session) Mode() permission.Mode {

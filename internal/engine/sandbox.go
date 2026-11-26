@@ -202,6 +202,8 @@ func (e *Engine) sandboxEnv(ctx context.Context, ses session.Session, cfg config
 	// starts there, and a nested project's settings become active when opened.
 	c.ProtectedPatterns = append(c.ProtectedPatterns, "^"+quoted+"/.+/\\.git(/.*)?$", "^"+quoted+"/.+/\\."+regexp.QuoteMeta(strings.TrimPrefix(ProjectDir, "."))+"(/.*)?$")
 	c.ProtectedPatterns = append(c.ProtectedPatterns, bareRepositoryPatterns(quoted)...)
+	// What is read in any folder, there too, but not in installed code (OQ-060).
+	c.ProtectedNames, c.Installed = permission.ReadFromSubfolders, environment.InstalledDirs
 	sid := ses.ID
 	allVars, loginGitConfig := e.loginVars(ctx, host)
 	// Git's own config is closed to confined commands, so they get only the user's

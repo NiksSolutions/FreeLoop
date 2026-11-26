@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"unicode"
 
 	"github.com/FinanceNik/Freeloop/internal/environment"
 )
@@ -116,6 +118,29 @@ func SeatbeltProfile(c environment.Confinement) (string, error) {
 		}
 		w("(deny file-write* (regex #\"%s\"))", re)
 	}
+	// Every write but removing: a package folder holding one must still be cleared,
+	// and a name removed cannot be made again.
+	if len(c.ProtectedNames) > 0 {
+		names := make([]string, len(c.ProtectedNames))
+		for i, n := range c.ProtectedNames {
+			names[i] = anySpelling(n)
+		}
+		installed := make([]string, len(c.Installed))
+		for i, d := range c.Installed {
+			installed[i] = regexp.QuoteMeta(d)
+		}
+		for _, root := range c.Write {
+			if strings.Contains(root, `"`) {
+				return "", fmt.Errorf("a path pattern cannot hold a quote: %s", root)
+			}
+			q := regexp.QuoteMeta(root)
+			match := fmt.Sprintf(`(regex #"^%s/(.+/)?(%s)$")`, q, strings.Join(names, "|"))
+			if len(installed) > 0 {
+				match = fmt.Sprintf(`(require-all %s (require-not (regex #"^%s/(.+/)?(%s)/")))`, match, q, strings.Join(installed, "|"))
+			}
+			w("(deny file-write-create file-write-data file-write-flags file-write-mode file-write-owner file-write-setugid file-write-xattr %s)", match)
+		}
+	}
 	// Renaming a folder needs the right to unlink it, and only the folder itself
 	// is named: what is inside stays writable.
 	if len(c.NoMove) > 0 {
@@ -164,6 +189,24 @@ func ancestors(home string, ps []string) []string {
 		}
 	}
 	return out
+}
+
+// anySpelling is a regular expression for name in each spelling APFS opens as the
+// same, which folds case by Unicode: AGENTſ.md is AGENTS.md.
+func anySpelling(name string) string {
+	var b strings.Builder
+	for _, r := range name {
+		var same []string
+		for f := unicode.SimpleFold(r); f != r; f = unicode.SimpleFold(f) {
+			same = append(same, string(f))
+		}
+		if len(same) == 0 {
+			b.WriteString(regexp.QuoteMeta(string(r)))
+			continue
+		}
+		fmt.Fprintf(&b, "(%s|%s)", string(r), strings.Join(same, "|"))
+	}
+	return b.String()
 }
 
 func quote(s string) string {

@@ -240,11 +240,27 @@ func matching(c environment.Confinement, roots []string) (walkedPaths, error) {
 	if err != nil {
 		return w, err
 	}
-	if len(protected)+len(noMove)+len(noAccess) == 0 {
+	if len(protected)+len(noMove)+len(noAccess)+len(c.ProtectedNames) == 0 {
 		return w, nil
 	}
 	any := func(rs []*regexp.Regexp, p string) bool {
 		return slices.ContainsFunc(rs, func(r *regexp.Regexp) bool { return r.MatchString(p) })
+	}
+	named := func(names []string, name string) bool {
+		return slices.ContainsFunc(names, func(n string) bool { return strings.EqualFold(n, name) })
+	}
+	// One of ProtectedNames under Write and not inside installed code.
+	kept := func(p string) bool {
+		if !named(c.ProtectedNames, filepath.Base(p)) {
+			return false
+		}
+		for _, root := range c.Write {
+			if p != root && within(p, root) {
+				rel, _ := filepath.Rel(root, filepath.Dir(p))
+				return !slices.ContainsFunc(strings.Split(rel, string(filepath.Separator)), func(part string) bool { return named(c.Installed, part) })
+			}
+		}
+		return false
 	}
 	seen, n := map[string]bool{}, 0
 	for _, root := range roots {
@@ -269,7 +285,7 @@ func matching(c environment.Confinement, roots []string) (walkedPaths, error) {
 				}
 				return nil
 			}
-			if any(protected, p) {
+			if any(protected, p) || kept(p) {
 				w.protected = append(w.protected, p)
 			}
 			if d.IsDir() && any(noMove, p) {

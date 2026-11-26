@@ -18,6 +18,13 @@ import (
 // (NFR-XPLAT-002). Agents and MCP servers the environment spawns stay outside
 // it: only Exec is confined.
 
+// InstalledDirs are the folders package managers unpack other people's code into.
+// Packages ship their own AGENTS.md and CLAUDE.md (next and effect do), so a sandbox
+// leaves such files in them alone, as npm ci needs, and the built-in agent takes no
+// instructions from them (OQ-060). Matched by name in any case, as macOS's sandbox
+// compares paths.
+var InstalledDirs = []string{"node_modules", "bower_components", ".venv", "venv", "site-packages", "vendor", "Pods"}
+
 // Network says how far a confined command can connect.
 type Network string
 
@@ -46,6 +53,14 @@ type Confinement struct {
 	// ProtectedPatterns are the same as regular expressions over absolute paths,
 	// for deny rules with wildcards.
 	ProtectedPatterns []string
+	// ProtectedNames are file names never created or changed anywhere under Write,
+	// in any spelling the file system opens as the same, except inside a folder
+	// named in Installed. Removing one stays allowed where the system tells removing
+	// from changing (Seatbelt); bubblewrap keeps those that exist read-only.
+	ProtectedNames []string
+	// Installed are the names of the folders package managers unpack other people's
+	// code into, which ships files with those names (InstalledDirs).
+	Installed []string
 	// NoMove are folders whose contents can change but which cannot themselves be
 	// renamed or removed: protecting .git/config means nothing if .git can be moved
 	// aside, edited and moved back. NoMovePatterns are the same as regular
