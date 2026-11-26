@@ -8,9 +8,11 @@ ENV DEBIAN_FRONTEND=noninteractive
 # The source indexes (deb-src) of the same archive and pockets are fetched with the
 # packages and kept, the binary ones not: they name the source of exactly the
 # versions installed here, however long the image is kept, for the archive of what
-# the AppImage carries (build/linux/sources.sh, OQ-059).
+# the AppImage carries (build/linux/sources.sh, OQ-059). The base image's own packages
+# are upgraded first: the indexes list only the latest version in each pocket, and the AppImage
+# carries some of them (libkrb5-3 was one update behind on 2026-11-26).
 RUN sed -n 's/^deb /deb-src /p' /etc/apt/sources.list > /etc/apt/sources.list.d/deb-src.list \
- && apt-get update && apt-get install -y --no-install-recommends \
+ && apt-get update && apt-get upgrade -y --no-install-recommends && apt-get install -y --no-install-recommends \
       ca-certificates curl git build-essential pkg-config file xz-utils \
       libgtk-3-dev libwebkit2gtk-4.1-dev \
       bubblewrap dbus dbus-x11 gnome-keyring libsecret-tools openssh-client \

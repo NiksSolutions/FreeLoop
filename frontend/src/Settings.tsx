@@ -298,13 +298,15 @@ export default function Settings({ page, config, providers, harnesses, environme
   const autoSave = useEffectEvent(() => {
     const typing = document.activeElement;
     if (typing && formBox.current?.contains(typing) && typing.matches('input:not([type="checkbox"]), textarea')) return;
+    const sent = form;
     saveByItself(form, config)
       ?.then((c) => {
         if (!c) return;
         ownSave.current = settingsKey(c);
         savedNow(c);
-        // What waits for the Save button stays as typed.
-        setForm((f) => ({ ...c, hooks: f.hooks, prices: f.prices, budgets: f.budgets, web: f.web }));
+        // What waits for the Save button stays as typed, and so does a change made
+        // while this was saving, which the next save takes.
+        setForm((f) => (f === sent ? { ...c, hooks: f.hooks, prices: f.prices, budgets: f.budgets, web: f.web } : f));
         setSaved(true);
         setTimeout(() => setSaved(false), 1500);
       })

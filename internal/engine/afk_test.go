@@ -65,7 +65,8 @@ func mustProject(t *testing.T, e *Engine, root string) ProjectInfo {
 // waitRun waits until the run is no longer running, and returns it.
 func waitRun(t *testing.T, e *Engine, id string) config.AFKRun {
 	t.Helper()
-	deadline := time.Now().Add(30 * time.Second)
+	// A step takes a second here and up to 20 on a busy Windows runner.
+	deadline := time.Now().Add(2 * time.Minute)
 	for {
 		e.KickRuns()
 		runs, _ := e.AFKRuns(context.Background())
