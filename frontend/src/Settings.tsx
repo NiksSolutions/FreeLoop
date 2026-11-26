@@ -305,8 +305,10 @@ export default function Settings({ page, config, providers, harnesses, environme
         ownSave.current = settingsKey(c);
         savedNow(c);
         // What waits for the Save button stays as typed, and so does a change made
-        // while this was saving, which the next save takes.
+        // while this was saving. Its own save may have found nothing to save against
+        // what was there before, so the form is looked at again.
         setForm((f) => (f === sent ? { ...c, hooks: f.hooks, prices: f.prices, budgets: f.budgets, web: f.web } : f));
+        setLeft((n) => n + 1);
         setSaved(true);
         setTimeout(() => setSaved(false), 1500);
       })

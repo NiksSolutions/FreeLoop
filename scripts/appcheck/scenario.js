@@ -1037,6 +1037,10 @@ await step("a shortcut is recorded after a click on its key", async () => {
   (await until("Reset", () => document.querySelector('button[aria-label="Reset Larger text"]'))).click();
   await until("the key as it was", () => key.textContent === "⌘+", 3000).catch(() => null);
   check("Reset gives it back", key.textContent === "⌘+", key.textContent);
+  // Saved by itself, also when the save of the press was still under way: a save
+  // that ended after the Reset used to put the press back, or leave the Reset unsaved.
+  const settled = await until("nothing left to save", () => !document.querySelector(".settings-save"), 4000).catch(() => false);
+  check("the Reset saves by itself", settled, withText(".settings-save button", "Revert") ? "Save and Revert are offered" : "");
   withText(".settings-save button", "Revert")?.click();
   document.querySelector(".settings-nav .settings-back").click();
   await sleep(100);
