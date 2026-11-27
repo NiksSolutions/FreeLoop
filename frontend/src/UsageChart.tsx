@@ -169,12 +169,18 @@ function axisFont(el: HTMLElement): string {
 
 let pen: CanvasRenderingContext2D | null | undefined;
 
-// labelWidth is how wide text is in font; an estimate until the chart has a box.
+// labelWidth is how wide text is in font; an estimate until the chart has a box. The
+// axis draws figures tabular (.usage-axis), each as wide as the widest, while a canvas
+// measures them as they are: measured so, "11:20" came out narrower than drawn and
+// stood out of the chart at some hours (CI's app check, 2026-11-27).
 function labelWidth(text: string, font: string): number {
   if (pen === undefined) pen = typeof document === "undefined" ? null : document.createElement("canvas").getContext("2d");
   if (!pen || !font) return text.length * 6.6;
-  pen.font = font;
-  return pen.measureText(text).width;
+  const p = pen;
+  p.font = font;
+  const figure = Math.max(...[..."0123456789"].map((d) => p.measureText(d).width));
+  const figures = text.replace(/[^0-9]/g, "").length;
+  return p.measureText(text.replace(/[0-9]/g, "")).width + figures * figure;
 }
 
 // inside moves a label's centre so the whole label stays within 0 and width.
