@@ -891,3 +891,19 @@ func TestAPromptToAnAgentThatJustExitedSaysSo(t *testing.T) {
 		}
 	}
 }
+
+// An agent that exits is reported by the line that says what went wrong, not by the
+// last line of a stack trace: a dry run on CI said only "connection.go:412 +0x10dd".
+func TestAnExitSaysWhatWentWrong(t *testing.T) {
+	for tail, want := range map[string]string{
+		"panic: runtime error: index out of range [3] with length 3\n\ngoroutine 7 [running]:\nmain.read(...)\n\t/x/agent.go:12 +0x1c\ncreated by github.com/coder/acp-go-sdk.(*Connection).receive in goroutine 5\n\t/go/pkg/mod/github.com/coder/acp-go-sdk@v0.13.5/connection.go:412 +0x10dd": "panic: runtime error: index out of range [3] with length 3",
+		"fatal error: concurrent map writes\n\ngoroutine 9 [running]:\n\t/x/agent.go:30 +0x44":                                                           "fatal error: concurrent map writes",
+		"TypeError: Cannot read properties of undefined (reading 'id')\n    at handle (/app/cli.js:10:5)\n    at node:internal/process/task_queues:95:5": "TypeError: Cannot read properties of undefined (reading 'id')",
+		"starting\nError: not signed in; run ref login":                                                                                                  "Error: not signed in; run ref login",
+		"   ": "",
+	} {
+		if got := tellingLine(tail); got != want {
+			t.Errorf("%q: %q, want %q", tail, got, want)
+		}
+	}
+}

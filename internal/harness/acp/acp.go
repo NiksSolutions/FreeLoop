@@ -222,7 +222,7 @@ func (s *session) startFailed(step string, err error) error {
 	s.proc.Kill()
 	msg := fmt.Sprintf("%s: %s: %v", s.preset.Name, step, err)
 	if tail := strings.TrimSpace(environment.StderrAfterExit(s.proc)); tail != "" {
-		msg += " (" + lastLine(tail) + ")"
+		msg += " (" + tellingLine(tail) + ")"
 	}
 	return errors.New(msg)
 }
@@ -540,7 +540,7 @@ var exitWait = 2 * time.Second
 // to stderr when there is one.
 func (s *session) exited() error {
 	if tail := strings.TrimSpace(environment.StderrAfterExit(s.proc)); tail != "" {
-		return fmt.Errorf("%w: %s", harness.ErrAgentExited, lastLine(tail))
+		return fmt.Errorf("%w: %s", harness.ErrAgentExited, tellingLine(tail))
 	}
 	return harness.ErrAgentExited
 }
@@ -1344,9 +1344,28 @@ func (s *session) ReleaseTerminal(_ context.Context, r sdk.ReleaseTerminalReques
 	return sdk.ReleaseTerminalResponse{}, nil
 }
 
-func lastLine(s string) string {
+// tellingLine is the line of what an agent wrote before it stopped that says what went
+// wrong: a Go panic's or fatal error's first line, or else the last line that is not a
+// frame of a stack trace (Go's, after a tab or "goroutine" or "created by"; Node's,
+// after "at"). The last line of a trace says only where a goroutine began, which was
+// all a dry run on CI reported of a crash ("connection.go:412 +0x10dd").
+func tellingLine(s string) string {
 	lines := strings.Split(strings.TrimSpace(s), "\n")
-	return lines[len(lines)-1]
+	for _, l := range lines {
+		if strings.HasPrefix(l, "panic: ") || strings.HasPrefix(l, "fatal error: ") {
+			return strings.TrimSpace(l)
+		}
+	}
+	frame := func(l string) bool {
+		t := strings.TrimSpace(l)
+		return t == "" || strings.HasPrefix(l, "\t") || strings.HasPrefix(t, "goroutine ") || strings.HasPrefix(t, "created by ") || strings.HasPrefix(t, "at ")
+	}
+	for i := len(lines) - 1; i >= 0; i-- {
+		if !frame(lines[i]) {
+			return strings.TrimSpace(lines[i])
+		}
+	}
+	return strings.TrimSpace(lines[len(lines)-1])
 }
 
 // sessionMeta is what session/new and session/load carry beyond the
