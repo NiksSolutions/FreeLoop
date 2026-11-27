@@ -96,7 +96,9 @@ jobs:
       - name: Engine tests, every event checked against the schema
         env:
           FREELOOP_CHECK_EVENTS: ${{ github.workspace }}/schemas/events.json
-        run: go test -race ./internal/... ./cmd/freeloop-sbom
+        # The engine's tests take about four and a half minutes here; twenty leaves
+        # room for a slow runner before go test's own limit fails the run.
+        run: go test -race -timeout 20m ./internal/... ./cmd/freeloop-sbom
 
       - name: Frontend tests
         run: make frontend-test
