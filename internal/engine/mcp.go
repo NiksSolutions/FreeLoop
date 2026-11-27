@@ -49,11 +49,13 @@ type MCPServerInfo struct {
 }
 
 func (e *Engine) loadMCP() {
+	print := config.FileFingerprint(e.dataDir, config.MCPFileName)
 	list, issues, err := config.LoadMCP(e.dataDir)
 	if err != nil {
 		issues = append(issues, config.Issue{File: config.MCPFileName, Message: err.Error()})
 	}
 	e.mu.Lock()
+	e.mcpPrint = print
 	old := e.mcpServers
 	e.mcpServers = list
 	e.issues[issueMCP] = issues
@@ -65,6 +67,19 @@ func (e *Engine) loadMCP() {
 		if i < 0 || list[i].Fingerprint() != o.Fingerprint() || list[i].Approved != o.Approved {
 			e.mcp.Stop(o.ID)
 		}
+	}
+}
+
+// freshMCP rereads mcp.yaml when it changed on disk since the engine last read or wrote
+// it, before the app changes it, as freshConfig does config.yaml. Called with mcpListMu
+// held.
+func (e *Engine) freshMCP() {
+	print := config.FileFingerprint(e.dataDir, config.MCPFileName)
+	e.mu.Lock()
+	same := print == e.mcpPrint
+	e.mu.Unlock()
+	if !same {
+		e.loadMCP()
 	}
 }
 
@@ -159,6 +174,7 @@ func (e *Engine) saveMCPInList(req SaveMCPServerRequest) (config.MCPServer, erro
 	}
 	e.mcpListMu.Lock()
 	defer e.mcpListMu.Unlock()
+	e.freshMCP()
 	e.mu.Lock()
 	list := slices.Clone(e.mcpServers)
 	e.mu.Unlock()
@@ -225,6 +241,7 @@ func (e *Engine) DeleteMCPServer(id string) error {
 	e.secrets.Delete(oauthRef(id))
 	e.mcpListMu.Lock()
 	defer e.mcpListMu.Unlock()
+	e.freshMCP()
 	e.mu.Lock()
 	list := slices.DeleteFunc(slices.Clone(e.mcpServers), func(x config.MCPServer) bool { return x.ID == id })
 	e.mu.Unlock()
@@ -262,6 +279,7 @@ func (e *Engine) ApproveMCPServer(ctx context.Context, id, fingerprint string) (
 func (e *Engine) approveMCPInList(id, mark string) error {
 	e.mcpListMu.Lock()
 	defer e.mcpListMu.Unlock()
+	e.freshMCP()
 	e.mu.Lock()
 	list := slices.Clone(e.mcpServers)
 	e.mu.Unlock()

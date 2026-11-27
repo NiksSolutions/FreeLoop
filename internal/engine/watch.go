@@ -83,6 +83,42 @@ func (e *Engine) reloadChanged(w *configWatch) {
 	}
 }
 
+// applyConfigFile reads config.yaml and puts it in force. Called with settingsMu held.
+func (e *Engine) applyConfigFile() {
+	print := config.FileFingerprint(e.dataDir, config.FileName)
+	cfg, issues, err := config.Load(e.dataDir)
+	if err != nil {
+		issues = append(issues, config.Issue{File: config.FileName, Message: err.Error(), Unreadable: true})
+	}
+	e.mu.Lock()
+	// A file that cannot be read keeps the settings in force, so a
+	// half-saved edit does not turn off local-only mode or hooks.
+	if !config.Unreadable(issues) {
+		cfg.Revision = e.cfg.Revision + 1
+		e.cfg = cfg
+	}
+	e.cfgPrint = print
+	localOnly := e.cfg.Network.LocalOnly
+	e.issues[issueConfig] = issues
+	e.mu.Unlock()
+	netguard.SetLocalOnly(localOnly)
+}
+
+// freshConfig puts config.yaml in force again when it changed on disk since the engine
+// last read or wrote it, before the app changes it: the watch applies an edit made by
+// hand only on its next polls, and the change would write over it (SET-001). Called
+// with settingsMu held.
+func (e *Engine) freshConfig() {
+	print := config.FileFingerprint(e.dataDir, config.FileName)
+	e.mu.Lock()
+	same := print == e.cfgPrint
+	e.mu.Unlock()
+	if !same {
+		e.applyConfigFile()
+		e.dropBypass(context.Background())
+	}
+}
+
 // reload rereads the config the changed files hold. Running sessions keep
 // the provider and environment they started with; new sessions and the next
 // permission check see the new settings.
@@ -94,32 +130,25 @@ func (e *Engine) reload(changed []string) {
 		under := func(dir string) bool { return strings.HasPrefix(filepath.ToSlash(f), dir+"/") }
 		switch {
 		case f == config.FileName:
-			cfg, issues, err := config.Load(e.dataDir)
-			if err != nil {
-				issues = append(issues, config.Issue{File: config.FileName, Message: err.Error(), Unreadable: true})
-			}
-			e.mu.Lock()
-			// A file that cannot be read keeps the settings in force, so a
-			// half-saved edit does not turn off local-only mode or hooks.
-			if !config.Unreadable(issues) {
-				cfg.Revision = e.cfg.Revision + 1
-				e.cfg = cfg
-			}
-			localOnly := e.cfg.Network.LocalOnly
-			e.issues[issueConfig] = issues
-			e.mu.Unlock()
-			netguard.SetLocalOnly(localOnly)
+			// Not between an app change's read of the config and its write.
+			e.settingsMu.Lock()
+			e.applyConfigFile()
+			e.settingsMu.Unlock()
 			e.dropBypass(context.Background())
 		case f == config.ProvidersFileName:
+			e.providersMu.Lock()
 			if err := e.loadProviders(); err != nil {
 				e.setIssues(issueProviders, []config.Issue{{File: config.ProvidersFileName, Message: err.Error()}})
 			}
 			e.learnKeyAddresses()
 			e.checkKeyAddresses()
+			e.providersMu.Unlock()
 		case f == config.RulesFileName:
 			e.rules.reload()
 		case f == config.MCPFileName:
+			e.mcpListMu.Lock()
 			e.loadMCP()
+			e.mcpListMu.Unlock()
 		case f == config.ColorsFileName:
 			e.loadColors()
 		case under(config.StylesDir):

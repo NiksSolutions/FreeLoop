@@ -7,14 +7,23 @@ import (
 	"strings"
 )
 
+// FileFingerprint is one file's fingerprint as Fingerprint has it, or "" when it is not
+// there.
+func FileFingerprint(dir, rel string) string {
+	if fi, err := os.Stat(filepath.Join(dir, rel)); err == nil && fi.Mode().IsRegular() {
+		return fmt.Sprintf("%d/%d", fi.Size(), fi.ModTime().UnixNano())
+	}
+	return ""
+}
+
 // Fingerprint describes the hand-editable files under dir, by size and
 // modification time, so a poll can tell which of them changed (SET-001).
 // Keys are paths relative to dir; a missing file has no key.
 func Fingerprint(dir string) map[string]string {
 	out := map[string]string{}
 	add := func(rel string) {
-		if fi, err := os.Stat(filepath.Join(dir, rel)); err == nil && fi.Mode().IsRegular() {
-			out[rel] = fmt.Sprintf("%d/%d", fi.Size(), fi.ModTime().UnixNano())
+		if f := FileFingerprint(dir, rel); f != "" {
+			out[rel] = f
 		}
 	}
 	add(FileName)

@@ -314,6 +314,7 @@ func (e *Engine) StartWaiting(profileID string) StartWaits {
 func (e *Engine) chooseSettings(change func(*config.Config), fingerprint string) (config.Config, error) {
 	e.settingsMu.Lock()
 	defer e.settingsMu.Unlock()
+	e.freshConfig()
 	c := e.Config()
 	change(&c)
 	marks, err := e.writtenMarks(settingsItems(c))
@@ -423,6 +424,7 @@ func (e *Engine) revoke(fingerprint string) error {
 	}
 	e.settingsMu.Lock()
 	defer e.settingsMu.Unlock()
+	e.freshConfig()
 	e.mu.Lock()
 	e.cfg.CommandApprovals = slices.DeleteFunc(slices.Clone(e.cfg.CommandApprovals), func(m string) bool { return m == mark })
 	e.mu.Unlock()
@@ -548,6 +550,7 @@ func (e *Engine) ApproveCommands(fingerprints []string) (config.Config, error) {
 	}
 	e.settingsMu.Lock()
 	defer e.settingsMu.Unlock()
+	e.freshConfig()
 	return e.saveSettings(e.Config(), marks)
 }
 
@@ -581,6 +584,7 @@ func (e *Engine) addApprovals(marks []string) error {
 	}
 	e.settingsMu.Lock()
 	defer e.settingsMu.Unlock()
+	e.freshConfig()
 	_, err := e.saveSettings(e.Config(), marks)
 	return err
 }

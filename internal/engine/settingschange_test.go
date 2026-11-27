@@ -3,10 +3,14 @@ package engine
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"sync"
 	"testing"
+	"time"
 
+	"github.com/FinanceNik/Freeloop/internal/config"
 	"github.com/FinanceNik/Freeloop/internal/secrets"
 )
 
@@ -114,5 +118,36 @@ func TestSettingsChangesAtOnceAreAllKept(t *testing.T) {
 		if !slices.Contains(c.Skills.Disabled, fmt.Sprintf("skill-%d", i)) {
 			t.Errorf("skill-%d was dropped", i)
 		}
+	}
+}
+
+// SET-001: config.yaml edited by hand a moment ago, before the watch applied it, is not
+// written over by the next change made in the app.
+func TestAHandEditIsNotWrittenOver(t *testing.T) {
+	dir := t.TempDir()
+	e, err := Open(Options{DataDir: dir, Secrets: secrets.NewMemory(), Home: t.TempDir(), WatchInterval: -1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer e.Close()
+	if _, err := e.ChangeSettings(`{"ui":{"language":"de"}}`); err != nil {
+		t.Fatal(err)
+	}
+	byHand := e.Config()
+	byHand.UI.Language = "nl"
+	if err := config.Save(dir, byHand); err != nil {
+		t.Fatal(err)
+	}
+	later := time.Now().Add(time.Second)
+	os.Chtimes(filepath.Join(dir, config.FileName), later, later)
+	got, err := e.ChangeSettings(`{"ui":{"fontSize":17}}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.UI.Language != "nl" || got.UI.FontSize != 17 {
+		t.Errorf("after a change in the app: language %q, size %d", got.UI.Language, got.UI.FontSize)
+	}
+	if c, _, _ := config.Load(dir); c.UI.Language != "nl" {
+		t.Errorf("the file says %q", c.UI.Language)
 	}
 }

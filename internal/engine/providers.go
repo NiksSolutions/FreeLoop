@@ -112,15 +112,35 @@ func (e *Engine) ProviderPresets() []PresetInfo {
 }
 
 func (e *Engine) loadProviders() error {
+	print := config.FileFingerprint(e.dataDir, config.ProvidersFileName)
 	cfgs, issues, err := config.LoadProviders(e.dataDir)
 	if err != nil {
 		return err
 	}
 	e.mu.Lock()
+	e.providersPrint = print
 	e.issues[issueProviders] = issues
 	e.providers = &providerRegistry{configs: cfgs, built: map[string]*configuredProvider{}, probes: config.LoadProbes(e.dataDir)}
 	e.mu.Unlock()
 	return nil
+}
+
+// freshProviders rereads providers.yaml when it changed on disk since the engine last
+// read or wrote it, before the app changes it, as freshConfig does config.yaml.
+// Called with providersMu held.
+func (e *Engine) freshProviders() {
+	print := config.FileFingerprint(e.dataDir, config.ProvidersFileName)
+	e.mu.Lock()
+	same := print == e.providersPrint
+	e.mu.Unlock()
+	if same {
+		return
+	}
+	if err := e.loadProviders(); err != nil {
+		e.setIssues(issueProviders, []config.Issue{{File: config.ProvidersFileName, Message: err.Error()}})
+	}
+	e.learnKeyAddresses()
+	e.checkKeyAddresses()
 }
 
 func (e *Engine) demoConfig() config.Provider {
@@ -246,6 +266,7 @@ var slugChars = regexp.MustCompile(`[^a-z0-9]+`)
 func (e *Engine) SaveProvider(req SaveProviderRequest) (ProviderInfo, error) {
 	e.providersMu.Lock()
 	defer e.providersMu.Unlock()
+	e.freshProviders()
 	req.Name = strings.TrimSpace(req.Name)
 	if req.Name == "" {
 		return ProviderInfo{}, errors.New("a provider needs a name")
@@ -346,7 +367,9 @@ func (e *Engine) saveConfigs(cfgs []config.Provider) error {
 	if err := config.SaveProviders(e.dataDir, cfgs); err != nil {
 		return err
 	}
+	print := config.FileFingerprint(e.dataDir, config.ProvidersFileName)
 	e.mu.Lock()
+	e.providersPrint = print
 	e.providers.configs = cfgs
 	e.providers.built = map[string]*configuredProvider{}
 	e.mu.Unlock()
@@ -357,6 +380,7 @@ func (e *Engine) saveConfigs(cfgs []config.Provider) error {
 func (e *Engine) DeleteProvider(id string) error {
 	e.providersMu.Lock()
 	defer e.providersMu.Unlock()
+	e.freshProviders()
 	e.mu.Lock()
 	cfgs := slices.Clone(e.providers.configs)
 	e.mu.Unlock()
@@ -533,6 +557,7 @@ func (e *Engine) SetModelFlags(providerID, model string, favorite, hidden bool) 
 func (e *Engine) updateModel(providerID, model string, change func(*config.ModelSettings)) error {
 	e.providersMu.Lock()
 	defer e.providersMu.Unlock()
+	e.freshProviders()
 	e.mu.Lock()
 	cfgs := slices.Clone(e.providers.configs)
 	e.mu.Unlock()

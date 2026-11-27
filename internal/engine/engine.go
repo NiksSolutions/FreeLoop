@@ -169,8 +169,11 @@ type Engine struct {
 	broker  *permission.Broker
 	rules   *ruleStore
 	cfg     config.Config
-	colors  config.Colors
-	styles  []config.Style
+	// cfgPrint is config.yaml's fingerprint as the engine last read or wrote it
+	// (freshConfig), and providersPrint and mcpPrint providers.yaml's and mcp.yaml's.
+	cfgPrint, providersPrint, mcpPrint string
+	colors                             config.Colors
+	styles                             []config.Style
 	// loginEnv is what shell startup files set, for commands in a sandbox, and
 	// loginGitConfig the user's name and email as a git config file's text; read once
 	// it works (loginRead), at most every loginRetry until then. loginMu guards them.
@@ -278,6 +281,7 @@ func Open(opts Options) (*Engine, error) {
 	if opts.Secrets == nil {
 		return nil, errors.New("engine: Secrets is required")
 	}
+	cfgPrint := config.FileFingerprint(opts.DataDir, config.FileName)
 	cfg, issues, err := config.Load(opts.DataDir)
 	if err != nil {
 		return nil, err
@@ -314,6 +318,7 @@ func Open(opts Options) (*Engine, error) {
 		applyUpdate:   opts.ApplyUpdate,
 		modelLists:    map[string]modelList{},
 		cfg:           cfg,
+		cfgPrint:      cfgPrint,
 		issues:        map[string][]config.Issue{issueConfig: issues},
 		onChange:      opts.OnConfigChange,
 		quit:          make(chan struct{}),
@@ -495,6 +500,7 @@ func (e *Engine) ChangeSettings(patch string) (config.Config, error) {
 func (e *Engine) updateSettings(change func(*config.Config) error) (config.Config, error) {
 	e.settingsMu.Lock()
 	defer e.settingsMu.Unlock()
+	e.freshConfig()
 	c := e.Config()
 	if err := change(&c); err != nil {
 		return config.Config{}, err
@@ -548,10 +554,11 @@ func (e *Engine) saveSettings(c config.Config, marks []string) (config.Config, e
 	if err := config.Save(e.dataDir, c); err != nil {
 		return config.Config{}, err
 	}
+	print := config.FileFingerprint(e.dataDir, config.FileName)
 	e.mu.Lock()
 	moved := originOf(e.cfg.Web.SearchURL) != originOf(c.Web.SearchURL)
 	c.Revision = e.cfg.Revision + 1
-	e.cfg = c
+	e.cfg, e.cfgPrint = c, print
 	e.mu.Unlock()
 	e.dropBypass(context.Background())
 	// Changed here, so the user means it; changed in the file, the key stays put.
