@@ -1,23 +1,30 @@
 import { useRef, useState, type CSSProperties } from "react";
+import { EngineService } from "./api.ts";
 import { t } from "./i18n.ts";
 import { PICTURE_TYPES, toMarkIcon } from "./markIcon.ts";
 import { assignSlots, defaultLetters, SLOTS, sourceColor, validIcon, validLetters, type Named, type ProviderNamed, type SourceChoices } from "./source.ts";
 import SourceMark from "./SourceMark.tsx";
-import { agentVendor, providerVendor } from "./vendors.ts";
+import { hasLogo } from "./VendorLogo.tsx";
+import { agentVendor, providerVendor, type Vendor } from "./vendors.ts";
 
 // SourceMarks chooses each provider's and agent's colour, letters and picture (GUI-034),
 // every one the same way. A picture shows before letters typed, and letters typed before
-// the vendor's logo.
+// the vendor's logo. Where the app ships no logo for the vendor, "Official logo" fetches
+// the vendor's own from its website, at the click, and keeps it as the picture.
 
 type Choice = { slot: number; letters: string; icon: string };
 
 export default function SourceMarks({ value, providers, harnesses, onChange }: { value: Record<string, Choice> | null | undefined; providers: readonly ProviderNamed[]; harnesses: readonly Named[]; onChange: (next: Record<string, Choice>) => void }) {
   const list = [...providers.map((p) => ({ ...p, vendor: providerVendor(p) })), ...harnesses.filter((h) => h.id !== "builtin").map((h) => ({ ...h, vendor: agentVendor(h.id) }))];
   const slots = assignSlots(list.map((x) => x.id), value as SourceChoices);
+  // A picture arrives a moment after its click: it joins the marks as they are then.
+  const latest = useRef(value);
+  latest.current = value;
   const set = (id: string, change: Partial<Choice>) => {
-    const was = value?.[id] ?? { slot: 0, letters: "", icon: "" };
+    const now = latest.current;
+    const was = now?.[id] ?? { slot: 0, letters: "", icon: "" };
     const next = { ...was, ...change, icon: (change.icon ?? was.icon) || "" };
-    const all = { ...(value ?? {}) };
+    const all = { ...(now ?? {}) };
     if (!next.slot && !next.letters && !next.icon) delete all[id];
     else all[id] = next;
     onChange(all);
@@ -30,7 +37,21 @@ export default function SourceMarks({ value, providers, harnesses, onChange }: {
   const choose = (id: string) => {
     choosingFor.current = id;
     setUnreadable("");
+    setFailed(null);
     chooser.current?.click();
+  };
+  // The official logo being fetched, and one that could not be, with why.
+  const [fetching, setFetching] = useState("");
+  const [failed, setFailed] = useState<{ id: string; error: string } | null>(null);
+  const fetchOfficial = (id: string, vendor: Vendor) => {
+    setFetching(id);
+    setFailed(null);
+    setUnreadable("");
+    EngineService.FetchOfficialLogo(vendor)
+      .then((logo) => toMarkIcon(new Blob([Uint8Array.from(atob(logo.data ?? ""), (c) => c.charCodeAt(0))], { type: logo.type })))
+      .then((icon) => set(id, { icon }))
+      .catch((err: unknown) => setFailed({ id, error: err instanceof Error ? err.message : String(err) }))
+      .finally(() => setFetching(""));
   };
   return (
     <>
@@ -84,9 +105,16 @@ export default function SourceMarks({ value, providers, harnesses, onChange }: {
                   {t("marks.removePicture")}
                 </button>
               ) : (
-                <button type="button" className="link" aria-label={t("marks.pictureFor", { name: x.name })} onClick={() => choose(x.id)}>
-                  {t("marks.picture")}
-                </button>
+                <>
+                  {x.vendor && !hasLogo(x.vendor) && (
+                    <button type="button" className="link" aria-label={t("marks.officialFor", { name: x.name })} title={t("marks.officialHint")} disabled={fetching === x.id} onClick={() => fetchOfficial(x.id, x.vendor!)}>
+                      {fetching === x.id ? t("marks.fetching") : t("marks.official")}
+                    </button>
+                  )}
+                  <button type="button" className="link" aria-label={t("marks.pictureFor", { name: x.name })} onClick={() => choose(x.id)}>
+                    {t("marks.picture")}
+                  </button>
+                </>
               )}
               {value?.[x.id] && (
                 <button type="button" className="link" aria-label={t("marks.reset", { name: x.name })} onClick={() => set(x.id, { slot: 0, letters: "", icon: "" })}>
@@ -96,6 +124,11 @@ export default function SourceMarks({ value, providers, harnesses, onChange }: {
               {unreadable === x.id && (
                 <span role="status" className="font-note">
                   {t("marks.pictureBad")}
+                </span>
+              )}
+              {failed?.id === x.id && (
+                <span role="status" className="font-note">
+                  {t("marks.officialFailed", { error: failed.error })}
                 </span>
               )}
             </li>

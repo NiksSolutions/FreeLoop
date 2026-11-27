@@ -372,6 +372,12 @@ func (s *EngineService) ListMCPServers() []engine.MCPServerInfo {
 	return s.eng.ListMCPServers()
 }
 
+// FetchOfficialLogo fetches a vendor's logo from its own website, at the user's click,
+// for a mark's picture (GUI-034).
+func (s *EngineService) FetchOfficialLogo(ctx context.Context, vendor string) (engine.OfficialLogo, error) {
+	return s.eng.FetchOfficialLogo(ctx, vendor)
+}
+
 // SearchMCPRegistry returns a page of a server registry (MCP-009).
 func (s *EngineService) SearchMCPRegistry(ctx context.Context, query, cursor string) (engine.RegistryPage, error) {
 	return s.eng.SearchMCPRegistry(ctx, query, cursor)

@@ -12,7 +12,7 @@ Farben werden für die helle und die dunkle Darstellung getrennt festgelegt, und
 
 ## Anbieterkennzeichen
 
-Worauf eine Sitzung läuft, zeigt ein kleines Kennzeichen in der Seitenleiste und in ihrem Bereich. Für llama.cpp, OpenRouter und vLLM ist es das Logo des Projekts, das seine Macher anderen Apps zu zeigen erlauben; für die übrigen eine Farbe und zwei Buchstaben. Unter **Anbieterkennzeichen** lassen sich die Farbe ändern, Buchstaben eingeben oder mit **Bild…** ein eigenes Bild wählen, etwa ein Logo, dessen Hersteller Apps erst um Erlaubnis fragen lässt. Das Bild wird zu einem kleinen PNG verkleinert und in `config.yaml` gespeichert, nur auf diesem Computer.
+Worauf eine Sitzung läuft, zeigt ein kleines Kennzeichen in der Seitenleiste und in ihrem Bereich. Für llama.cpp, OpenRouter und vLLM ist es das Logo des Projekts, das seine Macher anderen Apps zu zeigen erlauben; für die übrigen eine Farbe und zwei Buchstaben. Unter **Anbieterkennzeichen** lassen sich die Farbe ändern, Buchstaben eingeben oder mit **Bild…** ein eigenes Bild wählen. Für einen Anbieter oder Agenten, dessen Logo Freeloop nicht mitbringt, etwa Claude Code, OpenAI oder Gemini, holt **Offizielles Logo** es beim Klick von der Website seines Herstellers; nur dann verbindet sich Freeloop mit dieser Website, und nie im Modus Nur lokal. Das Bild wird zu einem kleinen PNG verkleinert und in `config.yaml` gespeichert, nur auf diesem Computer.
 
 ## Stile
 

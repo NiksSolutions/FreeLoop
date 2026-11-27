@@ -12,7 +12,7 @@ Colors are set for the light and the dark appearance apart, and a change shows a
 
 ## Provider marks
 
-What a session runs on shows in the sidebar and on its pane as a small mark. For llama.cpp, OpenRouter and vLLM it is the project's logo, which their makers let other apps show; for the rest it is a colour and two letters. Under **Provider marks** you can change a mark's colour, type its letters, or choose a picture of your own with **Picture…**, for instance a logo whose maker asks apps to get permission first. The picture is scaled down to a small PNG and kept in `config.yaml`, on this computer only.
+What a session runs on shows in the sidebar and on its pane as a small mark. For llama.cpp, OpenRouter and vLLM it is the project's logo, which their makers let other apps show; for the rest it is a colour and two letters. Under **Provider marks** you can change a mark's colour, type its letters, or choose a picture of your own with **Picture…**. For a provider or agent whose logo Freeloop does not include, such as Claude Code, OpenAI or Gemini, **Official logo** fetches it from its maker's own website when you click it; that is the only time Freeloop contacts that site, and never with Local only on. The picture is scaled down to a small PNG and kept in `config.yaml`, on this computer only.
 
 ## Styles
 

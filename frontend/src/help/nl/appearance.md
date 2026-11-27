@@ -12,7 +12,7 @@ Kleuren worden apart ingesteld voor de lichte en de donkere weergave, en een wij
 
 ## Merktekens van aanbieders
 
-Waarop een sessie draait, staat als een klein merkteken in de zijbalk en op het paneel van de sessie. Voor llama.cpp, OpenRouter en vLLM is dat het logo van het project, dat de makers andere apps laten tonen; voor de rest een kleur met twee letters. Onder **Merktekens van aanbieders** zijn de kleur te wijzigen, letters te typen of met **Afbeelding…** een eigen afbeelding te kiezen, bijvoorbeeld een logo waarvoor de maker apps eerst om toestemming laat vragen. De afbeelding wordt verkleind tot een kleine PNG en bewaard in `config.yaml`, alleen op deze computer.
+Waarop een sessie draait, staat als een klein merkteken in de zijbalk en op het paneel van de sessie. Voor llama.cpp, OpenRouter en vLLM is dat het logo van het project, dat de makers andere apps laten tonen; voor de rest een kleur met twee letters. Onder **Merktekens van aanbieders** zijn de kleur te wijzigen, letters te typen of met **Afbeelding…** een eigen afbeelding te kiezen. Voor een aanbieder of agent waarvan Freeloop het logo niet meebrengt, zoals Claude Code, OpenAI of Gemini, haalt **Officieel logo** het bij een klik op van de eigen website van de maker; alleen dan maakt Freeloop verbinding met die website, en nooit in de modus Alleen lokaal. De afbeelding wordt verkleind tot een kleine PNG en bewaard in `config.yaml`, alleen op deze computer.
 
 ## Stijlen
 

@@ -287,6 +287,35 @@ await step("a mark shows its vendor's logo where allowed, and the user's own pic
   named("button", "Remove the picture of Scripted demo", demo).click();
   await until("the letters again", () => !mark()?.querySelector("img"), 5000).catch(() => {});
   check("removing the picture brings the letters back", !mark()?.querySelector("img"), mark()?.outerHTML.slice(0, 120));
+  // Official logo: offered where the app ships none, and what the vendor's site sends
+  // becomes the picture. The engine's call is answered here, so the check fetches nothing
+  // from the internet; FetchOfficialLogo's ID is in the generated bindings.
+  const claude = row("Claude Code");
+  const claudeMark = () => claude?.querySelector(".source-mark");
+  check("Official logo is offered for Claude Code, not for llama.cpp, whose logo the app has", !!named("button", "Use the official logo of Claude Code", claude) && !named("button", "Use the official logo of llama.cpp server", llama));
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = 8;
+  canvas.getContext("2d").fillRect(0, 0, 8, 8);
+  const real = window.fetch;
+  let asked = false;
+  window.fetch = (u, o) => {
+    const text = decodeURIComponent(`${u}${o?.body ?? ""}`);
+    if (text.includes("3102532155") && text.includes('"claude"')) {
+      asked = true;
+      const logo = { data: canvas.toDataURL("image/png").split(",")[1], type: "image/png", from: "https://claude.ai/apple-touch-icon.png" };
+      return Promise.resolve(new Response(JSON.stringify(logo), { status: 200, headers: { "Content-Type": "application/json" } }));
+    }
+    return real(u, o);
+  };
+  try {
+    named("button", "Use the official logo of Claude Code", claude).click();
+    const official = await until("the official logo", () => claudeMark()?.querySelector("img"), 5000).catch(() => null);
+    check("the logo its site sends becomes the mark's picture", asked && !!official && official.src.startsWith("data:image/png;base64,"), `asked ${asked}, ${official?.src.slice(0, 30)}`);
+  } finally {
+    window.fetch = real;
+  }
+  named("button", "Remove the picture of Claude Code", claude)?.click();
+  await until("Claude Code's letters again", () => !claudeMark()?.querySelector("img"), 5000).catch(() => {});
   await sleep(800);
   document.querySelector(".settings-nav .settings-back").click();
   await sleep(200);
