@@ -959,12 +959,9 @@ func (s *EngineService) DeleteEnvironment(id string) error {
 	return s.eng.DeleteEnvironment(id)
 }
 
-func (s *EngineService) SaveSettings(c config.Config) (config.Config, error) {
-	return s.eng.SaveSettings(c)
-}
-
-// ChangeSettings merges a JSON merge patch into the settings (issue 091); the window
-// saves through it, sending only what changed.
+// ChangeSettings merges a JSON merge patch into the settings (issue 091). It is the
+// window's only way to change config.yaml: a whole config sent back would carry
+// another writer's older values, so SaveSettings is not bound.
 func (s *EngineService) ChangeSettings(patch string) (config.Config, error) {
 	return s.eng.ChangeSettings(patch)
 }
