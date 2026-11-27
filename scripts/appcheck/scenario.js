@@ -563,19 +563,33 @@ await step("the terminal says what it is and counts wide characters", async () =
   // As pasted, then Enter: with the screen reader mode on, xterm takes no inserted text
   // from its hidden text box, and a shell does not run a paste's own line end.
   const keys = box.querySelector(".xterm-helper-textarea");
-  const paste = new Event("paste", { bubbles: true, cancelable: true });
-  Object.defineProperty(paste, "clipboardData", { value: { getData: () => "echo in=$TERM_PROGRAM/$COLORTERM" } });
-  keys.dispatchEvent(paste);
-  await sleep(300);
-  const enter = new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true, cancelable: true });
-  Object.defineProperty(enter, "keyCode", { value: 13 });
-  Object.defineProperty(enter, "which", { value: 13 });
-  keys.dispatchEvent(enter);
-  await until("the shell's answer", () => box.textContent.includes("in=Freeloop/truecolor"), 10000);
-  check("a shell in the terminal knows it runs in Freeloop", true);
-  named(".terminal-tabs button", "Close shell 1")?.click();
-  withText(".panel-tabs [role=tab]", "Approvals").click();
-  await sleep(100);
+  const ask = async () => {
+    const paste = new Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(paste, "clipboardData", { value: { getData: () => "echo in=$TERM_PROGRAM/$COLORTERM" } });
+    keys.dispatchEvent(paste);
+    await sleep(300);
+    const enter = new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true, cancelable: true });
+    Object.defineProperty(enter, "keyCode", { value: 13 });
+    Object.defineProperty(enter, "which", { value: 13 });
+    keys.dispatchEvent(enter);
+  };
+  const answered = () => box.textContent.includes("in=Freeloop/truecolor");
+  try {
+    // Once more if the first went unanswered: twice here, typed while the shell was still
+    // starting, it was lost, and the shell left open spoilt the steps after this one.
+    await ask();
+    if (!(await until("the shell's answer", answered, 6000).catch(() => false))) {
+      await ask();
+      await until("the shell's answer", answered, 10000).catch((e) => {
+        throw new Error(`${e.message}; the terminal shows "${box.textContent.replace(/\s+/g, " ").slice(-200)}"`);
+      });
+    }
+    check("a shell in the terminal knows it runs in Freeloop", true);
+  } finally {
+    named(".terminal-tabs button", "Close shell 1")?.click();
+    withText(".panel-tabs [role=tab]", "Approvals")?.click();
+    await sleep(100);
+  }
 });
 
 await step("a turn runs to its end, with approvals", async () => {
@@ -2105,20 +2119,26 @@ await step("the demo runs a tour and removes itself", async () => {
   const pane = activePane();
   const asked = [];
   // Each request once: its card waits for the decision to come back, and on a slow
-  // machine a second look found the same button.
+  // machine a second look found the same button. The first is clicked twice at once, as
+  // a double click or a key and a click can: the card sends one answer, so no error
+  // says the request is gone.
   const answered = new Set();
   await until("the closing message", () => {
     for (const b of all(".approval-buttons button", pane)) {
       const card = b.closest(".approval");
       if (b.textContent.includes("Allow once") && !answered.has(card)) {
+        b.click();
+        if (answered.size === 0) b.click();
         answered.add(card);
         asked.push(card.textContent);
-        b.click();
       }
     }
     return withText(".msg-agent, .md", "That is the tour", pane);
   }, 45000);
   check("the tour asks twice", asked.length === 2, `${asked.length} requests`);
+  await sleep(300);
+  const doubled = all(".banner.error").map((b) => b.textContent.trim()).filter((t) => t.includes("no pending request"));
+  check("a double click answers once, with no error", doubled.length === 0, doubled.join(" | "));
   check("it asks about notes.md and .env", asked.some((t) => t.includes("notes.md")) && asked.some((t) => t.includes(".env")), asked.map((t) => t.slice(0, 60)).join(" | "));
   const refused = all(".conversation .decision-denied", pane).map((d) => d.textContent.trim());
   check("the git push is refused by the rule", refused.includes("denied by rule"), refused.join(", "));
@@ -2718,6 +2738,10 @@ await step("a fork's message waits in its box once", async () => {
   const row = (fork) => all(".session-row").find((r) => r.textContent.includes("Check alpha") && r.textContent.includes("(fork)") === fork);
   const box = () => activePane().querySelector(".composer textarea");
   row(false).click();
+  // Its own pane first: a button found while the last session was still drawn went
+  // with it, and its click forked nothing.
+  const title = () => activePane().querySelector(".session-header h2")?.textContent ?? "";
+  await until("Check alpha open", () => title().includes("Check alpha") && !title().includes("(fork)"), 8000);
   const fork = await until("a message to fork from", () => all('button[aria-label="Fork from here"]', activePane()).at(-1), 8000);
   fork.click();
   await until("the fork opened", () => activePane().querySelector(".session-header h2")?.textContent.includes("(fork)"), 8000);

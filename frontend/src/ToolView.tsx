@@ -56,8 +56,23 @@ export default function ToolView({ item, roots = [], onError }: { item: Extract<
   const edited = editMark(item.toolKind, item.status);
 
   const form = item.permission?.form;
-  const decide = (optionId: string, answers?: Record<string, unknown>) =>
-    EngineService.Decide({ requestId: item.permission!.requestId, optionId, reason, scope, answers }).catch(onError);
+  // Until the answer comes back as an event, the buttons stay disabled, as in the
+  // attention view: a double click, or a key and then a click, answered twice, and the
+  // second said there was no such request. The ref holds before the next render does.
+  const sent = useRef("");
+  const [sentFor, setSentFor] = useState("");
+  const busy = !!item.permission && sentFor === item.permission.requestId;
+  const decide = (optionId: string, answers?: Record<string, unknown>) => {
+    const id = item.permission!.requestId;
+    if (sent.current === id) return;
+    sent.current = id;
+    setSentFor(id);
+    EngineService.Decide({ requestId: id, optionId, reason, scope, answers }).catch((err) => {
+      sent.current = "";
+      setSentFor("");
+      onError(err);
+    });
+  };
   const mcpForm = useMcpForm(form, item.permission?.requestId);
   const choose = (o: PermissionOption) => mcpForm.choose(o.optionId, o.kind, decide);
   const offersAlways = item.permission?.options.some((o) => o.kind === "allow_always");
@@ -77,7 +92,7 @@ export default function ToolView({ item, roots = [], onError }: { item: Extract<
   useEffect(() => {
     // A keypress never sends a form, nor decides a plan: each is answered through its
     // own controls, which say what follows.
-    if (!waiting || form || plan !== null) return;
+    if (!waiting || form || plan !== null || busy) return;
     const onKey = (e: globalThis.KeyboardEvent) => {
       // Only the first waiting card of the active pane (GUI-017).
       const pane = box.current?.closest(".pane");
@@ -92,7 +107,7 @@ export default function ToolView({ item, roots = [], onError }: { item: Extract<
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [waiting, form, plan, item.permission]);
+  }, [waiting, form, plan, busy, item.permission]);
 
   // A token optimizer ran this command in a shorter form (HRN-019).
   const via = item.via ?? item.content.find((c) => c.via)?.via;
@@ -206,6 +221,7 @@ export default function ToolView({ item, roots = [], onError }: { item: Extract<
                     <button
                       key={o.optionId}
                       className={o.kind.startsWith("allow") ? "primary" : "danger"}
+                      disabled={busy}
                       onClick={() => choose(o)}
                       title={hint && !form ? t("tool.shortcut", { keys: hint }) : undefined}
                     >

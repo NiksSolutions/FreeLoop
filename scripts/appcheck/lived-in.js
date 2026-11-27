@@ -186,7 +186,7 @@ await step("the demo runs the tour, not the default profile's agent", async () =
   const asked = [];
   await until("the closing message", () => {
     for (const b of all(".approval-buttons button", pane)) {
-      if (b.textContent.includes("Allow once")) {
+      if (b.textContent.includes("Allow once") && !b.disabled) {
         asked.push(b.closest(".approval").textContent);
         b.click();
       }
