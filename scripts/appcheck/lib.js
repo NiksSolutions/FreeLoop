@@ -2,6 +2,8 @@
 // of each: the body of an async function run in the page, which returns one result per
 // check.
 const results = [];
+// Where the driver finds what ran and the step under way, when a run takes too long.
+window.__appcheck = { results, step: "" };
 const check = (name, ok, detail = "") => {
   results.push({ name, ok: !!ok, detail: String(detail) });
   // A picture of what failed, for a run no one watched (scripts/appcheck/drive.swift).
@@ -29,6 +31,7 @@ const type = (box, text) => {
 const activePane = () => document.querySelector(".pane-active") ?? document;
 const toTheEnd = (el) => el.scrollHeight - el.scrollTop - el.clientHeight;
 const step = async (name, fn) => {
+  window.__appcheck.step = name;
   try {
     await fn();
   } catch (e) {

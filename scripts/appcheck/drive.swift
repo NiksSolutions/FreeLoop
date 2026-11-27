@@ -89,6 +89,19 @@ final class Snap: NSObject, WKScriptMessageHandlerWithReply {
   }
 }
 
+// report prints the scenario's results, one line each, and says whether one failed.
+@discardableResult
+func report(_ lines: [[String: Any]]) -> Bool {
+  var failed = false
+  for line in lines {
+    let ok = line["ok"] as? Bool ?? false
+    failed = failed || !ok
+    let detail = line["detail"] as? String ?? ""
+    print("\(ok ? "ok  " : "FAIL")  \(line["name"] ?? "")\(ok && (detail.isEmpty || !(line["name"] as? String ?? "").hasPrefix("DIAGNOSIS")) ? "" : ": \(detail)")")
+  }
+  return failed
+}
+
 final class Driver: NSObject, WKNavigationDelegate {
   let scenario: String
   init(scenario: String) { self.scenario = scenario }
@@ -98,13 +111,7 @@ final class Driver: NSObject, WKNavigationDelegate {
       do {
         let result = try await web.callAsyncJavaScript(scenario, contentWorld: .page)
         let lines = (result as? [[String: Any]]) ?? []
-        var failed = false
-        for line in lines {
-          let ok = line["ok"] as? Bool ?? false
-          failed = failed || !ok
-          let detail = line["detail"] as? String ?? ""
-          print("\(ok ? "ok  " : "FAIL")  \(line["name"] ?? "")\(ok && (detail.isEmpty || !(line["name"] as? String ?? "").hasPrefix("DIAGNOSIS")) ? "" : ": \(detail)")")
-        }
+        let failed = report(lines)
         exit(lines.isEmpty ? 2 : failed ? 1 : 0)
       } catch {
         print("the scenario did not run: \(error)")
@@ -160,7 +167,22 @@ web.load(URLRequest(url: url))
 // The whole scenario's time, which the workflow's AFK run (WFL-005) made longer.
 let deadline = Double(ProcessInfo.processInfo.environment["APPCHECK_DEADLINE"] ?? "") ?? 420
 DispatchQueue.main.asyncAfter(deadline: .now() + deadline) {
-  print("the scenario took too long")
-  exit(2)
+  // What ran so far, and the step it stopped in (lib.js keeps both in the page), for
+  // a run no one watched; a page that does not answer still ends the run.
+  web.evaluateJavaScript("JSON.stringify(window.__appcheck ?? null)") { value, _ in
+    guard let text = value as? String, let data = text.data(using: .utf8),
+      let so = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    else {
+      print("the scenario took too long")
+      exit(2)
+    }
+    report(so["results"] as? [[String: Any]] ?? [])
+    print("the scenario took too long, in the step \"\(so["step"] as? String ?? "")\"")
+    exit(2)
+  }
+  DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
+    print("the scenario took too long, and the page did not say how far it got")
+    exit(2)
+  }
 }
 app.run()
