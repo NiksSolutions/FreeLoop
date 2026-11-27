@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -181,4 +182,34 @@ func FuzzMergePatch(f *testing.F) {
 			}
 		}
 	})
+}
+
+// config.yaml broken by hand a moment ago is not written over by a change in the app,
+// which says why, and the settings in force stay as they were.
+func TestABrokenHandEditIsNotWrittenOver(t *testing.T) {
+	dir := t.TempDir()
+	e, err := Open(Options{DataDir: dir, Secrets: secrets.NewMemory(), Home: t.TempDir(), WatchInterval: -1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer e.Close()
+	if _, err := e.ChangeSettings(`{"ui":{"language":"de"}}`); err != nil {
+		t.Fatal(err)
+	}
+	broken := []byte("version: 1\nui: [half typed\n")
+	file := filepath.Join(dir, config.FileName)
+	if err := os.WriteFile(file, broken, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	later := time.Now().Add(time.Second)
+	os.Chtimes(file, later, later)
+	if _, err := e.ChangeSettings(`{"ui":{"fontSize":17}}`); err == nil || !strings.Contains(err.Error(), "cannot be read") {
+		t.Errorf("a change over a broken file: %v", err)
+	}
+	if b, _ := os.ReadFile(file); string(b) != string(broken) {
+		t.Errorf("the file was written over: %q", b)
+	}
+	if e.Config().UI.Language != "de" {
+		t.Errorf("the settings in force: %+v", e.Config().UI)
+	}
 }
