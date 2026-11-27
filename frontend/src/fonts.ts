@@ -6,6 +6,22 @@ export interface FontChoice {
   codeFont: string;
 }
 
+// The fonts' weights, as CSS counts them; 0 is the app's own, 400. Like the text
+// size they are the user's, not a style's (GUI-053).
+export interface FontWeights {
+  textWeight: number;
+  codeWeight: number;
+}
+
+// What the editor offers: the app's own (Regular) and the steps on either side
+// that fonts commonly have. config.yaml takes any of 100 to 900 in steps of 100.
+export const WEIGHTS = [300, 0, 500, 600] as const;
+
+// The same check as config.ValidWeight.
+export function isWeight(w: unknown): w is number {
+  return typeof w === "number" && Number.isInteger(w) && w >= 100 && w <= 900 && w % 100 === 0;
+}
+
 // What the editor offers, as far as they are on this computer: what macOS, Windows
 // and the common Linux desktops come with, then fonts people commonly install. Any
 // other name can be typed.
@@ -80,15 +96,22 @@ export function fontStack(name: string | undefined, fallback: string): string | 
   return name && isFontName(name) ? `"${name}", var(--${fallback})` : null;
 }
 
-// applyFonts puts the fonts on the page. Without a name the variable goes back
-// to what app.css gives it.
-export function applyFonts(style: Pick<CSSStyleDeclaration, "setProperty" | "removeProperty">, fonts: Partial<FontChoice>) {
+// applyFonts puts the fonts and their weights on the page. Without a name or a
+// weight the variable goes back to what app.css gives it.
+export function applyFonts(style: Pick<CSSStyleDeclaration, "setProperty" | "removeProperty">, fonts: Partial<FontChoice & FontWeights>) {
   for (const [property, name, fallback] of [
     ["--font-text", fonts.textFont, "font-text-default"],
     ["--mono", fonts.codeFont, "mono-default"],
   ] as const) {
     const stack = fontStack(name, fallback);
     if (stack) style.setProperty(property, stack);
+    else style.removeProperty(property);
+  }
+  for (const [property, weight] of [
+    ["--weight-text", fonts.textWeight],
+    ["--weight-code", fonts.codeWeight],
+  ] as const) {
+    if (isWeight(weight)) style.setProperty(property, String(weight));
     else style.removeProperty(property);
   }
 }

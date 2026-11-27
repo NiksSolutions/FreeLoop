@@ -6,11 +6,13 @@
 
 One font is for text: the interface and messages. The other is for code: code blocks, tool output, diffs and the terminal. A font that is not on this computer shows the app's own font instead.
 
+Each font has a **Weight** beside it, from Light to Semibold, Regular being the app's own. Headings and bold text move with the text's weight and stay bolder than it; bold text in the terminal does the same with the code's. A font without the weight chosen shows the nearest it has. In `config.yaml` the weights are `ui.textWeight` and `ui.codeWeight`, any of 100 to 900 in steps of 100.
+
 Colors are set for the light and the dark appearance apart, and a change shows at once. Freeloop warns when text becomes hard to read. The colors are kept in `colors.json` in the data folder, which can also be edited by hand.
 
 ## Styles
 
-A style keeps the two fonts and the colors of both appearances under a name, so you can switch between looks in one step. Theme, text size and language are not part of a style.
+A style keeps the two fonts and the colors of both appearances under a name, so you can switch between looks in one step. Theme, text size, the fonts' weights and language are not part of a style.
 
 Freeloop comes with six styles, listed under **Built in**: Niks Theme, Solarized, Nord, Gruvbox, Rosé Pine and Dracula. A built-in style is chosen and saved as new like any other but is never updated or deleted: to make one your own, choose it, change what you like and save it as a new style.
 

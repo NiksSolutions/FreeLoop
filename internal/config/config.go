@@ -238,6 +238,12 @@ type UI struct {
 	// means the app's own.
 	TextFont string `yaml:"textFont,omitempty" json:"textFont"`
 	CodeFont string `yaml:"codeFont,omitempty" json:"codeFont"`
+	// TextWeight and CodeWeight are those fonts' weights, as CSS counts them: 100
+	// to 900 in steps of 100 (GUI-025). Zero means the app's own, 400. Headings
+	// and bold text keep their distance above the text's weight. Like the text
+	// size, they are the user's and not a style's.
+	TextWeight int `yaml:"textWeight,omitempty" json:"textWeight"`
+	CodeWeight int `yaml:"codeWeight,omitempty" json:"codeWeight"`
 	// Style is the ID of the saved style chosen last (GUI-053), whose colors
 	// and fonts were copied over colors.json and the fonts above. Empty means
 	// the app's own look.
@@ -323,6 +329,8 @@ func (c *Config) Validate() []Issue {
 	}
 	issues = append(issues, validateFont("ui.textFont", &c.UI.TextFont)...)
 	issues = append(issues, validateFont("ui.codeFont", &c.UI.CodeFont)...)
+	issues = append(issues, validateWeight("ui.textWeight", &c.UI.TextWeight)...)
+	issues = append(issues, validateWeight("ui.codeWeight", &c.UI.CodeWeight)...)
 	if c.UI.Style != "" && !idPattern.MatchString(c.UI.Style) {
 		issues = append(issues, Issue{Field: "ui.style", Message: fmt.Sprintf("%q is not a style's ID", c.UI.Style)})
 		c.UI.Style = ""

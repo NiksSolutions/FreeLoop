@@ -1101,6 +1101,55 @@ await step("the Reset is what was saved", async () => {
   await sleep(100);
 });
 
+await step("the fonts' weights move the text, its headings, code and the terminal", async () => {
+  // GUI-025: a weight for text and one for code. Headings and bold text keep their
+  // distance above the text's, code inside bold text stays as bold, and the terminal
+  // takes the code's. The code's is left Light for appcheck.sh to find in the file.
+  const set = (el, value) => {
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set.call(el, value);
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  };
+  const weightOf = (el) => Number(getComputedStyle(el).fontWeight);
+  document.querySelector(".settings-link").click();
+  (await until("the Appearance page", () => withText(".settings-nav button", "Appearance"))).click();
+  await until("Appearance", () => document.querySelector(".settings-page h2")?.textContent === "Appearance");
+  const text = await until("the text's weight", () => named(".font-editor select", "Text weight"));
+  const code = named(".font-editor select", "Code weight");
+  check("each font has a weight, Regular at first", !!code && text.selectedOptions[0]?.textContent === "Regular" && code.selectedOptions[0]?.textContent === "Regular", `${text.selectedOptions[0]?.textContent} / ${code?.selectedOptions[0]?.textContent}`);
+  const heading = document.querySelector(".settings-page h2");
+  const probe = document.createElement("div");
+  probe.innerHTML = "<code>a</code> <strong>b <code>c</code></strong>";
+  document.querySelector(".settings-page").append(probe);
+  const before = { text: weightOf(document.body), heading: weightOf(heading) };
+  set(text, "500");
+  set(code, "300");
+  await until("the weights on the page", () => weightOf(document.body) === 500, 3000).catch(() => {});
+  const strong = probe.querySelector("strong");
+  check("Medium text moves the text and its heading a step", weightOf(document.body) === 500 && weightOf(heading) === Math.min(900, before.heading + 100), `text ${before.text} to ${weightOf(document.body)}, heading ${before.heading} to ${weightOf(heading)}`);
+  check(
+    "Light code makes code lighter, and code in bold text stays as bold",
+    weightOf(probe.querySelector("code")) === 300 && weightOf(strong) > 500 && weightOf(strong.querySelector("code")) === weightOf(strong),
+    `code ${weightOf(probe.querySelector("code"))}, bold ${weightOf(strong)}, code in bold ${weightOf(strong.querySelector("code"))}`,
+  );
+  probe.remove();
+  set(text, "0");
+  await until("Regular text", () => weightOf(document.body) === before.text, 3000).catch(() => {});
+  check("Regular puts the text back", weightOf(document.body) === before.text, String(weightOf(document.body)));
+  await sleep(600);
+  document.querySelector(".settings-nav .settings-back").click();
+  openSession("Check alpha");
+  await until("the conversation", () => document.querySelector(".conversation"));
+  (await until("the Terminal tab", () => withText(".panel-tabs [role=tab]", "Terminal"))).click();
+  try {
+    const span = await until("the terminal's text", () => document.querySelector(".terminal-box .xterm-rows span:not(.xterm-bold)"), 15000).catch(() => null);
+    check("the terminal's text takes the code's weight", !!span && weightOf(span) === 300, span ? String(weightOf(span)) : "no text drawn");
+  } finally {
+    all(".terminal-tabs button").find((b) => /^Close shell/.test(b.getAttribute("aria-label") ?? ""))?.click();
+    withText(".panel-tabs [role=tab]", "Approvals")?.click();
+    await sleep(100);
+  }
+});
+
 await step("a style keeps the fonts and colors, and choosing it brings them back", async () => {
   // GUI-053: saved from what is on screen, switched to from the list and the
   // palette, marked changed, reverted, and deleted with the look left as it is.

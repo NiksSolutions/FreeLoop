@@ -11,7 +11,7 @@ import FontEditor from "./FontEditor.tsx";
 import StylePicker from "./StylePicker.tsx";
 import { lookOf } from "./styles.ts";
 import type { ColorSet } from "./colors.ts";
-import type { FontChoice } from "./fonts.ts";
+import type { FontChoice, FontWeights } from "./fonts.ts";
 import { approvalChord, bindingOf, keyLabel } from "./shortcuts.ts";
 import { inFileManager, secretStore } from "./platform.ts";
 import { Browser, Clipboard } from "@wailsio/runtime";
@@ -38,7 +38,7 @@ interface Props {
   onProviders: () => void;
   colors: ColorSet;
   onColors: (c: ColorSet) => void;
-  onFonts: (f: FontChoice) => void;
+  onFonts: (f: Partial<FontChoice & FontWeights>) => void;
   // Saved styles (GUI-053), and what StylePicker needs to switch between them.
   styles: Style[];
   onApplyStyle: (style: Style | null, confirm?: boolean) => void;
@@ -416,7 +416,7 @@ export default function Settings({ page, config, providers, harnesses, environme
         />
 
         <h3>{t("settings.fonts.title")}</h3>
-        <FontEditor textFont={config.ui.textFont} codeFont={config.ui.codeFont} onChange={onFonts} />
+        <FontEditor textFont={config.ui.textFont} codeFont={config.ui.codeFont} textWeight={config.ui.textWeight} codeWeight={config.ui.codeWeight} onChange={onFonts} />
 
         <h3>{t("settings.colors.title")}</h3>
         <ColorEditor colors={colors} onChange={onColors} onError={onError} />

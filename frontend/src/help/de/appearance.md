@@ -6,11 +6,13 @@
 
 Eine Schrift gilt für Text: die Oberfläche und die Nachrichten. Die andere gilt für Code: Codeblöcke, Ausgaben von Werkzeugen, Diffs und das Terminal. Eine Schrift, die auf diesem Computer fehlt, wird durch die eigene Schrift der App ersetzt.
 
+Neben jeder Schrift steht ihre **Stärke**, von Leicht bis Halbfett; Normal ist die der App. Überschriften und fetter Text gehen mit der Stärke des Texts mit und bleiben fetter als sie, fetter Text im Terminal ebenso mit der des Codes. Eine Schrift ohne die gewählte Stärke zeigt die nächste, die sie hat. In `config.yaml` sind die Stärken `ui.textWeight` und `ui.codeWeight`, jeweils 100 bis 900 in Schritten von 100.
+
 Farben werden für die helle und die dunkle Darstellung getrennt festgelegt, und eine Änderung ist sofort zu sehen. Freeloop warnt, wenn Text schwer lesbar wird. Die Farben stehen in `colors.json` im Datenordner, die sich auch von Hand bearbeiten lässt.
 
 ## Stile
 
-Ein Stil hält die beiden Schriften und die Farben beider Darstellungen unter einem Namen fest, sodass ein Wechsel zwischen zwei Erscheinungsbildern ein Schritt ist. Farbmodus, Textgröße und Sprache gehören nicht zu einem Stil.
+Ein Stil hält die beiden Schriften und die Farben beider Darstellungen unter einem Namen fest, sodass ein Wechsel zwischen zwei Erscheinungsbildern ein Schritt ist. Farbmodus, Textgröße, die Stärken der Schriften und Sprache gehören nicht zu einem Stil.
 
 Freeloop bringt sechs Stile mit, aufgeführt unter **Mitgeliefert**: Niks Theme, Solarized, Nord, Gruvbox, Rosé Pine und Dracula. Ein mitgelieferter Stil wird gewählt und als neuer gespeichert wie jeder andere, aber nie aktualisiert oder gelöscht: Für eine eigene Fassung ihn wählen, nach Belieben ändern und als neuen Stil speichern.
 

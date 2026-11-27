@@ -29,3 +29,19 @@ func validateFont(field string, v *string) []Issue {
 	*v = ""
 	return []Issue{issue}
 }
+
+// ValidWeight reports whether w is a font weight the settings take: 100 to 900
+// in steps of 100, as CSS names them. Zero, the app's own, is not a weight.
+func ValidWeight(w int) bool {
+	return w >= 100 && w <= 900 && w%100 == 0
+}
+
+// validateWeight clears a weight that is not one and reports it.
+func validateWeight(field string, w *int) []Issue {
+	if *w == 0 || ValidWeight(*w) {
+		return nil
+	}
+	issue := Issue{Field: field, Message: fmt.Sprintf("%d is not a weight from 100 to 900 in steps of 100; using the app's own", *w)}
+	*w = 0
+	return []Issue{issue}
+}

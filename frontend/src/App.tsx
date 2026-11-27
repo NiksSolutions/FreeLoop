@@ -83,7 +83,7 @@ import { ask } from "./ask.ts";
 import { trustLines } from "./trust.ts";
 import { describeActivity, foldActivity, NO_ACTIVITY, type Activity } from "./sessionActivity.ts";
 import { applyColors, type ColorSet } from "./colors.ts";
-import { applyFonts, type FontChoice } from "./fonts.ts";
+import { applyFonts, type FontChoice, type FontWeights } from "./fonts.ts";
 import { isChanged, lookOf, selectedStyle, styleColors, styleFonts } from "./styles.ts";
 import { preferredLanguages, resolveLanguage, setLanguage, t, type PlainKey } from "./i18n.ts";
 import { inSettings, isGeneral, isSettingsShortcut, MAX_FONT_SIZE, settingsStart, textSizeAfter, type GeneralPage } from "./settings.ts";
@@ -267,7 +267,7 @@ export default function App() {
   setBindings(config?.ui.shortcuts);
   const fontPending = useRef<number | null>(null);
   // Fonts and the style chosen (GUI-025, GUI-053) not saved yet.
-  const fontsPending = useRef<Partial<FontChoice & { style: string }> | null>(null);
+  const fontsPending = useRef<Partial<FontChoice & FontWeights & { style: string }> | null>(null);
   const [screen, setScreen] = useState<Screen>({ kind: "none" });
   const mainBox = useRef<HTMLElement>(null);
   const [heardScreen, setHeardScreen] = useState("");
@@ -589,7 +589,7 @@ export default function App() {
     if (!STANDALONE) EngineService.SetInterfaceLanguage(language).catch(() => {});
   }, [language]);
 
-  // Appearance (GUI-011, GUI-025): theme, font size and fonts from config.yaml.
+  // Appearance (GUI-011, GUI-025): theme, font size, fonts and their weights from config.yaml.
   const applyAppearance = useEffectEvent(() => {
     if (!config) return;
     const root = document.documentElement;
@@ -600,7 +600,7 @@ export default function App() {
   });
   useEffect(() => {
     applyAppearance();
-  }, [config?.ui.theme, config?.ui.fontSize, config?.ui.textFont, config?.ui.codeFont]);
+  }, [config?.ui.theme, config?.ui.fontSize, config?.ui.textFont, config?.ui.codeFont, config?.ui.textWeight, config?.ui.codeWeight]);
 
   // The user's colors (GUI-022). A change shows at once and is saved a moment
   // later; until then it is newer than the file, so a reload leaves it alone.
@@ -959,7 +959,7 @@ export default function App() {
   // show at once and are saved a moment later, as one change for a name being
   // typed.
   const fontsSave = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const changeLook = (change: Partial<FontChoice & { style: string }>) => {
+  const changeLook = (change: Partial<FontChoice & FontWeights & { style: string }>) => {
     const now = configNow.current;
     if (!now) return;
     const next = { ...fontsPending.current, ...change };

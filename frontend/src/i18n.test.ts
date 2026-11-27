@@ -221,6 +221,8 @@ const SAME_WORD = {
     "common.ok",
     "pending.kind.agent",
     "fonts.code",
+    // The weight between Regular and Semibold, as Dutch font menus name it.
+    "fonts.weight.500",
     "settings.defaults.model",
     "prices.model",
     "usage.model",

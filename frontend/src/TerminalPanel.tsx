@@ -110,6 +110,13 @@ function codeFont() {
   return getComputedStyle(document.documentElement).getPropertyValue("--mono").trim() || "monospace";
 }
 
+// The code font's weight in force, and bold output three steps above it, as bold
+// text sits above the text's weight in the page.
+function codeWeights() {
+  const w = parseInt(getComputedStyle(document.documentElement).getPropertyValue("--weight-code"), 10) || 400;
+  return { fontWeight: w, fontWeightBold: Math.min(900, w + 300) };
+}
+
 function TerminalView({ id, onError }: { id: string; onError: (err: unknown) => void }) {
   const box = useRef<HTMLDivElement>(null);
   const [exited, setExited] = useState<number | null>(null);
@@ -118,6 +125,7 @@ function TerminalView({ id, onError }: { id: string; onError: (err: unknown) => 
   useEffect(() => {
     const term = new Terminal({
       fontFamily: codeFont(),
+      ...codeWeights(),
       // Two points under the app's text, as it was at the default of 14.
       fontSize: (parseFloat(getComputedStyle(document.documentElement).fontSize) || 14) - 2,
       cursorBlink: true,
@@ -152,10 +160,11 @@ function TerminalView({ id, onError }: { id: string; onError: (err: unknown) => 
       EngineService.ResizeTerminal(id, next.cols, next.rows).catch(() => {});
     };
     const observer = new ResizeObserver(() => fit());
-    // The text size and the code font can change while the terminal is open.
+    // The text size, the code font and its weight can change while the terminal is open.
     const rootStyle = new MutationObserver(() => {
       term.options.fontSize = (parseFloat(getComputedStyle(document.documentElement).fontSize) || 14) - 2;
       term.options.fontFamily = codeFont();
+      Object.assign(term.options, codeWeights());
       fit();
     });
     rootStyle.observe(document.documentElement, { attributes: true, attributeFilter: ["style"] });

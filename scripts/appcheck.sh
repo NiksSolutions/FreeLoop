@@ -203,6 +203,13 @@ if ! grep -q 'allowBypass: true' "$FREELOOP_HOME/config.yaml"; then
 else
   echo "ok    bypass is in config.yaml"
 fi
+# The code's weight left Light reached the file, and the text's, put back to Regular, left it.
+if grep -q 'codeWeight: 300' "$FREELOOP_HOME/config.yaml" && ! grep -q 'textWeight' "$FREELOOP_HOME/config.yaml"; then
+  echo "ok    the fonts' weights are in config.yaml"
+else
+  echo "FAIL  the fonts' weights are in config.yaml"
+  status=1
+fi
 
 # The phone pass (GUI-052, issues 057 and 058): the phone app at an iPhone's width on a
 # session of what is hard to fit on a phone, written behind the app's back, so the app

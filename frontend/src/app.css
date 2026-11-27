@@ -6,6 +6,7 @@
 :root {
   color-scheme: light dark;
   font-family: var(--font-text);
+  font-weight: var(--weight-text);
   font-size: var(--font-size, 14px);
   -webkit-font-smoothing: antialiased;
 
@@ -68,6 +69,14 @@
   --mono-default: ui-monospace, "SF Mono", SFMono-Regular, Menlo, "Cascadia Mono", Consolas, "DejaVu Sans Mono", "Liberation Mono", monospace;
   --font-text: var(--font-text-default);
   --mono: var(--mono-default);
+  /* The fonts' weights (GUI-025): the user's for text and for code, and the steps
+     above the text's that labels, headings and bold text take, so they stay bolder
+     whatever it is. App.tsx sets --weight-text and --weight-code on the root element. */
+  --weight-text: 400;
+  --weight-code: 400;
+  --weight-medium: min(900, calc(var(--weight-text) + 100));
+  --weight-strong: min(900, calc(var(--weight-text) + 200));
+  --weight-bold: min(900, calc(var(--weight-text) + 300));
 
   /* Older names, kept for the rules that use them. */
   --bg-side: var(--bg-app);
@@ -182,13 +191,13 @@ body,
 
 h2 {
   font-size: 1.43em;
-  font-weight: 600;
+  font-weight: var(--weight-strong);
   letter-spacing: -0.01em;
 }
 
 h3 {
   font-size: 1.07em;
-  font-weight: 600;
+  font-weight: var(--weight-strong);
 }
 
 /* Controls */
@@ -217,7 +226,7 @@ button.primary {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--accent-text);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
 }
 
 button.primary:hover:not(:disabled) {
@@ -296,7 +305,25 @@ input[type="radio"] {
 code,
 pre {
   font-family: var(--mono);
+  font-weight: var(--weight-code);
   font-size: 0.86em;
+}
+
+/* Bold text and headings keep their distance above the text's weight (GUI-025),
+   and code inside them is as bold as they are. */
+b,
+strong,
+th,
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-weight: var(--weight-bold);
+}
+:is(b, strong, th, h1, h2, h3, h4, h5, h6) code {
+  font-weight: inherit;
 }
 
 a {
@@ -383,7 +410,7 @@ fieldset {
   align-items: center;
   gap: 6px;
   font-size: calc(15rem / 14);
-  font-weight: 650;
+  font-weight: min(900, calc(var(--weight-text) + 250));
   letter-spacing: -0.01em;
   margin: 0;
 }
@@ -539,7 +566,7 @@ fieldset {
 .settings-nav h2 {
   margin: 14px 10px 4px;
   font-size: calc(11rem / 14);
-  font-weight: 600;
+  font-weight: var(--weight-strong);
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--faint);
@@ -707,7 +734,7 @@ fieldset {
 
 .session-title {
   min-width: 0;
-  font-weight: 400;
+  font-weight: var(--weight-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -734,7 +761,7 @@ fieldset {
   align-items: center;
   gap: 6px;
   font-size: calc(11rem / 14);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
   color: var(--muted);
   margin: 6px 10px 3px 5px;
 }
@@ -1007,7 +1034,7 @@ fieldset {
   margin: 0;
   overflow: hidden;
   font-size: calc(14rem / 14);
-  font-weight: 600;
+  font-weight: var(--weight-strong);
   text-overflow: ellipsis;
   white-space: nowrap;
   cursor: text;
@@ -1289,6 +1316,7 @@ button.ghost[aria-pressed="true"] {
 
 .tool-title {
   font-family: var(--mono);
+  font-weight: var(--weight-code);
   font-size: calc(12rem / 14);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1707,7 +1735,7 @@ button.ghost[aria-pressed="true"] {
   padding: 2px 0;
   color: var(--text);
   font-size: calc(12rem / 14);
-  font-weight: 600;
+  font-weight: var(--weight-strong);
   text-align: center;
 }
 
@@ -1826,7 +1854,7 @@ button.ghost[aria-pressed="true"] {
 .session-control[data-mode="bypass"] select {
   color: var(--danger);
   background: var(--danger-soft);
-  font-weight: 600;
+  font-weight: var(--weight-strong);
 }
 
 .session-control-note {
@@ -2048,7 +2076,7 @@ button.ghost[aria-pressed="true"] {
 
 .panel-body h3 {
   font-size: calc(12rem / 14);
-  font-weight: 600;
+  font-weight: var(--weight-strong);
   color: var(--muted);
   margin: 16px 0 8px;
 }
@@ -2394,7 +2422,7 @@ details.choice[open] > summary h3::after {
 }
 
 .attention-link-on {
-  font-weight: 600;
+  font-weight: var(--weight-strong);
 }
 
 /* Board view (GUI-016). */
@@ -2619,7 +2647,7 @@ button.issue-title:hover {
 .board-col h3 {
   margin: 2px 4px 8px;
   font-size: calc(12rem / 14);
-  font-weight: 600;
+  font-weight: var(--weight-strong);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--muted);
@@ -2660,7 +2688,7 @@ button.issue-title:hover {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
-  font-weight: 600;
+  font-weight: var(--weight-strong);
   overflow-wrap: anywhere;
 }
 
@@ -2696,7 +2724,7 @@ button.issue-title:hover {
   border-radius: 999px;
   background: var(--accent);
   color: var(--accent-text);
-  font-weight: 600;
+  font-weight: var(--weight-strong);
 }
 
 /* In review: the agent's review is quiet; the user's QA is what to do next. */
@@ -2706,7 +2734,7 @@ button.issue-title:hover {
   border-radius: 999px;
   background: var(--accent-soft);
   color: var(--link);
-  font-weight: 600;
+  font-weight: var(--weight-strong);
 }
 
 .issue-review-qa {
@@ -2726,7 +2754,7 @@ button.issue-title:hover {
 
 .issue-mark-stopped {
   color: var(--danger);
-  font-weight: 600;
+  font-weight: var(--weight-strong);
 }
 
 .issue-actions {
@@ -2737,7 +2765,7 @@ button.issue-title:hover {
 }
 
 .board-waiting {
-  font-weight: 600;
+  font-weight: var(--weight-strong);
 }
 
 .issue-done {
@@ -2994,7 +3022,7 @@ button.issue-title:hover {
 .diff-status {
   font-family: var(--mono);
   font-size: 0.85em;
-  font-weight: 600;
+  font-weight: var(--weight-strong);
   width: 1em;
   text-align: center;
 }
@@ -3134,7 +3162,7 @@ button.issue-title:hover {
 
 .steps .step-on {
   color: var(--text);
-  font-weight: 600;
+  font-weight: var(--weight-strong);
 }
 
 .steps .step-done {
@@ -3300,6 +3328,7 @@ button.issue-title:hover {
   width: 100%;
   box-sizing: border-box;
   font-family: var(--mono);
+  font-weight: var(--weight-code);
   font-size: 0.9em;
   tab-size: 2;
 }
@@ -3566,7 +3595,7 @@ table.usage {
 table.prices th,
 table.usage th {
   text-align: left;
-  font-weight: 500;
+  font-weight: var(--weight-medium);
   color: var(--muted);
   padding: 2px 6px;
 }
@@ -3778,7 +3807,7 @@ ul.unpriced {
 }
 
 .help-body strong {
-  font-weight: 600;
+  font-weight: var(--weight-strong);
 }
 
 .help-body blockquote {
@@ -3807,7 +3836,7 @@ ul.unpriced {
 
 .help-body th {
   background: var(--surface);
-  font-weight: 600;
+  font-weight: var(--weight-strong);
 }
 
 .help-opens {
@@ -3887,7 +3916,7 @@ ul.unpriced {
 .palette-heading {
   padding: 8px 10px 4px;
   font-size: calc(11rem / 14);
-  font-weight: 600;
+  font-weight: var(--weight-strong);
   color: var(--muted);
 }
 
@@ -3956,6 +3985,7 @@ ul.unpriced {
 table.hooks .hook-command {
   width: 100%;
   font-family: var(--mono);
+  font-weight: var(--weight-code);
 }
 
 /* MCP resources and prompts (MCP-007) */
@@ -4089,7 +4119,7 @@ table.hooks .hook-command {
 }
 
 .file-agent {
-  font-weight: 600;
+  font-weight: var(--weight-strong);
 }
 
 .file-mark {
@@ -4212,6 +4242,7 @@ table.hooks .hook-command {
 
 .pr-base {
   font-family: var(--mono);
+  font-weight: var(--weight-code);
   padding: 0 4px;
 }
 
@@ -4236,7 +4267,7 @@ table.hooks .hook-command {
 }
 
 .terminal-tab-on button:first-child {
-  font-weight: 600;
+  font-weight: var(--weight-strong);
 }
 
 .terminal-where {
@@ -4407,6 +4438,22 @@ table.hooks .hook-command {
   gap: 4px;
 }
 
+/* The font and its weight side by side; the weight's menu as wide as its names. */
+.font-pick {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+}
+
+.font-pick .font-family {
+  flex: 1;
+  min-width: 0;
+}
+
+.font-pick .font-weight {
+  flex: none;
+}
+
 .font-note {
   color: var(--warn);
   font-size: calc(12rem / 14);
@@ -4479,6 +4526,7 @@ table.hooks .hook-command {
   flex: none;
   width: 190px;
   font-family: var(--mono);
+  font-weight: var(--weight-code);
   font-size: calc(12rem / 14);
 }
 
@@ -4555,14 +4603,14 @@ table.hooks .hook-command {
 
 .usage-hero strong {
   font-size: calc(44rem / 14);
-  font-weight: 600;
+  font-weight: var(--weight-strong);
   line-height: 1.1;
   letter-spacing: -0.01em;
 }
 
 .usage-tile strong {
   font-size: calc(22rem / 14);
-  font-weight: 600;
+  font-weight: var(--weight-strong);
 }
 
 .usage-note {
@@ -4582,7 +4630,7 @@ table.hooks .hook-command {
 .usage-card h3 {
   margin: 0 0 10px;
   font-size: calc(13rem / 14);
-  font-weight: 600;
+  font-weight: var(--weight-strong);
 }
 
 .usage-card-head {
@@ -4714,7 +4762,7 @@ table.hooks .hook-command {
 
 .usage-table th {
   text-align: left;
-  font-weight: 500;
+  font-weight: var(--weight-medium);
   color: var(--muted);
   padding: 6px 8px;
   border-bottom: 1px solid var(--border);
@@ -5051,7 +5099,7 @@ table.hooks .hook-command {
 .pr-check-mark {
   display: inline-block;
   width: 1.2em;
-  font-weight: 600;
+  font-weight: var(--weight-strong);
 }
 
 .pr-check-pass .pr-check-mark {
@@ -5160,7 +5208,7 @@ table.hooks .hook-command {
 
 .compare-stats dd {
   margin: 0;
-  font-weight: 600;
+  font-weight: var(--weight-strong);
   font-variant-numeric: tabular-nums;
 }
 
@@ -5207,7 +5255,7 @@ table.hooks .hook-command {
 }
 
 .todo-in_progress {
-  font-weight: 600;
+  font-weight: var(--weight-strong);
 }
 
 /* Review by a second agent (HRN-018). */
@@ -5295,6 +5343,7 @@ table.hooks .hook-command {
 .shortcut-key {
   min-width: 72px;
   font-family: var(--mono);
+  font-weight: var(--weight-code);
 }
 
 .shortcut-listening {
@@ -5330,6 +5379,7 @@ table.hooks .hook-command {
 /* All of a command that a rule would be made from, never cut off. */
 .usage-table td.usage-mono {
   font-family: var(--mono);
+  font-weight: var(--weight-code);
   font-size: calc(12.5rem / 14);
   max-width: none;
   overflow: visible;
@@ -5604,7 +5654,7 @@ table.hooks .hook-command {
   background: var(--warn);
 }
 .limit-state {
-  font-weight: 600;
+  font-weight: var(--weight-strong);
 }
 .limit-warning .limit-state,
 .limit-refused .limit-state {
@@ -5623,7 +5673,7 @@ table.hooks .hook-command {
 .limits-history td {
   padding: 4px 8px 4px 0;
   text-align: right;
-  font-weight: normal;
+  font-weight: var(--weight-text);
   border-bottom: 1px solid var(--border);
 }
 .limits-history th:first-child {
@@ -5868,7 +5918,7 @@ table.hooks .hook-command {
 
 .usage-overview-tiles strong {
   font-size: calc(18rem / 14);
-  font-weight: 600;
+  font-weight: var(--weight-strong);
   font-variant-numeric: tabular-nums;
 }
 
@@ -5971,7 +6021,7 @@ table.hooks .hook-command {
   background: var(--source);
   color: var(--source-text);
   font-size: calc(9.5rem / 14);
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   line-height: 1;
   letter-spacing: 0.02em;
 }
@@ -6120,7 +6170,7 @@ table.hooks .hook-command {
   background: var(--text);
   color: var(--surface);
   font-size: calc(10rem / 14);
-  font-weight: 600;
+  font-weight: var(--weight-strong);
   line-height: 14px;
   text-align: center;
 }
@@ -6338,7 +6388,7 @@ table.hooks .hook-command {
 .mcp-choices legend {
   padding: 0;
   margin-bottom: 4px;
-  font-weight: 600;
+  font-weight: var(--weight-strong);
 }
 .mcp-choice {
   display: flex;
@@ -6513,7 +6563,7 @@ table.hooks .hook-command {
 }
 .live-usage-compact .usage-card-head h3 {
   color: var(--muted);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
 }
 
 /* What the model sees (NFR-PRIV-003): long text scrolls in its own box, wrapped. */
@@ -6522,7 +6572,7 @@ table.hooks .hook-command {
 }
 .model-sees-kind > summary {
   cursor: pointer;
-  font-weight: 600;
+  font-weight: var(--weight-strong);
 }
 .model-sees-head {
   justify-content: space-between;
@@ -6617,6 +6667,7 @@ table.hooks .hook-command {
 
 .phone-code {
   font-family: var(--mono);
+  font-weight: var(--weight-code);
   font-size: calc(22rem / 14);
   letter-spacing: 0.06em;
   margin: 4px 0;

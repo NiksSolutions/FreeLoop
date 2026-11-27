@@ -6,11 +6,13 @@
 
 Eén lettertype is voor tekst: de interface en de berichten. Het andere is voor code: codeblokken, uitvoer van tools, diffs en de terminal. Een lettertype dat niet op deze computer staat, wordt vervangen door het eigen lettertype van de app.
 
+Naast elk lettertype staat zijn **Gewicht**, van Licht tot Halfvet; Normaal is dat van de app. Koppen en vette tekst gaan mee met het gewicht van de tekst en blijven vetter dan dat, vette tekst in de terminal net zo met dat van de code. Een lettertype zonder het gekozen gewicht toont het dichtstbijzijnde dat het heeft. In `config.yaml` zijn de gewichten `ui.textWeight` en `ui.codeWeight`, elk 100 tot 900 in stappen van 100.
+
 Kleuren worden apart ingesteld voor de lichte en de donkere weergave, en een wijziging is meteen te zien. Freeloop waarschuwt als tekst moeilijk leesbaar wordt. De kleuren staan in `colors.json` in de gegevensmap, die ook met de hand te bewerken is.
 
 ## Stijlen
 
-Een stijl bewaart de twee lettertypen en de kleuren van beide weergaven onder een naam, zodat wisselen tussen twee uiterlijken één stap is. Thema, tekstgrootte en taal horen niet bij een stijl.
+Een stijl bewaart de twee lettertypen en de kleuren van beide weergaven onder een naam, zodat wisselen tussen twee uiterlijken één stap is. Thema, tekstgrootte, de gewichten van de lettertypen en taal horen niet bij een stijl.
 
 Freeloop wordt geleverd met zes stijlen, onder **Meegeleverd**: Niks Theme, Solarized, Nord, Gruvbox, Rosé Pine en Dracula. Een meegeleverde stijl wordt gekozen en als nieuwe opgeslagen zoals elke andere, maar nooit bijgewerkt of verwijderd: voor een eigen versie hem kiezen, naar wens aanpassen en als nieuwe stijl opslaan.
 
