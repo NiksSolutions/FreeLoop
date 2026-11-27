@@ -100,27 +100,29 @@ export default function SourceMarks({ value, providers, harnesses, onChange }: {
                 value={letters}
                 onChange={(e) => set(x.id, { letters: e.target.value })}
               />
-              {icon ? (
-                <button type="button" className="link" aria-label={t("marks.removePictureFor", { name: x.name })} onClick={() => set(x.id, { icon: "" })}>
-                  {t("marks.removePicture")}
-                </button>
-              ) : (
-                <>
-                  {x.vendor && !hasLogo(x.vendor) && (
-                    <button type="button" className="link" aria-label={t("marks.officialFor", { name: x.name })} title={t("marks.officialHint")} disabled={fetching === x.id} onClick={() => fetchOfficial(x.id, x.vendor!)}>
-                      {fetching === x.id ? t("marks.fetching") : t("marks.official")}
-                    </button>
-                  )}
-                  <button type="button" className="link" aria-label={t("marks.pictureFor", { name: x.name })} onClick={() => choose(x.id)}>
-                    {t("marks.picture")}
+              <span className="source-marks-actions">
+                {icon ? (
+                  <button type="button" className="link" aria-label={t("marks.removePictureFor", { name: x.name })} onClick={() => set(x.id, { icon: "" })}>
+                    {t("marks.removePicture")}
                   </button>
-                </>
-              )}
-              {value?.[x.id] && (
-                <button type="button" className="link" aria-label={t("marks.reset", { name: x.name })} onClick={() => set(x.id, { slot: 0, letters: "", icon: "" })}>
-                  {t("common.reset")}
-                </button>
-              )}
+                ) : (
+                  <>
+                    {x.vendor && !hasLogo(x.vendor) && (
+                      <button type="button" className="link" aria-label={t("marks.officialFor", { name: x.name })} title={t("marks.officialHint")} disabled={fetching === x.id} onClick={() => fetchOfficial(x.id, x.vendor!)}>
+                        {fetching === x.id ? t("marks.fetching") : t("marks.official")}
+                      </button>
+                    )}
+                    <button type="button" className="link" aria-label={t("marks.pictureFor", { name: x.name })} onClick={() => choose(x.id)}>
+                      {t("marks.picture")}
+                    </button>
+                  </>
+                )}
+                {value?.[x.id] && (
+                  <button type="button" className="link" aria-label={t("marks.reset", { name: x.name })} onClick={() => set(x.id, { slot: 0, letters: "", icon: "" })}>
+                    {t("common.reset")}
+                  </button>
+                )}
+              </span>
               {unreadable === x.id && (
                 <span role="status" className="font-note">
                   {t("marks.pictureBad")}

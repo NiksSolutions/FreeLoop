@@ -8,12 +8,15 @@ lived_in_files() {
   mkdir -p "$home"
   # A default profile on an external agent, a default token optimizer (waiting for
   # its approval, as one chosen in a file does), a larger font, a hook written by hand.
+  # And Nord chosen under an older version of the app, which held fewer of its colours
+  # and recorded no fingerprint: the app should take the rest of Nord up (GUI-053).
   cat > "$home/config.yaml" <<'YAML'
 ui:
   onboarded: true
   theme: dark
   language: en
   fontSize: 15
+  style: nord
 defaults:
   profileId: opencode
   optimizer: rtk
@@ -22,6 +25,9 @@ hooks:
     match: shell
     command: "true"
 YAML
+  cat > "$home/colors.json" <<'JSON'
+{"version": 1, "light": {"accent": "#4c6d97"}, "dark": {"accent": "#88c0d0"}}
+JSON
   # And a llama.cpp server, whose logo its makers let other apps show (GUI-034), on a
   # port where nothing listens: the check only draws its mark.
   cat > "$home/providers.yaml" <<'YAML'

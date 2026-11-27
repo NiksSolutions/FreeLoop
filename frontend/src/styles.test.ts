@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { groupStyles, isChanged, lookOf, sameLook, selectedStyle, styleColors, styleFonts } from "./styles.ts";
+import { followsUpdate, groupStyles, isChanged, lookHash, lookOf, sameLook, selectedStyle, styleColors, styleFonts } from "./styles.ts";
 
 const paper = { id: "paper", name: "Paper", textFont: "Inter", codeFont: "", light: { accent: "#7c3aed", bg: "#ffffff" }, dark: null };
 const night = { id: "night", name: "Night", textFont: "", codeFont: "Menlo", light: {}, dark: { bg: "#000000" } };
@@ -54,4 +54,31 @@ test("the list shows the user's styles apart from the app's own, each in its ord
   const niks = { ...night, id: "niks", name: "Niks Theme", builtin: true };
   assert.deepEqual(groupStyles([niks, night, nord, paper]), { saved: [night, paper], builtin: [niks, nord] });
   assert.deepEqual(groupStyles([]), { saved: [], builtin: [] });
+});
+
+test("a look's fingerprint is the same in any order, and differs with any colour or font", () => {
+  const a = { light: { bg: "#fff", text: "#000" }, dark: { bg: "#000" }, textFont: "", codeFont: "" };
+  const b = { light: { text: "#000", bg: "#fff" }, dark: { bg: "#000" }, textFont: "", codeFont: "" };
+  assert.equal(lookHash(a), lookHash(b));
+  assert.match(lookHash(a), /^[0-9a-f]{1,16}$/);
+  assert.notEqual(lookHash(a), lookHash({ ...a, dark: { bg: "#111" } }));
+  assert.notEqual(lookHash(a), lookHash({ ...a, codeFont: "Menlo" }));
+});
+
+test("a built-in style updated by the app replaces the look only while the user has changed nothing", () => {
+  const nord = { id: "nord", name: "Nord", builtin: true, textFont: "", codeFont: "", light: { bg: "#eceff4", accent: "#4c6d97", "series-1": "#4c6d97" }, dark: { bg: "#2e3440", accent: "#88c0d0" } };
+  const before = { light: { bg: "#eceff4", accent: "#4c6d97" }, dark: { bg: "#2e3440", accent: "#88c0d0" }, textFont: "", codeFont: "" };
+  // With the fingerprint of what was applied then.
+  assert.equal(followsUpdate(before, nord, lookHash(before)), true);
+  const changed = { ...before, dark: { ...before.dark, accent: "#ff0000" } };
+  assert.equal(followsUpdate(changed, nord, lookHash(before)), false);
+  // With none recorded: only a look that is the style's, short of what it gained.
+  assert.equal(followsUpdate(before, nord, undefined), true);
+  assert.equal(followsUpdate(changed, nord, undefined), false);
+  assert.equal(followsUpdate({ ...before, textFont: "Inter" }, nord, undefined), false);
+  // Nothing to do when the look is the style already, nor for a style of the user's.
+  const now = lookOf(styleColors(nord), styleFonts(nord));
+  assert.equal(followsUpdate(now, nord, lookHash(before)), false);
+  assert.equal(followsUpdate(before, { ...nord, builtin: false }, lookHash(before)), false);
+  assert.equal(followsUpdate(before, null, lookHash(before)), false);
 });

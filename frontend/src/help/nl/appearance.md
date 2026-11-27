@@ -18,7 +18,7 @@ Waarop een sessie draait, staat als een klein merkteken in de zijbalk en op het 
 
 Een stijl bewaart de twee lettertypen en de kleuren van beide weergaven onder een naam, zodat wisselen tussen twee uiterlijken één stap is. Thema, tekstgrootte, de gewichten van de lettertypen en taal horen niet bij een stijl.
 
-Freeloop wordt geleverd met zes stijlen, onder **Meegeleverd**: Niks Theme, Solarized, Nord, Gruvbox, Rosé Pine en Dracula. Een meegeleverde stijl wordt gekozen en als nieuwe opgeslagen zoals elke andere, maar nooit bijgewerkt of verwijderd: voor een eigen versie hem kiezen, naar wens aanpassen en als nieuwe stijl opslaan.
+Freeloop wordt geleverd met zes stijlen, onder **Meegeleverd**: Niks Theme, Solarized, Nord, Gruvbox, Rosé Pine en Dracula. Elke stijl kleurt ook de gebruiksgrafieken in zijn eigen tinten. Een meegeleverde stijl wordt gekozen en als nieuwe opgeslagen zoals elke andere, maar nooit bijgewerkt of verwijderd: voor een eigen versie hem kiezen, naar wens aanpassen en als nieuwe stijl opslaan. Wijzigt een nieuwe versie van Freeloop een gekozen meegeleverde stijl, dan volgt het uiterlijk die, tenzij sindsdien een lettertype of kleur is gewijzigd; dan blijft het zoals het is, gemarkeerd als gewijzigd, en **Terugdraaien** neemt de nieuwe versie over.
 
 - **Als nieuwe opslaan…** slaat de lettertypen en kleuren op het scherm op als stijl.
 - Een stijl kiezen onder **Stijl**, of "Stijl" typen in het opdrachtenpalet, om ernaar te wisselen.

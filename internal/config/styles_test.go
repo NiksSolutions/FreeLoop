@@ -158,3 +158,14 @@ func TestStylesAreWatchedAndBackedUp(t *testing.T) {
 		t.Fatal("backedUp takes the wrong files from styles/")
 	}
 }
+
+// GUI-053: ui.styleApplied takes only a fingerprint; anything else is reported and dropped.
+func TestStyleApplied(t *testing.T) {
+	if cfg, issues, _ := Load(write(t, "version: 1\nui:\n  style: nord\n  styleApplied: 1a2b3c4d5e6f\n")); len(issues) != 0 || cfg.UI.StyleApplied != "1a2b3c4d5e6f" {
+		t.Errorf("a fingerprint: %q, %+v", cfg.UI.StyleApplied, issues)
+	}
+	cfg, issues, _ := Load(write(t, "version: 1\nui:\n  style: nord\n  styleApplied: '<script>'\n"))
+	if cfg.UI.StyleApplied != "" || len(issues) != 1 || issues[0].Field != "ui.styleApplied" || cfg.UI.Style != "nord" {
+		t.Errorf("a bad one: %q, %+v", cfg.UI.StyleApplied, issues)
+	}
+}

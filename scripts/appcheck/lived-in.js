@@ -17,6 +17,20 @@ await step("a lived-in app opens without errors", async () => {
   check("every session is listed", all(".session-row").length >= 30, `${all(".session-row").length} rows`);
 });
 
+await step("a built-in style chosen before an update takes up the update's colours", async () => {
+  // GUI-053: Nord chosen when the app held only its accent, with no fingerprint: the rest
+  // of Nord comes in without asking, and the style is not marked changed.
+  const bg = () => getComputedStyle(document.documentElement).getPropertyValue("--bg").trim();
+  await until("Nord's background", () => bg() === "#2e3440", 10000).catch(() => {});
+  check("the rest of Nord is taken up", bg() === "#2e3440", bg());
+  document.querySelector(".settings-link").click();
+  (await until("the Appearance page", () => withText(".settings-nav button", "Appearance"))).click();
+  const select = await until("the style", () => document.querySelector(".style-picker select.style-select"), 8000);
+  check("and Nord is not marked changed", select.selectedOptions[0]?.textContent === "Nord", select.selectedOptions[0]?.textContent);
+  document.querySelector(".settings-nav .settings-back").click();
+  await sleep(200);
+});
+
 await step("a global rule allows any shell command", async () => {
   // Added in the app, as a user does: one written into rules.yaml by hand waits for approval.
   await openPalette("Policy");

@@ -18,7 +18,7 @@ Worauf eine Sitzung läuft, zeigt ein kleines Kennzeichen in der Seitenleiste un
 
 Ein Stil hält die beiden Schriften und die Farben beider Darstellungen unter einem Namen fest, sodass ein Wechsel zwischen zwei Erscheinungsbildern ein Schritt ist. Farbmodus, Textgröße, die Stärken der Schriften und Sprache gehören nicht zu einem Stil.
 
-Freeloop bringt sechs Stile mit, aufgeführt unter **Mitgeliefert**: Niks Theme, Solarized, Nord, Gruvbox, Rosé Pine und Dracula. Ein mitgelieferter Stil wird gewählt und als neuer gespeichert wie jeder andere, aber nie aktualisiert oder gelöscht: Für eine eigene Fassung ihn wählen, nach Belieben ändern und als neuen Stil speichern.
+Freeloop bringt sechs Stile mit, aufgeführt unter **Mitgeliefert**: Niks Theme, Solarized, Nord, Gruvbox, Rosé Pine und Dracula. Jeder färbt auch die Nutzungsdiagramme in seinen eigenen Farbtönen. Ein mitgelieferter Stil wird gewählt und als neuer gespeichert wie jeder andere, aber nie aktualisiert oder gelöscht: Für eine eigene Fassung ihn wählen, nach Belieben ändern und als neuen Stil speichern. Ändert eine neue Version von Freeloop einen gewählten mitgelieferten Stil, folgt das Erscheinungsbild ihr, außer seither wurde eine Schrift oder Farbe geändert; dann bleibt es, wie es ist, als geändert markiert, und **Verwerfen** übernimmt die neue Version.
 
 - **Als neuen speichern…** speichert die Schriften und Farben auf dem Bildschirm als Stil.
 - Einen Stil unter **Stil** wählen oder „Stil“ in die Befehlspalette tippen, um zu ihm zu wechseln.

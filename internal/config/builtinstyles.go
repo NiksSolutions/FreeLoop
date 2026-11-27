@@ -13,7 +13,12 @@ import (
 // ID takes its place, as a preset's file does. Each sets every color the editor
 // offers in both appearances and leaves the fonts the app's own; the test holds
 // them to WCAG AA's contrast. Where a theme's own color reads too faintly on its
-// background, a deeper or lighter shade of the same hue stands in.
+// background, a deeper or lighter shade of the same hue stands in. Each also colors the
+// usage charts with its own hues, the same order in both appearances, in an order and at
+// a strength where neighbours in a stack stay apart with any colour vision (the dataviz
+// validator's checks of chroma, CVD and normal vision and 3:1 on the cards, all passed;
+// in the dark they keep the theme's own brightness, past the band chart marks usually
+// keep, as Dracula's do), with a grey for the rest apart from the fifth.
 var builtinStyles = []Style{
 	{
 		// After the user's Obsidian theme, Niks Theme V2: charcoal greys, a sky-blue
@@ -25,6 +30,7 @@ var builtinStyles = []Style{
 			"text": "#d6d6d6", "muted": "#969696", "faint": "#858585",
 			"accent": "#57a5ff", "accent-text": "#141414", "link": "#ffd087", "focus": "#57a5ff",
 			"ok": "#7ee787", "warn": "#d29922", "danger": "#f47067", "git": "#d2a8ff",
+			"series-1": "#5da7fe", "series-2": "#7de686", "series-3": "#d2a8ff", "series-4": "#fea759", "series-5": "#f778ba", "series-other": "#838383",
 		},
 		Light: map[string]string{
 			"bg-app": "#f6f8fa", "bg": "#ffffff", "surface": "#f6f8fa", "surface-2": "#eaeef2", "input": "#ffffff",
@@ -32,6 +38,7 @@ var builtinStyles = []Style{
 			"text": "#24292f", "muted": "#57606a", "faint": "#6e7781",
 			"accent": "#0a6cdc", "accent-text": "#ffffff", "link": "#0a6cdc", "focus": "#0a6cdc",
 			"ok": "#1a7f37", "warn": "#9a6700", "danger": "#cf222e", "git": "#8250df",
+			"series-1": "#0c6ddd", "series-2": "#1d8139", "series-3": "#8452e1", "series-4": "#b94b00", "series-5": "#c13b8a", "series-other": "#8a939e",
 		},
 	},
 	{
@@ -43,6 +50,7 @@ var builtinStyles = []Style{
 			"text": "#93a1a1", "muted": "#839496", "faint": "#7f9194",
 			"accent": "#268bd2", "accent-text": "#001b22", "link": "#4aa3e0", "focus": "#268bd2",
 			"ok": "#859900", "warn": "#b58900", "danger": "#e0524f", "git": "#8a8fd6",
+			"series-1": "#288dd4", "series-2": "#849804", "series-3": "#6b70c3", "series-4": "#cb4b16", "series-5": "#0ba198", "series-other": "#a1b9c1",
 		},
 		Light: map[string]string{
 			"bg-app": "#eee8d5", "bg": "#fdf6e3", "surface": "#f5efdc", "surface-2": "#e6dfc9", "input": "#fdf6e3",
@@ -50,6 +58,7 @@ var builtinStyles = []Style{
 			"text": "#2f4a52", "muted": "#52676e", "faint": "#586e75",
 			"accent": "#1f6fa8", "accent-text": "#ffffff", "link": "#1f6fa8", "focus": "#268bd2",
 			"ok": "#5f6e00", "warn": "#8a6800", "danger": "#c42b28", "git": "#5b5fb3",
+			"series-1": "#2489d0", "series-2": "#819403", "series-3": "#6e73c7", "series-4": "#ce4e1a", "series-5": "#1a9d94", "series-other": "#596666",
 		},
 	},
 	{
@@ -62,6 +71,7 @@ var builtinStyles = []Style{
 			"text": "#eceff4", "muted": "#d8dee9", "faint": "#a9b3c4",
 			"accent": "#88c0d0", "accent-text": "#2e3440", "link": "#88c0d0", "focus": "#88c0d0",
 			"ok": "#a3be8c", "warn": "#ebcb8b", "danger": "#d57780", "git": "#b48ead",
+			"series-1": "#5dc8e4", "series-2": "#d7876e", "series-3": "#f2cc7e", "series-4": "#c586bb", "series-5": "#9abf78", "series-other": "#73809b",
 		},
 		Light: map[string]string{
 			"bg-app": "#e5e9f0", "bg": "#eceff4", "surface": "#e5e9f0", "surface-2": "#d8dee9", "input": "#f6f7fa",
@@ -69,6 +79,7 @@ var builtinStyles = []Style{
 			"text": "#2e3440", "muted": "#434c5e", "faint": "#4c566a",
 			"accent": "#4c6d97", "accent-text": "#ffffff", "link": "#4c6d97", "focus": "#5e81ac",
 			"ok": "#4e7a3a", "warn": "#8a6512", "danger": "#a5444d", "git": "#8a5f86",
+			"series-1": "#4f80ba", "series-2": "#924931", "series-3": "#a78335", "series-4": "#af70a5", "series-5": "#6d904b", "series-other": "#606c84",
 		},
 	},
 	{
@@ -80,6 +91,7 @@ var builtinStyles = []Style{
 			"text": "#ebdbb2", "muted": "#d5c4a1", "faint": "#a89984",
 			"accent": "#83a598", "accent-text": "#1d2021", "link": "#83a598", "focus": "#83a598",
 			"ok": "#b8bb26", "warn": "#fabd2f", "danger": "#fb4934", "git": "#d3869b",
+			"series-1": "#50b394", "series-2": "#b6b923", "series-3": "#d58299", "series-4": "#fdbf33", "series-5": "#8fc17d", "series-other": "#928374",
 		},
 		Light: map[string]string{
 			"bg-app": "#f2e5bc", "bg": "#fbf1c7", "surface": "#f2e5bc", "surface-2": "#ebdbb2", "input": "#f9f5d7",
@@ -87,6 +99,7 @@ var builtinStyles = []Style{
 			"text": "#3c3836", "muted": "#504945", "faint": "#665c54",
 			"accent": "#076678", "accent-text": "#ffffff", "link": "#076678", "focus": "#076678",
 			"ok": "#79740e", "warn": "#b57614", "danger": "#9d0006", "git": "#8f3f71",
+			"series-1": "#01869d", "series-2": "#7a7510", "series-3": "#8f3f71", "series-4": "#b97a1b", "series-5": "#27774b", "series-other": "#928374",
 		},
 	},
 	{
@@ -98,6 +111,7 @@ var builtinStyles = []Style{
 			"text": "#e0def4", "muted": "#908caa", "faint": "#8a86a3",
 			"accent": "#c4a7e7", "accent-text": "#191724", "link": "#c4a7e7", "focus": "#c4a7e7",
 			"ok": "#9ccfd8", "warn": "#f6c177", "danger": "#eb6f92", "git": "#ebbcba",
+			"series-1": "#c7a6ee", "series-2": "#007396", "series-3": "#faa2a0", "series-4": "#67d7e9", "series-5": "#ec7093", "series-other": "#6e6a87",
 		},
 		Light: map[string]string{
 			"bg-app": "#f2e9e1", "bg": "#faf4ed", "surface": "#fffaf3", "surface-2": "#f4ede8", "input": "#fffaf3",
@@ -105,6 +119,7 @@ var builtinStyles = []Style{
 			"text": "#575279", "muted": "#686480", "faint": "#6e6a86",
 			"accent": "#286983", "accent-text": "#ffffff", "link": "#286983", "focus": "#907aa9",
 			"ok": "#286983", "warn": "#a4650f", "danger": "#b4637a", "git": "#907aa9",
+			"series-1": "#9f7ec2", "series-2": "#02769a", "series-3": "#c87470", "series-4": "#179aac", "series-5": "#ab5b72", "series-other": "#545060",
 		},
 	},
 	{

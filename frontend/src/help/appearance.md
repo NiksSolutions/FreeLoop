@@ -18,7 +18,7 @@ What a session runs on shows in the sidebar and on its pane as a small mark. For
 
 A style keeps the two fonts and the colors of both appearances under a name, so you can switch between looks in one step. Theme, text size, the fonts' weights and language are not part of a style.
 
-Freeloop comes with six styles, listed under **Built in**: Niks Theme, Solarized, Nord, Gruvbox, Rosé Pine and Dracula. A built-in style is chosen and saved as new like any other but is never updated or deleted: to make one your own, choose it, change what you like and save it as a new style.
+Freeloop comes with six styles, listed under **Built in**: Niks Theme, Solarized, Nord, Gruvbox, Rosé Pine and Dracula. Each also colours the usage charts in its own hues. A built-in style is chosen and saved as new like any other but is never updated or deleted: to make one your own, choose it, change what you like and save it as a new style. When a new version of Freeloop changes a built-in style you chose, your look follows it, unless you changed a font or a colour since; then it stays as it is, shown as changed, and **Revert** takes the new version.
 
 - **Save as new…** saves the fonts and colors on screen as a style.
 - Choose a style under **Style**, or type "Style" in the command palette, to switch to it.

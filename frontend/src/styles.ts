@@ -73,3 +73,38 @@ export function styleFonts(s: StyleValues | null): FontChoice {
 export function isChanged(look: Look, style: StyleValues | null): boolean {
   return !sameLook(look, lookOf(styleColors(style), styleFonts(style)));
 }
+
+// lookHash is a fingerprint of a look, the same whatever order its colours come in: up
+// to 16 hexadecimal digits (config's styleFingerprint). A style chosen records it, so
+// the window can tell later whether the look on screen is still that style as applied.
+export function lookHash(look: Look): string {
+  const sorted = (m: ColorMap) => Object.entries(m).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  const text = JSON.stringify([sorted(look.light), sorted(look.dark), look.textFont, look.codeFont]);
+  // cyrb53: two 32-bit lanes, 53 bits in all; this tells looks apart, it guards nothing.
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 2654435761);
+    h2 = Math.imul(h2 ^ c, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16);
+}
+
+// within says whether every colour of a is b's too.
+const within = (a: ColorMap, b: ColorMap) => Object.entries(a).every(([k, v]) => b[k] === v);
+
+// followsUpdate says whether a built-in style, as this version of the app ships it,
+// replaces the look on screen without asking: the look differs from it, and is still
+// the style as it was last applied, by the fingerprint recorded then, or, with none
+// recorded, because every colour and font on screen is the style's and it only gained
+// more. A colour or font the user changed keeps the look as it is, marked changed.
+export function followsUpdate(look: Look, style: StyleValues | null, applied: string | undefined): boolean {
+  if (!style?.builtin) return false;
+  const now = lookOf(styleColors(style), styleFonts(style));
+  if (sameLook(look, now)) return false;
+  if (applied) return lookHash(look) === applied;
+  return look.textFont === now.textFont && look.codeFont === now.codeFont && within(look.light, now.light) && within(look.dark, now.dark);
+}

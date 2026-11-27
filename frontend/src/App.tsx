@@ -84,7 +84,7 @@ import { trustLines } from "./trust.ts";
 import { describeActivity, foldActivity, NO_ACTIVITY, type Activity } from "./sessionActivity.ts";
 import { applyColors, type ColorSet } from "./colors.ts";
 import { applyFonts, type FontChoice, type FontWeights } from "./fonts.ts";
-import { isChanged, lookOf, selectedStyle, styleColors, styleFonts } from "./styles.ts";
+import { followsUpdate, isChanged, lookHash, lookOf, selectedStyle, styleColors, styleFonts } from "./styles.ts";
 import { preferredLanguages, resolveLanguage, setLanguage, t, type PlainKey } from "./i18n.ts";
 import { inSettings, isGeneral, isSettingsShortcut, MAX_FONT_SIZE, settingsStart, textSizeAfter, type GeneralPage } from "./settings.ts";
 import ClaudeImport from "./ClaudeImport.tsx";
@@ -267,7 +267,7 @@ export default function App() {
   setBindings(config?.ui.shortcuts);
   const fontPending = useRef<number | null>(null);
   // Fonts and the style chosen (GUI-025, GUI-053) not saved yet.
-  const fontsPending = useRef<Partial<FontChoice & FontWeights & { style: string }> | null>(null);
+  const fontsPending = useRef<Partial<FontChoice & FontWeights & { style: string; styleApplied: string }> | null>(null);
   const [screen, setScreen] = useState<Screen>({ kind: "none" });
   const mainBox = useRef<HTMLElement>(null);
   const [heardScreen, setHeardScreen] = useState("");
@@ -644,6 +644,7 @@ export default function App() {
     reads.config(EngineService.Config(), takeConfig).catch(report);
     reads
       .colors(EngineService.Colors(), (disk) => {
+        setColorsLoaded(true);
         if (colorsPending.current) return;
         setColors((old) => (JSON.stringify([old.light, old.dark]) === JSON.stringify([disk.light, disk.dark]) ? old : (disk as ColorSet)));
       })
@@ -662,8 +663,25 @@ export default function App() {
     // A look that no style holds is lost by switching, so that asks first.
     if (confirm && isChanged(lookOf(colorsNow.current, now.ui), selectedStyle(styles, now.ui.style)) && !(await ask(t("styles.discardAsk")))) return;
     changeColors(styleColors(style));
-    changeLook({ ...styleFonts(style), style: style?.id ?? "" });
+    // What it applied, so a newer version of a built-in style can follow (followsUpdate).
+    changeLook({ ...styleFonts(style), style: style?.id ?? "", styleApplied: style ? lookHash(lookOf(styleColors(style), styleFonts(style))) : "" });
   };
+
+  // A built-in style follows an update of the app (GUI-053): while the look on screen is
+  // still the style as last applied, its newer version takes its place, without asking,
+  // once a version, and in the main window only, which writes for all of them.
+  const [colorsLoaded, setColorsLoaded] = useState(false);
+  const followed = useRef("");
+  const followUpdate = useEffectEvent(() => {
+    if (STANDALONE || !config || !colorsLoaded || styles.length === 0 || colorsPending.current || fontsPending.current) return;
+    const style = selectedStyle(styles, config.ui.style);
+    if (!style || !followsUpdate(lookOf(colors, config.ui), style, config.ui.styleApplied || undefined)) return;
+    const target = lookHash(lookOf(styleColors(style), styleFonts(style)));
+    if (followed.current === target) return;
+    followed.current = target;
+    applyStyle(style, false).catch(report);
+  });
+  useEffect(() => followUpdate(), [config, colors, colorsLoaded, styles]);
 
   // Files edited by hand are reloaded by the engine (SET-001).
   const configReloaded = useEffectEvent(() => {
@@ -959,7 +977,7 @@ export default function App() {
   // show at once and are saved a moment later, as one change for a name being
   // typed.
   const fontsSave = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const changeLook = (change: Partial<FontChoice & FontWeights & { style: string }>) => {
+  const changeLook = (change: Partial<FontChoice & FontWeights & { style: string; styleApplied: string }>) => {
     const now = configNow.current;
     if (!now) return;
     const next = { ...fontsPending.current, ...change };
@@ -2015,7 +2033,7 @@ export default function App() {
                   onFonts={changeLook}
                   styles={styles}
                   onApplyStyle={(s, confirm) => void applyStyle(s, confirm)}
-                  onChooseStyle={(style) => changeLook({ style })}
+                  onChooseStyle={(style) => changeLook({ style, styleApplied: configNow.current ? lookHash(lookOf(colorsNow.current, configNow.current.ui)) : "" })}
                   onStylesChanged={refreshStyles}
                   reportSession={sessions.find((s) => s.id === lastSessionId) ?? null}
                 onSaved={takeConfig} onError={report} />

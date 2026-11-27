@@ -248,6 +248,11 @@ type UI struct {
 	// and fonts were copied over colors.json and the fonts above. Empty means
 	// the app's own look.
 	Style string `yaml:"style,omitempty" json:"style"`
+	// StyleApplied is a fingerprint of the fonts and colors the style held when it was
+	// last chosen (frontend/src/styles.ts lookHash): while the look on screen still has
+	// it, a newer version of a built-in style, which comes with an update of the app,
+	// is applied in its place without asking.
+	StyleApplied string `yaml:"styleApplied,omitempty" json:"styleApplied"`
 	// Shortcuts are the user's changes to the app's keyboard shortcuts, by name
 	// (SET-006). A name left out keeps its default.
 	Shortcuts map[string]string `yaml:"shortcuts,omitempty" json:"shortcuts"`
@@ -279,6 +284,9 @@ type SourceMark struct {
 const SourceSlots = 8
 
 var sourceLetters = regexp.MustCompile(`^[\p{L}\p{N}]{1,2}$`)
+
+// styleFingerprint is what lookHash makes: up to 16 hexadecimal digits.
+var styleFingerprint = regexp.MustCompile(`^[0-9a-f]{1,16}$`)
 
 // CleanSourceMarks keeps what a mark can be; a file can say anything, and these reach the
 // window. A bad part is dropped and reported, and the good part kept.
@@ -341,6 +349,10 @@ func (c *Config) Validate() []Issue {
 	issues = append(issues, validateFont("ui.codeFont", &c.UI.CodeFont)...)
 	issues = append(issues, validateWeight("ui.textWeight", &c.UI.TextWeight)...)
 	issues = append(issues, validateWeight("ui.codeWeight", &c.UI.CodeWeight)...)
+	if c.UI.StyleApplied != "" && !styleFingerprint.MatchString(c.UI.StyleApplied) {
+		issues = append(issues, Issue{Field: "ui.styleApplied", Message: fmt.Sprintf("%q is not a style's fingerprint", c.UI.StyleApplied)})
+		c.UI.StyleApplied = ""
+	}
 	if c.UI.Style != "" && !idPattern.MatchString(c.UI.Style) {
 		issues = append(issues, Issue{Field: "ui.style", Message: fmt.Sprintf("%q is not a style's ID", c.UI.Style)})
 		c.UI.Style = ""

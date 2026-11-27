@@ -686,7 +686,7 @@ fieldset {
 }
 
 /* The agent's mark is quiet until its row is pointed at or open (GUI-034). */
-.session-row:not([aria-current="true"]):not(:hover) .source-mark:not(.source-mark-logo) {
+.session-row:not([aria-current="true"]):not(:hover) .source-mark:not(.source-mark-logo):not(.source-mark-picture) {
   filter: grayscale(1);
   opacity: 0.55;
 }
@@ -6066,8 +6066,8 @@ table.hooks .hook-command {
 }
 
 /* A picture in place of the letters (GUI-034): the user's, or a vendor's logo, on the
-   page's own background, as the logos' owners ask, not on the source's colour; a logo is
-   never greyed or faded either. Of a logo's two files the one for the appearance in
+   page's own background, as the logos' owners ask, not on the source's colour; neither is
+   greyed or faded in the sidebar, where a grey picture read as an empty square. Of a logo's two files the one for the appearance in
    force shows. */
 .source-mark-logo,
 .source-mark-picture {
@@ -6111,9 +6111,11 @@ table.hooks .hook-command {
   display: block;
 }
 
+/* One grid whose rows share its columns, so the actions take the width of the widest
+   row's and a row's colours and letters stay put when its actions change. */
 .source-marks {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: auto minmax(120px, 1fr) auto auto auto;
   gap: 8px;
   margin: 0;
   padding: 0;
@@ -6121,15 +6123,23 @@ table.hooks .hook-command {
 }
 
 .source-marks li {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
   align-items: center;
-  gap: 8px;
 }
 
 .source-marks-name {
-  flex: 1;
-  min-width: 120px;
+  min-width: 0;
+}
+
+.source-marks-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.source-marks li > [role="status"] {
+  grid-column: 2 / -1;
 }
 
 .source-marks-slots {
