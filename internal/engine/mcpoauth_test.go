@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -37,10 +38,15 @@ type fakeOAuth struct {
 	registered []string // redirect URIs registered
 	refreshes  int
 	issued     int
+	// cimd has the server take Client ID Metadata Documents; wantClient is the client ID
+	// the browser expects; redirects are the redirect URIs it was sent to.
+	cimd       bool
+	wantClient string
+	redirects  []string
 }
 
 func newFakeOAuth(t *testing.T) *fakeOAuth {
-	f := &fakeOAuth{t: t, valid: map[string]bool{}, challenges: map[string]string{}}
+	f := &fakeOAuth{t: t, valid: map[string]bool{}, challenges: map[string]string{}, wantClient: "client-1"}
 	server := sdk.NewServer(&sdk.Implementation{Name: "remote", Version: "1"}, nil)
 	sdk.AddTool(server, &sdk.Tool{Name: "whoami", Description: "Who am I."},
 		func(ctx context.Context, req *sdk.CallToolRequest, _ struct{}) (*sdk.CallToolResult, struct{}, error) {
@@ -59,12 +65,18 @@ func newFakeOAuth(t *testing.T) *fakeOAuth {
 	mux.HandleFunc("/.well-known/oauth-protected-resource/mcp", prm)
 	mux.HandleFunc("/.well-known/oauth-protected-resource", prm)
 	mux.HandleFunc("/.well-known/oauth-authorization-server", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, 200, map[string]any{
+		meta := map[string]any{
 			"issuer": f.srv.URL, "authorization_endpoint": f.srv.URL + "/authorize", "token_endpoint": f.srv.URL + "/token",
 			"registration_endpoint": f.srv.URL + "/register", "response_types_supported": []string{"code"},
 			"grant_types_supported": []string{"authorization_code", "refresh_token"}, "code_challenge_methods_supported": []string{"S256"},
 			"token_endpoint_auth_methods_supported": []string{"none"}, "authorization_response_iss_parameter_supported": true,
-		})
+		}
+		f.mu.Lock()
+		if f.cimd {
+			meta["client_id_metadata_document_supported"] = true
+		}
+		f.mu.Unlock()
+		writeJSON(w, 200, meta)
 	})
 	mux.HandleFunc("/register", func(w http.ResponseWriter, r *http.Request) {
 		var meta map[string]any
@@ -138,7 +150,11 @@ func (f *fakeOAuth) browser(opened *int) func(string) error {
 			return err
 		}
 		q := u.Query()
-		if !strings.HasPrefix(raw, f.srv.URL+"/authorize?") || q.Get("client_id") != "client-1" || q.Get("code_challenge_method") != "S256" ||
+		f.mu.Lock()
+		want := f.wantClient
+		f.redirects = append(f.redirects, q.Get("redirect_uri"))
+		f.mu.Unlock()
+		if !strings.HasPrefix(raw, f.srv.URL+"/authorize?") || q.Get("client_id") != want || q.Get("code_challenge_method") != "S256" ||
 			q.Get("response_type") != "code" || q.Get("resource") != f.srv.URL+"/mcp" {
 			f.t.Errorf("authorization request = %s", raw)
 		}
@@ -474,4 +490,131 @@ func TestSignInCallbackIgnoresStrangers(t *testing.T) {
 			t.Fatalf("err = %v, want the wait to run until its deadline", err)
 		}
 	})
+}
+
+// clientDocument is site/oauth/client-metadata.json, as GitHub Pages serves it.
+type clientDocument struct {
+	ClientID                string   `json:"client_id"`
+	ClientName              string   `json:"client_name"`
+	RedirectURIs            []string `json:"redirect_uris"`
+	GrantTypes              []string `json:"grant_types"`
+	ResponseTypes           []string `json:"response_types"`
+	TokenEndpointAuthMethod string   `json:"token_endpoint_auth_method"`
+}
+
+func readClientDocument(t *testing.T) clientDocument {
+	t.Helper()
+	b, err := os.ReadFile("../../site/oauth/client-metadata.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc clientDocument
+	if err := json.Unmarshal(b, &doc); err != nil {
+		t.Fatal(err)
+	}
+	return doc
+}
+
+// MCP-006, OQ-024: the document holds what the MCP authorization spec asks for, its
+// client_id is the address the app sends exactly, and it lists every redirect the app
+// can send: each of signInPorts, and a port-less one for servers that take any port.
+func TestTheClientMetadataDocument(t *testing.T) {
+	doc := readClientDocument(t)
+	if u, err := url.Parse(doc.ClientID); err != nil || doc.ClientID != clientMetadataURL || u.Scheme != "https" || u.Path == "" {
+		t.Errorf("client_id = %q, want %q", doc.ClientID, clientMetadataURL)
+	}
+	if doc.ClientName != "Freeloop" || doc.TokenEndpointAuthMethod != "none" || !slices.Equal(doc.ResponseTypes, []string{"code"}) ||
+		!slices.Contains(doc.GrantTypes, "authorization_code") || !slices.Contains(doc.GrantTypes, "refresh_token") {
+		t.Errorf("document = %+v", doc)
+	}
+	for _, p := range signInPorts {
+		if want := fmt.Sprintf("http://127.0.0.1:%d/callback", p); !slices.Contains(doc.RedirectURIs, want) {
+			t.Errorf("redirect_uris lack %s: %v", want, doc.RedirectURIs)
+		}
+	}
+	if !slices.Contains(doc.RedirectURIs, "http://127.0.0.1/callback") {
+		t.Errorf("redirect_uris lack the port-less loopback: %v", doc.RedirectURIs)
+	}
+}
+
+// MCP-006, OQ-024: a server that takes Client ID Metadata Documents gets the document's
+// address as the app's client ID and a callback the document lists, and the app
+// registers nothing; a client ID the user entered still comes first.
+func TestMCPOAuthClientMetadataDocument(t *testing.T) {
+	ctx := context.Background()
+	f := newFakeOAuth(t)
+	defer f.srv.Close()
+	f.mu.Lock()
+	f.cimd, f.wantClient = true, clientMetadataURL
+	f.mu.Unlock()
+	e := openTest(t, t.TempDir())
+	defer e.Close()
+	opened := 0
+	e.SetOpenURL(f.browser(&opened))
+	signIn := func(id, clientID string) {
+		t.Helper()
+		info, err := e.SaveMCPServer(SaveMCPServerRequest{Server: config.MCPServer{ID: id, Name: id, Transport: "http", URL: f.srv.URL + "/mcp", Enabled: true, OAuthClientID: clientID}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := e.ApproveMCPServer(ctx, id, info.Fingerprint); err != nil {
+			t.Fatal(err)
+		}
+		if info, err := e.SignInMCPServer(ctx, id); err != nil || info.Status.State != mcp.Running || !info.SignedIn {
+			t.Fatalf("sign in to %s: %+v, %v", id, info.Status, err)
+		}
+	}
+	signIn("remote", "")
+	doc := readClientDocument(t)
+	f.mu.Lock()
+	registered, redirects := len(f.registered), slices.Clone(f.redirects)
+	f.mu.Unlock()
+	if registered != 0 {
+		t.Errorf("registered %d times, though the server takes the document", registered)
+	}
+	if len(redirects) != 1 || !slices.Contains(doc.RedirectURIs, redirects[0]) {
+		t.Errorf("redirect %v is not in the document's %v", redirects, doc.RedirectURIs)
+	}
+	if rec, ok := e.loadOAuth(server(e)); !ok || rec.ClientID != clientMetadataURL {
+		t.Errorf("kept client ID = %q", rec.ClientID)
+	}
+	f.mu.Lock()
+	f.wantClient = "mine"
+	f.mu.Unlock()
+	signIn("own", "mine")
+	if len(f.registered) != 0 {
+		t.Error("a client ID the user entered was registered")
+	}
+}
+
+// Each server gets its own of signInPorts while one is free, keeps it, and falls back to
+// any free port when the rest are held or busy.
+func TestCallbackPorts(t *testing.T) {
+	for _, p := range signInPorts {
+		if !loopbackFree(p) {
+			t.Skipf("port %d is in use on this computer", p)
+		}
+	}
+	e := openTest(t, t.TempDir())
+	defer e.Close()
+	port := func(id string) int {
+		t.Helper()
+		p, err := e.callbackPort(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	a, b := port("a"), port("b")
+	if a != signInPorts[0] || b != signInPorts[1] || port("a") != a {
+		t.Errorf("ports a %d, b %d, a again %d; want %v", a, b, port("a"), signInPorts[:2])
+	}
+	busy, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", signInPorts[2]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer busy.Close()
+	if c := port("c"); slices.Contains(signInPorts, c) || c == 0 {
+		t.Errorf("c took %d, though the fixed ports are held or busy", c)
+	}
 }

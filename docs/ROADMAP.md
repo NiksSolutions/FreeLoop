@@ -168,7 +168,7 @@ The user approved the dependencies these need on 2026-10-30.
 
 1. **Native Gemini and OpenAI Responses providers (PRV-012).** *Built 2026-10-30; tested against recorded stream shapes, real runs are the user's.* Adapters on the official OpenAI and Google Gen AI SDKs.
 2. **Integrated terminal (GUI-012).** *Built 2026-10-30; the Docker acceptance passes in a test against Colima.* A PTY per session in the session's environment, Docker included, shown with xterm.js.
-3. **OAuth for remote MCP servers (MCP-006).** *Built 2026-10-30; tested against a fake authorization server, a real server is the user's check; Client ID Metadata Documents wait on OQ-024.* The authorization code flow with PKCE through the MCP SDK's auth package, tokens in the Keychain.
+3. **OAuth for remote MCP servers (MCP-006).** *Built 2026-10-30; tested against a fake authorization server, a real server is the user's check. The Client ID Metadata Document since 2026-11-27 (OQ-024): `site/oauth/client-metadata.json` on GitHub Pages, tested against a fake server that takes them.* The authorization code flow with PKCE through the MCP SDK's auth package, tokens in the Keychain.
 4. **Skills for external agents (SKL-008, OQ-006).** *Built 2026-10-30; checked with the reference agent, Claude Code itself is the user's check.* The session's enabled skills reach Claude Code as a per-session plugin folder in the app's data folder.
 5. **Update check (OQ-015, SEC-009).** *Built 2026-10-30.* An opt-in daily check of the project's GitHub releases that says when a newer version exists; the cask and in-app updates wait on signed builds. *Updating in place was built on 2026-11-12 (SET-008, below); there is no cask.*
 

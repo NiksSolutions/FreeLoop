@@ -145,10 +145,65 @@ func (s *savingSource) Token() (*oauth2.Token, error) {
 	return t, nil
 }
 
+// clientMetadataURL is the app's Client ID Metadata Document (MCP-006, OQ-024): an
+// authorization server that supports them takes this address as the app's client ID and
+// reads its metadata from it, so a sign-in needs no registration, even where a server
+// allows none. The file is site/oauth/client-metadata.json, which GitHub Pages serves
+// (.github/workflows/pages.yml); a test holds it to what the app sends.
+const clientMetadataURL = "https://nikssolutions.github.io/FreeLoop/oauth/client-metadata.json"
+
+// signInPorts are the loopback ports a sign-in's callback tries first, in this order,
+// and the document lists: a server that compares redirect URIs exactly accepts only
+// these. One that takes any loopback port, as RFC 8252 asks, accepts the free port a
+// server falls back to when all three are held or busy.
+var signInPorts = []int{23817, 23818, 23819}
+
+// callbackPort gives a server the port for its sign-in's callback: the one it had while
+// that is still free, else the first of signInPorts no other server holds and nothing
+// listens on, else any free port, so two servers never share one.
+func (e *Engine) callbackPort(serverID string) (int, error) {
+	e.portsMu.Lock()
+	defer e.portsMu.Unlock()
+	if e.callbackPorts == nil {
+		e.callbackPorts = map[string]int{}
+	}
+	held := map[int]bool{}
+	for id, p := range e.callbackPorts {
+		if id != serverID {
+			held[p] = true
+		}
+	}
+	try := signInPorts
+	if p, ok := e.callbackPorts[serverID]; ok {
+		try = append([]int{p}, signInPorts...)
+	}
+	for _, p := range try {
+		if !held[p] && loopbackFree(p) {
+			e.callbackPorts[serverID] = p
+			return p, nil
+		}
+	}
+	p, err := freeLoopbackPort()
+	if err == nil {
+		e.callbackPorts[serverID] = p
+	}
+	return p, err
+}
+
+// loopbackFree reports whether nothing listens on the loopback port.
+func loopbackFree(port int) bool {
+	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	if err != nil {
+		return false
+	}
+	ln.Close()
+	return true
+}
+
 // oauthHandler returns the OAuth handler for an HTTP server: the tokens
 // from an earlier sign-in, or none until the user signs in.
 func (e *Engine) oauthHandler(s config.MCPServer) (auth.OAuthHandler, error) {
-	port, err := freeLoopbackPort()
+	port, err := e.callbackPort(s.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -178,8 +233,13 @@ func (e *Engine) oauthHandler(s config.MCPServer) (auth.OAuthHandler, error) {
 			return saving(context.Background(), rec), nil
 		},
 	}
+	// A client ID the user entered comes first, as the MCP authorization spec orders
+	// them; the SDK would put the document before it, so it is offered only without one.
+	// Registration is the fallback where a server supports neither.
 	if s.OAuthClientID != "" {
 		cfg.PreregisteredClient = &oauthex.ClientCredentials{ClientID: s.OAuthClientID}
+	} else {
+		cfg.ClientIDMetadataDocumentConfig = &auth.ClientIDMetadataDocumentConfig{URL: clientMetadataURL}
 	}
 	if rec, ok := e.loadOAuth(s); ok {
 		e.remember(rec.Token.AccessToken)

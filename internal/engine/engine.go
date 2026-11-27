@@ -243,6 +243,10 @@ type Engine struct {
 	// signIns are the sign-in pages being waited on, by server (MCP-006).
 	openURL func(string) error
 	signIns map[string]string
+	// callbackPorts are the loopback ports given to servers for a sign-in's callback,
+	// by server (callbackPort); portsMu guards them.
+	portsMu       sync.Mutex
+	callbackPorts map[string]int
 	// updates runs one background update check at a time; updateErr is
 	// the last one's failure; releaseAPI replaces GitHub in tests.
 	updates    onceReset
