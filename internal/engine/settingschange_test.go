@@ -1,7 +1,9 @@
 package engine
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -150,4 +152,33 @@ func TestAHandEditIsNotWrittenOver(t *testing.T) {
 	if c, _, _ := config.Load(dir); c.UI.Language != "nl" {
 		t.Errorf("the file says %q", c.UI.Language)
 	}
+}
+
+// The merge the window's changes go through never panics, gives JSON, removes what a
+// patch sets to null, and applied twice gives what it gave once.
+func FuzzMergePatch(f *testing.F) {
+	f.Add([]byte(`{"ui":{"fontSize":14,"shortcuts":{"a":"b"}},"hooks":[1]}`), []byte(`{"ui":{"shortcuts":{"a":null,"c":"d"}},"hooks":null}`))
+	f.Add([]byte(`{"n":9007199254740993}`), []byte(`{"n":{"m":[]}}`))
+	f.Add([]byte(`[]`), []byte(`{}`))
+	f.Fuzz(func(t *testing.T, doc, patch []byte) {
+		once, err := mergePatch(doc, patch)
+		if err != nil {
+			return
+		}
+		if !json.Valid(once) {
+			t.Fatalf("not JSON: %s", once)
+		}
+		twice, err := mergePatch(once, patch)
+		if err != nil || !bytes.Equal(once, twice) {
+			t.Fatalf("applied twice: %s, then %s (%v)", once, twice, err)
+		}
+		var p, out map[string]any
+		if json.Unmarshal(patch, &p) == nil && json.Unmarshal(once, &out) == nil {
+			for k, v := range p {
+				if _, kept := out[k]; v == nil && kept {
+					t.Fatalf("%q set to null was kept: %s", k, once)
+				}
+			}
+		}
+	})
 }

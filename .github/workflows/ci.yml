@@ -114,12 +114,13 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Fuzz the rules, the protected paths and the transcripts
+      - name: Fuzz the rules, the protected paths, the transcripts and settings changes
         run: |
           for target in FuzzDenyRuleHoldsThroughWrappers FuzzRulesNeverPanic FuzzProtectedPathsHoldInAnyCase; do
             go test ./internal/permission/ -run '^$' -fuzz "^${target}\$" -fuzztime 3m || exit 1
           done
-          go test ./internal/store/ -run '^$' -fuzz '^FuzzParseEvents$' -fuzztime 3m
+          go test ./internal/store/ -run '^$' -fuzz '^FuzzParseEvents$' -fuzztime 3m || exit 1
+          go test ./internal/engine/ -run '^$' -fuzz '^FuzzMergePatch$' -fuzztime 2m
 
       - name: Keep the input that failed
         if: failure()

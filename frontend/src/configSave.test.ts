@@ -80,3 +80,53 @@ test("a change shows as soon as it waits, and a failed one has the window read a
   await assert.rejects(saver.change({ ui: { language: "nl" } }));
   assert.deepEqual(calls, ["queued", "delivered", "queued", "failed"]);
 });
+
+// Any two configs: the patch from one to the other, applied as the engine merges it,
+// gives the other, and applied twice gives the same. A member set to null is gone, as a
+// merge patch reads null (the engine then holds the field's zero value).
+test("a patch turns any config into any other", () => {
+  let seed = 7;
+  const rand = (n: number) => {
+    seed = (seed * 1103515245 + 12345) % 2147483648;
+    return seed % n;
+  };
+  const value = (depth: number): unknown => {
+    switch (rand(depth > 2 ? 4 : 7)) {
+      case 0:
+        return rand(100);
+      case 1:
+        return ["a", "b", ""][rand(3)];
+      case 2:
+        return rand(2) === 0;
+      case 3:
+        return null;
+      case 4:
+        return [value(depth + 1), value(depth + 1)].slice(rand(3));
+      default:
+        return object(depth + 1);
+    }
+  };
+  const object = (depth: number): Record<string, unknown> => {
+    const out: Record<string, unknown> = {};
+    for (const k of ["ui", "hooks", "x", "y"]) if (rand(3) > 0) out[k] = value(depth);
+    return out;
+  };
+  const plain = (x: unknown): unknown => {
+    if (Array.isArray(x)) return x;
+    if (typeof x !== "object" || x === null) return x;
+    return Object.fromEntries(
+      Object.entries(x)
+        .filter(([, v]) => v !== null && v !== undefined)
+        .map(([k, v]) => [k, plain(v)]),
+    );
+  };
+  for (let i = 0; i < 2000; i++) {
+    const a = object(0);
+    const b = object(0);
+    const p = patchOf(a, b);
+    const once = p ? applyPatch(a, p) : a;
+    assert.deepEqual(plain(once), plain(b), `${JSON.stringify(a)} to ${JSON.stringify(b)} by ${JSON.stringify(p)}`);
+    if (p) assert.deepEqual(applyPatch(once, p), once);
+    assert.equal(patchOf(once, once), null);
+  }
+});
