@@ -92,6 +92,9 @@ func TestReferenceAgent(t *testing.T) {
 	var mu sync.Mutex
 	var asked []permission.Request
 	go func() {
+		// A request still listed on the next look was already answered: once each
+		// (a dry run of d9ababe counted one twice).
+		seen := map[string]bool{}
 		for {
 			select {
 			case <-stop:
@@ -99,6 +102,10 @@ func TestReferenceAgent(t *testing.T) {
 			case <-time.After(2 * time.Millisecond):
 			}
 			for _, r := range broker.Pending() {
+				if seen[r.ID] {
+					continue
+				}
+				seen[r.ID] = true
 				mu.Lock()
 				asked = append(asked, r)
 				mu.Unlock()
