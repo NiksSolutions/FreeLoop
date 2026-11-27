@@ -12,7 +12,7 @@ Colors are set for the light and the dark appearance apart, and a change shows a
 
 A style keeps the two fonts and the colors of both appearances under a name, so you can switch between looks in one step. Theme, text size and language are not part of a style.
 
-Freeloop comes with five styles, listed under **Built in**: Niks Theme, Solarized, Nord, Gruvbox and Rosé Pine. A built-in style is chosen and saved as new like any other but is never updated or deleted: to make one your own, choose it, change what you like and save it as a new style.
+Freeloop comes with six styles, listed under **Built in**: Niks Theme, Solarized, Nord, Gruvbox, Rosé Pine and Dracula. A built-in style is chosen and saved as new like any other but is never updated or deleted: to make one your own, choose it, change what you like and save it as a new style.
 
 - **Save as new…** saves the fonts and colors on screen as a style.
 - Choose a style under **Style**, or type "Style" in the command palette, to switch to it.

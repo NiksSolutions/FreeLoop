@@ -107,6 +107,26 @@ var builtinStyles = []Style{
 			"ok": "#286983", "warn": "#a4650f", "danger": "#b4637a", "git": "#907aa9",
 		},
 	},
+	{
+		// Zeno Rocha's Dracula in the dark and its light twin Alucard, after the
+		// palettes at draculatheme.com/spec: purple for the accent, cyan links, pink
+		// for git. Comment's blue-grey is lightened for muted text in the dark.
+		ID: "dracula", Name: "Dracula",
+		Dark: map[string]string{
+			"bg-app": "#21222c", "bg": "#282a36", "surface": "#343746", "surface-2": "#424450", "input": "#21222c",
+			"border": "#343746", "border-strong": "#44475a", "input-border": "#6272a4",
+			"text": "#f8f8f2", "muted": "#a9b1d6", "faint": "#99a2cc",
+			"accent": "#bd93f9", "accent-text": "#282a36", "link": "#8be9fd", "focus": "#bd93f9",
+			"ok": "#50fa7b", "warn": "#ffb86c", "danger": "#ff5555", "git": "#ff79c6",
+		},
+		Light: map[string]string{
+			"bg-app": "#ece9df", "bg": "#fffbeb", "surface": "#f7f3e3", "surface-2": "#dedccf", "input": "#fffbeb",
+			"border": "#dedccf", "border-strong": "#ceccc0", "input-border": "#8f8970",
+			"text": "#1f1f1f", "muted": "#58533d", "faint": "#6c664b",
+			"accent": "#644ac9", "accent-text": "#ffffff", "link": "#036a96", "focus": "#644ac9",
+			"ok": "#14710a", "warn": "#a34d14", "danger": "#cb3a2a", "git": "#a3144d",
+		},
+	},
 }
 
 // BuiltinStyles returns the styles the app ships, each its own copy.

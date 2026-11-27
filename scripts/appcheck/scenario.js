@@ -1165,7 +1165,7 @@ await step("a style keeps the fonts and colors, and choosing it brings them back
     // The styles the app ships: listed apart, chosen like a saved one, never updated or deleted.
     const builtIn = all("optgroup", select()).find((g) => g.label === "Built in");
     const names = builtIn ? all("option", builtIn).map((o) => o.textContent) : [];
-    check("the app's own styles are listed apart", ["Gruvbox", "Niks Theme", "Nord", "Rosé Pine", "Solarized"].every((n) => names.includes(n)), names.join(", "));
+    check("the app's own styles are listed apart", ["Dracula", "Gruvbox", "Niks Theme", "Nord", "Rosé Pine", "Solarized"].every((n) => names.includes(n)), names.join(", "));
     pick("nord");
     await until("Nord's accent", () => ["#88c0d0", "#4c6d97"].includes(accent()), 3000);
     check("a built-in style is chosen like a saved one", shown() === "Nord", shown());
