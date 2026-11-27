@@ -7,8 +7,10 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/FinanceNik/Freeloop/internal/config"
+	"github.com/FinanceNik/Freeloop/internal/secrets"
 )
 
 // SET-005: restoring a backup on a fresh install recreates the providers,
@@ -47,5 +49,59 @@ func TestConfigBackupRestore(t *testing.T) {
 	}
 	if !slices.Equal(res.NeedKeys, []string{"Work"}) {
 		t.Errorf("need keys = %v", res.NeedKeys)
+	}
+}
+
+// A restore waits for a change to the settings already under way, rather than writing
+// config.yaml between that change's read and its write, which put the old file back
+// (issue 091's locks).
+func TestARestoreWaitsForAChangeUnderWay(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	e, err := Open(Options{DataDir: dir, Secrets: secrets.NewMemory(), Home: t.TempDir(), WatchInterval: -1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer e.Close()
+	if _, err := e.ChangeSettings(`{"ui":{"language":"nl"}}`); err != nil {
+		t.Fatal(err)
+	}
+	backup := filepath.Join(t.TempDir(), "backup.zip")
+	if err := e.ExportConfig(ctx, backup); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.ChangeSettings(`{"ui":{"language":"de"}}`); err != nil {
+		t.Fatal(err)
+	}
+	read, release := make(chan struct{}), make(chan struct{})
+	changed := make(chan error, 1)
+	go func() {
+		_, err := e.updateSettings(func(c *config.Config) error {
+			close(read)
+			<-release
+			c.UI.FontSize = 18
+			return nil
+		})
+		changed <- err
+	}()
+	<-read
+	restored := make(chan error, 1)
+	go func() {
+		_, err := e.ImportConfig(ctx, backup)
+		restored <- err
+	}()
+	time.Sleep(200 * time.Millisecond)
+	close(release)
+	if err := <-changed; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-restored; err != nil {
+		t.Fatal(err)
+	}
+	if c, _, _ := config.Load(dir); c.UI.Language != "nl" {
+		t.Errorf("after the restore the file says %q", c.UI.Language)
+	}
+	if e.Config().UI.Language != "nl" {
+		t.Errorf("after the restore the engine has %q", e.Config().UI.Language)
 	}
 }

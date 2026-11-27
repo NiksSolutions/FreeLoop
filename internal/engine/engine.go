@@ -216,7 +216,9 @@ type Engine struct {
 	// while mu is held; saveSettings is called with it held.
 	settingsMu sync.Mutex
 	// providersMu and mcpListMu do the same for providers.yaml's and mcp.yaml's
-	// lists, each read, changed and written whole. Taken before settingsMu.
+	// lists, each read, changed and written whole. Taken in the order providersMu,
+	// mcpListMu, settingsMu (a provider's save approves through settingsMu; a restore
+	// takes all three).
 	providersMu sync.Mutex
 	mcpListMu   sync.Mutex
 

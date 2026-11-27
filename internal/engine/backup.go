@@ -194,7 +194,7 @@ func (e *Engine) ImportConfig(ctx context.Context, path string) (ConfigRestore, 
 func (e *Engine) restoreBundle(b []byte) (ConfigRestore, error) {
 	approvals := e.Config().CommandApprovals
 	before := guards(e.filesNow())
-	written, err := config.ImportBundle(e.dataDir, b)
+	written, err := e.importBundle(b)
 	if err != nil {
 		return ConfigRestore{}, err
 	}
@@ -219,4 +219,18 @@ func (e *Engine) restoreBundle(b []byte) (ConfigRestore, error) {
 		res.Gone = []string{}
 	}
 	return res, nil
+}
+
+// importBundle writes the backup's files once no change to config.yaml, providers.yaml
+// or mcp.yaml is under way, holding their locks in the order the app's writers take
+// them: one between a change's read and its write would be put back by that write.
+// A change after it rereads the restored file (freshConfig).
+func (e *Engine) importBundle(b []byte) ([]string, error) {
+	e.providersMu.Lock()
+	defer e.providersMu.Unlock()
+	e.mcpListMu.Lock()
+	defer e.mcpListMu.Unlock()
+	e.settingsMu.Lock()
+	defer e.settingsMu.Unlock()
+	return config.ImportBundle(e.dataDir, b)
 }
