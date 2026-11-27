@@ -212,6 +212,10 @@ type Engine struct {
 	// at once cannot drop one another (issue 091). It is taken before mu, never
 	// while mu is held; saveSettings is called with it held.
 	settingsMu sync.Mutex
+	// providersMu and mcpListMu do the same for providers.yaml's and mcp.yaml's
+	// lists, each read, changed and written whole. Taken before settingsMu.
+	providersMu sync.Mutex
+	mcpListMu   sync.Mutex
 
 	mu sync.Mutex
 	// projects caches trusted projects' .freeloop/ settings, skillCache

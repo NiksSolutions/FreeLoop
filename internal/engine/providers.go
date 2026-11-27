@@ -244,6 +244,8 @@ var slugChars = regexp.MustCompile(`[^a-z0-9]+`)
 
 // SaveProvider adds a provider (empty ID) or updates one.
 func (e *Engine) SaveProvider(req SaveProviderRequest) (ProviderInfo, error) {
+	e.providersMu.Lock()
+	defer e.providersMu.Unlock()
 	req.Name = strings.TrimSpace(req.Name)
 	if req.Name == "" {
 		return ProviderInfo{}, errors.New("a provider needs a name")
@@ -353,6 +355,8 @@ func (e *Engine) saveConfigs(cfgs []config.Provider) error {
 
 // DeleteProvider removes a provider and its Keychain entry.
 func (e *Engine) DeleteProvider(id string) error {
+	e.providersMu.Lock()
+	defer e.providersMu.Unlock()
 	e.mu.Lock()
 	cfgs := slices.Clone(e.providers.configs)
 	e.mu.Unlock()
@@ -527,6 +531,8 @@ func (e *Engine) SetModelFlags(providerID, model string, favorite, hidden bool) 
 
 // updateModel changes one model's settings in providers.yaml.
 func (e *Engine) updateModel(providerID, model string, change func(*config.ModelSettings)) error {
+	e.providersMu.Lock()
+	defer e.providersMu.Unlock()
 	e.mu.Lock()
 	cfgs := slices.Clone(e.providers.configs)
 	e.mu.Unlock()

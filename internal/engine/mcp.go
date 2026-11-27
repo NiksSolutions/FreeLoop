@@ -135,10 +135,30 @@ func sameDestination(a, b config.MCPServer) bool {
 // SaveMCPServer writes the server into mcp.yaml. Any change to what it runs
 // or where it connects needs a new approval.
 func (e *Engine) SaveMCPServer(req SaveMCPServerRequest) (MCPServerInfo, error) {
+	s, err := e.saveMCPInList(req)
+	if err != nil {
+		return MCPServerInfo{}, err
+	}
+	// A secret given a new value keeps its reference, and so the fingerprint, which
+	// leaves values out: loadMCP left the server running on the old value. Started
+	// again, it restarts when what it runs with changed, and only then (MCP-005).
+	if st := e.mcp.Status(s.ID).State; len(req.Secrets) > 0 && (st == mcp.Running || st == mcp.Starting) {
+		if err := e.StartMCPServer(context.Background(), s.ID); err != nil {
+			log.Printf("engine: MCP server %s: %s", s.ID, e.redactText(err.Error()))
+		}
+	}
+	return e.mcpInfo(s), nil
+}
+
+// saveMCPInList puts the server of req into mcp.yaml's list, holding mcpListMu from
+// the read of the list to its write.
+func (e *Engine) saveMCPInList(req SaveMCPServerRequest) (config.MCPServer, error) {
 	s := req.Server
 	if s.Transport == "" {
 		s.Transport = "stdio"
 	}
+	e.mcpListMu.Lock()
+	defer e.mcpListMu.Unlock()
 	e.mu.Lock()
 	list := slices.Clone(e.mcpServers)
 	e.mu.Unlock()
@@ -172,13 +192,13 @@ func (e *Engine) SaveMCPServer(req SaveMCPServerRequest) (MCPServerInfo, error) 
 		}
 		ref := mcpSecretRef(s.ID, name)
 		if err := e.secrets.Set(ref, value); err != nil {
-			return MCPServerInfo{}, err
+			return config.MCPServer{}, err
 		}
 		e.remember(value)
 		s.Secrets[name] = ref.String()
 	}
 	if err := s.Validate(); err != nil {
-		return MCPServerInfo{}, err
+		return config.MCPServer{}, err
 	}
 	if i >= 0 {
 		list[i] = s
@@ -186,18 +206,10 @@ func (e *Engine) SaveMCPServer(req SaveMCPServerRequest) (MCPServerInfo, error) 
 		list = append(list, s)
 	}
 	if err := config.SaveMCP(e.dataDir, list); err != nil {
-		return MCPServerInfo{}, err
+		return config.MCPServer{}, err
 	}
 	e.loadMCP()
-	// A secret given a new value keeps its reference, and so the fingerprint, which
-	// leaves values out: loadMCP left the server running on the old value. Started
-	// again, it restarts when what it runs with changed, and only then (MCP-005).
-	if st := e.mcp.Status(s.ID).State; len(req.Secrets) > 0 && (st == mcp.Running || st == mcp.Starting) {
-		if err := e.StartMCPServer(context.Background(), s.ID); err != nil {
-			log.Printf("engine: MCP server %s: %s", s.ID, e.redactText(err.Error()))
-		}
-	}
-	return e.mcpInfo(s), nil
+	return s, nil
 }
 
 // DeleteMCPServer stops a server and removes it and its secrets.
@@ -211,6 +223,8 @@ func (e *Engine) DeleteMCPServer(id string) error {
 		e.secrets.Delete(mcpSecretRef(id, name))
 	}
 	e.secrets.Delete(oauthRef(id))
+	e.mcpListMu.Lock()
+	defer e.mcpListMu.Unlock()
 	e.mu.Lock()
 	list := slices.DeleteFunc(slices.Clone(e.mcpServers), func(x config.MCPServer) bool { return x.ID == id })
 	e.mu.Unlock()
@@ -236,6 +250,18 @@ func (e *Engine) ApproveMCPServer(ctx context.Context, id, fingerprint string) (
 	if err != nil {
 		return MCPServerInfo{}, err
 	}
+	if err := e.approveMCPInList(id, mark); err != nil {
+		return MCPServerInfo{}, err
+	}
+	err = e.StartMCPServer(ctx, id)
+	s, _ = e.mcpServer(id)
+	return e.mcpInfo(s), err
+}
+
+// approveMCPInList records mark as the server's approval in mcp.yaml.
+func (e *Engine) approveMCPInList(id, mark string) error {
+	e.mcpListMu.Lock()
+	defer e.mcpListMu.Unlock()
 	e.mu.Lock()
 	list := slices.Clone(e.mcpServers)
 	e.mu.Unlock()
@@ -245,12 +271,10 @@ func (e *Engine) ApproveMCPServer(ctx context.Context, id, fingerprint string) (
 		}
 	}
 	if err := config.SaveMCP(e.dataDir, list); err != nil {
-		return MCPServerInfo{}, err
+		return err
 	}
 	e.loadMCP()
-	err = e.StartMCPServer(ctx, id)
-	s, _ = e.mcpServer(id)
-	return e.mcpInfo(s), err
+	return nil
 }
 
 // StartMCPServer starts an approved server (or restarts it).
