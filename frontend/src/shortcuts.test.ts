@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { APPROVAL_GRACE_MS, ApprovalTarget, approvalHint, approvalKey, approvalShortcut, formLabel, optionLabel, bindingOf, bindingProblem, comboOf, isTextField, keyLabel, optionKind, pressed, setBindings } from "./shortcuts.ts";
+import { APPROVAL_GRACE_MS, ApprovalTarget, approvalClock, approvalHint, approvalKey, keyTime, approvalShortcut, formLabel, optionLabel, bindingOf, bindingProblem, comboOf, isTextField, keyLabel, optionKind, pressed, setBindings } from "./shortcuts.ts";
 import { setPlatform } from "./platform.ts";
 import { setLanguage } from "./i18n.ts";
 
@@ -201,4 +201,14 @@ test("the text size keys work on Swiss, German and US keyboards", () => {
   setBindings({});
   assert.match(bindingProblem("palette", "Meta+Shift++", {}), /Larger text/);
   assert.match(bindingProblem("palette", "Meta+Shift+_", {}), /Smaller text/);
+});
+
+test("a key is judged by when it was pressed, not when it was handled", () => {
+  // Pressed 100 ms after the request became current, handled 1.8 s after: still early.
+  const y = { key: "y", metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, repeat: false, defaultPrevented: false, isComposing: false };
+  assert.equal(approvalKey(y, { inField: false, covered: false, since: 1000, now: keyTime({ timeStamp: 1100 }) })?.early, true);
+  assert.equal(approvalKey(y, { inField: false, covered: false, since: 1000, now: keyTime({ timeStamp: 1500 }) })?.early, false);
+  // An event with no time of its own is judged now.
+  const before = approvalClock();
+  assert.ok(keyTime({ timeStamp: 0 }) >= before);
 });

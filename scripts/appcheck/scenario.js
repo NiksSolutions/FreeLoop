@@ -1722,13 +1722,24 @@ await step("a second key right after the first answers only one request", async 
     `${current() === r ? "the current one" : current() ? "another is current" : "none is current"}, ${all(".page.attention .attention-request").length} listed: ${r.textContent.slice(0, 80)}`;
   try {
     const first = current();
+    // The second Y is made the moment the next request becomes current, as a quick second
+    // press is, and sent once that request listens. The app judges a key by its own time,
+    // so a busy moment in between decides nothing: polled and slept for, it once went out
+    // 1.85 s after the request became current, and was rightly taken as an answer.
+    let quick = null;
+    const watch = new MutationObserver(() => {
+      const c = current();
+      if (!quick && c && c !== first) quick = new KeyboardEvent("keydown", { key: "y", bubbles: true, cancelable: true });
+    });
+    watch.observe(document.querySelector(".page.attention"), { subtree: true, childList: true, attributes: true, attributeFilter: ["class"] });
     await sleep(600);
     y();
     const next = await until("the next request to be current", () => { const c = current(); return c && c !== first && c; }, 15000);
-    await sleep(50);
-    y();
+    watch.disconnect();
+    await sleep(300);
+    document.body.dispatchEvent(quick ?? new KeyboardEvent("keydown", { key: "y", bubbles: true, cancelable: true }));
     await sleep(1000);
-    check("a second Y right after the first does not answer the next request", waits(next), why(next));
+    check("a second Y right after the first does not answer the next request", waits(next) && !!quick, `${quick ? "" : "no change of request was seen; "}${why(next)}`);
     y({ repeat: true });
     await sleep(1000);
     check("a held Y's repeat answers nothing", waits(next), why(next));

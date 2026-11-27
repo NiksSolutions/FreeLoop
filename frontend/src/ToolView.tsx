@@ -3,7 +3,7 @@ import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { editMark, quietCommand, toolStatusLabel, visibleCommand } from "./a11y.ts";
 import { EngineService } from "./api.ts";
 import { McpFormView, useMcpForm } from "./McpForm.tsx";
-import { ApprovalTarget, approvalHint, approvalKey, coveredByDialog, formLabel, isTextField, optionKind, optionLabel } from "./shortcuts.ts";
+import { ApprovalTarget, approvalClock, approvalHint, approvalKey, coveredByDialog, formLabel, isTextField, keyTime, optionKind, optionLabel } from "./shortcuts.ts";
 import { awaitingDecision, hookFailedText, lineDiff, phoneName, type Item, type PermissionOption, type ToolContent } from "./transcript.ts";
 import { planText } from "./planView.ts";
 import { agentQuestions } from "./forms.ts";
@@ -44,7 +44,7 @@ const keysTarget = new ApprovalTarget<Element>();
 // noteApprovalTarget looks again for the card the keys answer, after what can change
 // it: a card appearing or answered, another pane becoming the active one.
 export function noteApprovalTarget() {
-  keysTarget.set((document.querySelector(".pane-active") ?? document).querySelector(".approval"), Date.now());
+  keysTarget.set((document.querySelector(".pane-active") ?? document).querySelector(".approval"), approvalClock());
 }
 
 export default function ToolView({ item, roots = [], onError }: { item: Extract<Item, { kind: "tool" }>; roots?: string[]; onError: (err: unknown) => void }) {
@@ -98,7 +98,7 @@ export default function ToolView({ item, roots = [], onError }: { item: Extract<
       const pane = box.current?.closest(".pane");
       if (pane && !pane.classList.contains("pane-active")) return;
       if (!box.current || (pane ?? document).querySelector(".approval") !== box.current) return;
-      const now = Date.now();
+      const now = keyTime(e);
       const key = approvalKey(e, { inField: isTextField(e.target), covered: coveredByDialog(box.current), since: keysTarget.since(box.current, now), now });
       const opt = key && item.permission?.options.find((o) => optionKind(o.kind) === key.kind);
       if (!opt) return;

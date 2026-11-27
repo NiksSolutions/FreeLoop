@@ -185,11 +185,23 @@ export interface KeyPress extends Keys {
 // null: a held key's repeats, a key another handler took or one composing text, and
 // any key while a dialog covers what it would answer ask for none. A key pressed
 // within APPROVAL_GRACE_MS of the request becoming the one the keys answer is early:
-// the caller takes it, so it types nothing, and answers nothing.
+// the caller takes it, so it types nothing, and answers nothing. since and now are on
+// the page's clock (approvalClock), now the key's own time (keyTime).
 export function approvalKey(k: KeyPress, at: { inField: boolean; covered: boolean; since: number; now: number }): { kind: ApprovalKind; early: boolean } | null {
   if (k.repeat || k.defaultPrevented || k.isComposing || at.covered) return null;
   const kind = approvalShortcut(k, at.inField);
   return kind && { kind, early: at.now - at.since < APPROVAL_GRACE_MS };
+}
+
+// approvalClock is the page's clock, performance.now(), which a key's own time shares.
+export const approvalClock = () => performance.now();
+
+// keyTime is when a key was pressed, by the event's own time: a second press that
+// waited behind a busy moment is judged by when it was pressed, not by when it was
+// handled, which once came 1.8 s later and answered the next request. An event
+// without a time falls back to now.
+export function keyTime(e: { timeStamp: number }): number {
+  return e.timeStamp > 0 ? e.timeStamp : approvalClock();
 }
 
 // ApprovalTarget remembers what the approval keys answer and since when: the grace

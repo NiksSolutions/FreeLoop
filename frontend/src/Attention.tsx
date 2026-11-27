@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { EngineService, type AttentionItem, type PermissionRequest } from "./api.ts";
 import { currentOf, editPreview, moved, oldestFirst } from "./attentionview.ts";
 import { since } from "./board.ts";
-import { approvalKey, coveredByDialog, isTextField, optionKind } from "./shortcuts.ts";
+import { approvalClock, approvalKey, coveredByDialog, isTextField, keyTime, optionKind } from "./shortcuts.ts";
 import { isPlan } from "./planView.ts";
 import { hookFailedText, lineDiff } from "./transcript.ts";
 import { McpFormView, useMcpForm } from "./McpForm.tsx";
@@ -167,14 +167,14 @@ export function RequestView({ req, current, onOpen, onError }: { req: Permission
   const currentSince = useRef(0);
   useEffect(() => {
     if (!current) return;
-    currentSince.current = Date.now();
+    currentSince.current = approvalClock();
     box.current?.scrollIntoView?.({ block: "nearest" });
   }, [current]);
   // A form is answered by filling it in and a plan in its session, not by a key.
   useEffect(() => {
     if (!current || busy || req.form || plan) return;
     const onKey = (e: KeyboardEvent) => {
-      const now = Date.now();
+      const now = keyTime(e);
       const key = approvalKey(e, { inField: isTextField(e.target), covered: coveredByDialog(box.current), since: currentSince.current, now });
       const option = key && options.find((o) => optionKind(o.kind) === key.kind);
       if (!option) return;
