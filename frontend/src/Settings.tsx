@@ -19,6 +19,8 @@ import { PriceTable, UsageTable } from "./Costs.tsx";
 import BudgetTable from "./BudgetTable.tsx";
 import { HookTable, PendingCommands } from "./Hooks.tsx";
 import { groupPending, pendingLabel } from "./pending.ts";
+import { applyPatch, patchOf, type Patch } from "./configSave.ts";
+import { settingsSaver } from "./settingsSaver.ts";
 import { EngineService, type Blocked, type ConfigPreview, type ConfigRestore, type Config, type UpdateInfo, type BuildInfo, type EnvironmentInfo, type Profile, type ProjectInfo, type ProviderInfo, type Style } from "./api.ts";
 
 interface Props {
@@ -173,7 +175,11 @@ export default function Settings({ page, config, providers, harnesses, environme
           .then(setReport)
           .catch(onError);
   // What waited for Save when the settings were last left comes back with them.
-  const [form, setForm] = useState<Config>(() => (waitingDraft ? { ...config, ...waitingDraft } : config));
+  // From what waits to be saved too, so a change sent on leaving shows on coming back.
+  const [form, setForm] = useState<Config>(() => {
+    const now = settingsSaver.withPending(config);
+    return waitingDraft ? { ...now, ...waitingDraft } : now;
+  });
   const [saved, setSaved] = useState(false);
   // Connections local-only mode refused (NFR-OFF-003).
   const [blocked, setBlocked] = useState<Blocked[]>([]);
@@ -204,30 +210,26 @@ export default function Settings({ page, config, providers, harnesses, environme
         if (r) setRestored(r);
       })
       .catch(onError);
-  // ⌘+ and ⌘- change one field, and the fonts and the style chosen save
-  // themselves; the rest of the form may hold unsaved edits. Approving a command
-  // is not an edit either.
-  const { ui: { fontSize: savedFontSize, textFont: savedTextFont, codeFont: savedCodeFont, style: savedStyle, ...savedUi }, commandApprovals: _approvals, ...savedRest } = config;
-  // What the page saved itself comes back as a new config, and must not undo what is
-  // being typed elsewhere on the page.
-  const ownSave = useRef("");
+  // The form is base, the settings as they will be once what was sent is saved, with
+  // the edits not sent yet on top (issue 091). A new config, from a save, from the
+  // file, or from ⌘+, a font or a style chosen elsewhere, becomes the base with those
+  // edits put back on top: nothing being typed is lost and nothing sent comes back.
+  const base = useRef(settingsSaver.withPending(config));
   // Not on opening: the form starts from the config already, with any draft kept.
   const opened = useRef(true);
-  const adopt = useEffectEvent(() => {
-    if (ownSave.current !== settingsKey(config)) setForm(config);
-  });
-  const savedKey = JSON.stringify([savedRest, savedUi]);
   useEffect(() => {
     if (opened.current) {
       opened.current = false;
       return;
     }
-    adopt();
-  }, [savedKey]);
-  useEffect(
-    () => setForm((f) => ({ ...f, ui: { ...f.ui, fontSize: savedFontSize, textFont: savedTextFont, codeFont: savedCodeFont, style: savedStyle } })),
-    [savedFontSize, savedTextFont, savedCodeFont, savedStyle],
-  );
+    const before = base.current;
+    const next = settingsSaver.withPending(config);
+    base.current = next;
+    setForm((f) => {
+      const edits = patchOf(before, f);
+      return edits ? applyPatch(next, edits) : next;
+    });
+  }, [config]);
   // The opt-in update check (OQ-015).
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const [checking, setChecking] = useState(false);
@@ -271,47 +273,37 @@ export default function Settings({ page, config, providers, harnesses, environme
         EngineService.UpdateStatus().then(setUpdate);
       });
 
+  // send sends the edits in patch, which from now on are part of the base; if the save
+  // fails they are not, and wait to be sent again.
+  const failedNow = useEffectEvent((err: unknown) => onError(err));
+  const current = useRef({ form, config });
+  current.current = { form, config };
+  const send = (patch: Patch | null) => {
+    if (!patch) return null;
+    base.current = applyPatch(base.current, patch);
+    return settingsSaver.change(patch).catch((err: unknown) => {
+      base.current = settingsSaver.withPending(current.current.config);
+      throw err;
+    });
+  };
+  const showSaved = () => {
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1500);
+  };
   const save = (e: FormEvent) => {
     e.preventDefault();
-    EngineService.SaveSettings(form)
-      .then((c) => {
-        onSaved(c);
-        setSaved(true);
-        setTimeout(() => setSaved(false), 1500);
-      })
-      .catch(onError);
+    send(patchOf(base.current, form))?.then(showSaved).catch(onError);
   };
 
   // Changes save themselves, as in a system settings window, once the field being typed
   // in is left. Leaving the page saves too: it used to drop them without a word.
   const formBox = useRef<HTMLFormElement>(null);
   const [left, setLeft] = useState(0);
-  const saveByItself = (f: Config, c: Config) => {
-    const next = autoSaved(f, c);
-    if (settingsKey(next) === settingsKey(c)) return null;
-    return EngineService.SaveSettings(next);
-  };
-  const current = useRef({ form, config });
-  current.current = { form, config };
-  const savedNow = useEffectEvent((c: Config) => onSaved(c));
-  const failedNow = useEffectEvent((err: unknown) => onError(err));
   const autoSave = useEffectEvent(() => {
     const typing = document.activeElement;
     if (typing && formBox.current?.contains(typing) && typing.matches('input:not([type="checkbox"]), textarea')) return;
-    const sent = form;
-    saveByItself(form, config)
-      ?.then((c) => {
-        if (!c) return;
-        ownSave.current = settingsKey(c);
-        savedNow(c);
-        // What waits for the Save button stays as typed, and so does a change made
-        // while this was saving. Its own save may have found nothing to save against
-        // what was there before, so the form is looked at again.
-        setForm((f) => (f === sent ? { ...c, hooks: f.hooks, prices: f.prices, budgets: f.budgets, web: f.web } : f));
-        setLeft((n) => n + 1);
-        setSaved(true);
-        setTimeout(() => setSaved(false), 1500);
-      })
+    send(patchOf(base.current, autoSaved(form, base.current)))
+      ?.then(showSaved)
       .catch(failedNow);
   });
   useEffect(() => {
@@ -320,24 +312,24 @@ export default function Settings({ page, config, providers, harnesses, environme
   }, [form, left]);
   useEffect(
     () => () => {
-      const { form: f, config: c } = current.current;
-      saveByItself(f, c)
-        ?.then((saved) => saved && savedNow(saved))
-        .catch(failedNow);
+      const f = current.current.form;
+      const b = base.current;
+      send(patchOf(b, autoSaved(f, b)))?.catch(failedNow);
       // Leaving for another page keeps what waits for Save, for the app's run.
       const waiting = { hooks: f.hooks, prices: f.prices, budgets: f.budgets, web: f.web };
-      waitingDraft = JSON.stringify(waiting) === JSON.stringify({ hooks: c.hooks, prices: c.prices, budgets: c.budgets, web: c.web }) ? null : waiting;
+      waitingDraft = JSON.stringify(waiting) === JSON.stringify({ hooks: b.hooks, prices: b.prices, budgets: b.budgets, web: b.web }) ? null : waiting;
     },
     [],
   );
-  const unsaved = settingsKey(form) !== settingsKey(autoSaved(form, config));
+  const saving = base.current;
+  const unsaved = settingsKey(form) !== settingsKey(autoSaved(form, saving));
   // What waits for Save, by name, wherever it is.
   const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
   const waitingNames = [
-    !same(form.hooks, config.hooks) && t("settings.hooks.title"),
-    !same(form.prices, config.prices) && t("settings.prices.title"),
-    !same(form.budgets, config.budgets) && t("settings.budgets.title"),
-    !same(form.web, config.web) && t("settings.web.title"),
+    !same(form.hooks, saving.hooks) && t("settings.hooks.title"),
+    !same(form.prices, saving.prices) && t("settings.prices.title"),
+    !same(form.budgets, saving.budgets) && t("settings.budgets.title"),
+    !same(form.web, saving.web) && t("settings.web.title"),
   ].filter((x): x is string => !!x);
   const waiting = t("settings.save.waiting", { count: waitingNames.length || 1, names: list(waitingNames) || t("settings.save.nothing") });
   const allowBypass = async (on: boolean) => {
@@ -361,7 +353,7 @@ export default function Settings({ page, config, providers, harnesses, environme
             <button type="submit" className="primary">
               {t("common.save")}
             </button>
-            <button type="button" onClick={() => setForm(config)}>
+            <button type="button" onClick={() => setForm(base.current)}>
               {t("common.revert")}
             </button>
           </>

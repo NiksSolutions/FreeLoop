@@ -167,6 +167,8 @@ func (e *Engine) revokeProjectCommands(p session.Project) error {
 	if err != nil || !slices.ContainsFunc(e.Config().CommandApprovals, approved) {
 		return err
 	}
+	e.settingsMu.Lock()
+	defer e.settingsMu.Unlock()
 	e.mu.Lock()
 	e.cfg.CommandApprovals = slices.DeleteFunc(slices.Clone(e.cfg.CommandApprovals), approved)
 	e.mu.Unlock()

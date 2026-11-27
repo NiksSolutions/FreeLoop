@@ -1,5 +1,6 @@
 import { useEffect, useEffectEvent, useState } from "react";
 import { EngineService, type Config } from "./api.ts";
+import { settingsSaver } from "./settingsSaver.ts";
 import { copyText } from "./host.ts";
 import { locale, t } from "./i18n.ts";
 import { os } from "./platform.ts";
@@ -12,14 +13,13 @@ type TailscaleInfo = Awaited<ReturnType<typeof EngineService.Tailscale>>;
 
 interface Props {
   config: Config;
-  onSaved: (c: Config) => void;
   onError: (err: unknown) => void;
 }
 
 // The tailnet port the shown command serves the phone app on (engine.PhoneHTTPSPort).
 const HTTPS_PORT = 8443;
 
-export default function Phone({ config, onSaved, onError }: Props) {
+export default function Phone({ config, onError }: Props) {
   const [status, setStatus] = useState<PhoneStatus | null>(null);
   const [tail, setTail] = useState<TailscaleInfo | null>(null);
   const [copied, setCopied] = useState("");
@@ -43,10 +43,7 @@ export default function Phone({ config, onSaved, onError }: Props) {
   }, [remote.port]);
 
   const save = (next: Partial<typeof remote>) =>
-    EngineService.SaveSettings({ ...config, remote: { ...remote, ...next } })
-      .then(onSaved)
-      .then(refresh)
-      .catch(onError);
+    settingsSaver.change({ remote: next }).then(refresh).catch(onError);
   const copy = (key: string, text: string) =>
     copyText(text)
       .then(() => {

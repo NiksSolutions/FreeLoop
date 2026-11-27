@@ -81,6 +81,9 @@ type Config struct {
 	// marks only the app can compute (SET-005): hooks, agent presets, allow rules,
 	// environments, permissions.allowBypass and a profile's mode.
 	CommandApprovals []string `yaml:"commandApprovals,omitempty" json:"commandApprovals"`
+	// Revision counts the configs the engine has held since it started, so the
+	// window can tell an older answer from a newer one (issue 091). Not in the file.
+	Revision uint64 `yaml:"-" json:"revision"`
 	// Network holds the local-only switch (NFR-OFF-003).
 	Network Network `yaml:"network,omitempty" json:"network"`
 	// Updates holds the opt-in update check (SEC-009, OQ-015).

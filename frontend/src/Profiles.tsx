@@ -3,6 +3,8 @@ import { ask } from "./ask.ts";
 import { t } from "./i18n.ts";
 import { tNodes } from "./i18nNodes.tsx";
 import { EngineService, modeName, STARTING_MODES, type Command, type HarnessInfo, type Issue, type OptimizerStatus, type Profile, type ProviderInfo, type WorkflowInfo } from "./api.ts";
+import { patchOf } from "./configSave.ts";
+import { settingsSaver } from "./settingsSaver.ts";
 import { OPTIMIZER_OFF } from "./optimizers.ts";
 
 // Profiles (HRN-003): one YAML file each in profiles/. The form covers the
@@ -545,9 +547,7 @@ function FallbackCard({ profiles, harnesses, onError }: { profiles: Profile[]; h
     const next = { ...fallbacks, [agent]: profileId };
     if (!profileId) delete next[agent];
     setFallbacks(next);
-    EngineService.Config()
-      .then((c) => EngineService.SaveSettings({ ...c, fallbacks: next }))
-      .catch(onError);
+    settingsSaver.change(patchOf({ fallbacks }, { fallbacks: next }))?.catch(onError);
   };
   return (
     <div className="card">

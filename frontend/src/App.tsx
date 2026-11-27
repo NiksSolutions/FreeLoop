@@ -1,6 +1,7 @@
 import { useEffect, useEffectEvent, useMemo, useRef, useState, type CSSProperties, type DragEvent } from "react";
 import { screenName } from "./a11y.ts";
 import { ariaKeys, bindingOf, keyLabel, pressed, setBindings } from "./shortcuts.ts";
+import { onSettings, settingsSaver } from "./settingsSaver.ts";
 import { isMac, otherKey, primaryKey, primaryOnly } from "./platform.ts";
 import { Browser, Events, Window } from "@wailsio/runtime";
 import {
@@ -623,17 +624,25 @@ export default function App() {
     }, 300);
   };
 
-  // A config object only replaces the current one when it differs, so an
-  // unrelated reload does not reset a half-edited settings form.
+  // takeConfig takes up a config from the engine, with what this window changed and has
+  // not saved yet on top: the changes waiting to be saved (issue 091), and a size
+  // chosen with ⌘+ or ⌘- or fonts and a style chosen, which are sent a moment later.
+  // A config object only replaces the current one when it differs, so an unrelated
+  // reload does not reset a half-edited settings form.
+  const takeConfig = (disk: Config) => {
+    let c = settingsSaver.withPending(disk);
+    if (fontPending.current !== null) c = { ...c, ui: { ...c.ui, fontSize: fontPending.current } };
+    if (fontsPending.current) c = { ...c, ui: { ...c.ui, ...fontsPending.current } };
+    // One older than the config shown, which a newer answer already replaced (the
+    // engine counts them), is not taken up.
+    setConfig((old) => (old && (c.revision < old.revision || JSON.stringify(old) === JSON.stringify(c)) ? old : c));
+  };
+  const savedByWindow = useEffectEvent((c: Config) => takeConfig(c));
+  const queuedByWindow = useEffectEvent(() => config && takeConfig(config));
+  const failedInWindow = useEffectEvent(() => refreshConfig());
+  useEffect(() => onSettings({ saved: (c) => savedByWindow(c), queued: () => queuedByWindow(), failed: () => failedInWindow() }), []);
   const refreshConfig = () => {
-    reads
-      .config(EngineService.Config(), (disk) => {
-        // A size chosen with ⌘+ or ⌘- and not saved yet is newer than the file.
-        const c = fontPending.current === null ? disk : { ...disk, ui: { ...disk.ui, fontSize: fontPending.current } };
-        if (fontsPending.current) c.ui = { ...c.ui, ...fontsPending.current };
-        setConfig((old) => (old && JSON.stringify(old) === JSON.stringify(c) ? old : c));
-      })
-      .catch(report);
+    reads.config(EngineService.Config(), takeConfig).catch(report);
     reads
       .colors(EngineService.Colors(), (disk) => {
         if (colorsPending.current) return;
@@ -938,12 +947,9 @@ export default function App() {
       setConfig({ ...now, ui: { ...now.ui, fontSize: next } });
       clearTimeout(fontSave.current);
       fontSave.current = setTimeout(() => {
-        if (!configNow.current) return;
-        EngineService.SaveSettings(configNow.current)
-          .catch(report)
-          .finally(() => {
-            if (fontPending.current === next) fontPending.current = null;
-          });
+        // Sent as the one change it is; waiting, takeConfig keeps it on top (issue 091).
+        settingsSaver.change({ ui: { fontSize: next } })?.catch(report);
+        if (fontPending.current === next) fontPending.current = null;
       }, 400);
     };
     window.addEventListener("keydown", onKey);
@@ -962,12 +968,8 @@ export default function App() {
     setConfig({ ...now, ui: { ...now.ui, ...next } });
     clearTimeout(fontsSave.current);
     fontsSave.current = setTimeout(() => {
-      if (!configNow.current) return;
-      EngineService.SaveSettings(configNow.current)
-        .catch(report)
-        .finally(() => {
-          if (fontsPending.current === next) fontsPending.current = null;
-        });
+      settingsSaver.change({ ui: { ...next } })?.catch(report);
+      if (fontsPending.current === next) fontsPending.current = null;
     }, 300);
   };
 
@@ -1102,10 +1104,7 @@ export default function App() {
   };
   const savedFilters: SavedFilter[] = (config?.filters ?? []).map((f) => ({ ...f, tags: f.tags ?? [] }));
   const saveFilters = (filters: SavedFilter[]) => {
-    if (!config) return;
-    EngineService.SaveSettings({ ...config, filters })
-      .then((c) => c && setConfig(c))
-      .catch(report);
+    settingsSaver.change({ filters })?.catch(report);
   };
   const tagsInUse = allTags(sessions.filter((s) => s.status !== "archived"));
   // Subagents are listed under the session that started them (HRN-014).
@@ -1971,7 +1970,6 @@ export default function App() {
             harnesses={harnesses}
             onProvidersChanged={refreshProviders}
             onProjectsChanged={refreshProjects}
-            onSaved={setConfig}
             onDemo={(sid) => {
               refreshSessions();
               openSession(sid);
@@ -1995,11 +1993,9 @@ export default function App() {
                   onStartWith={(profileId) => {
                     // The agent becomes the default, so the form comes up with it.
                     if (!config) return setScreen({ kind: "new" });
-                    EngineService.SaveSettings({ ...config, defaults: { ...config.defaults, profileId } })
-                      .then((c) => {
-                        setConfig(c);
-                        setScreen({ kind: "new" });
-                      })
+                    settingsSaver
+                      .change({ defaults: { profileId } })
+                      ?.then(() => setScreen({ kind: "new" }))
                       .catch(report);
                   }}
                 />
@@ -2024,13 +2020,13 @@ export default function App() {
                   onChooseStyle={(style) => changeLook({ style })}
                   onStylesChanged={refreshStyles}
                   reportSession={sessions.find((s) => s.id === lastSessionId) ?? null}
-                onSaved={setConfig} onError={report} />
+                onSaved={takeConfig} onError={report} />
               )}
               {screen.kind === "environments" && <Environments environments={environments} onChanged={refreshEnvironments} onError={report} />}
-              {screen.kind === "optimizers" && config && <Optimizers config={config} version={configVersion} onSaved={setConfig} onError={report} />}
-              {screen.kind === "voice" && config && <Voice config={config} onSaved={setConfig} onError={report} />}
-              {screen.kind === "phone" && config && <Phone config={config} onSaved={setConfig} onError={report} />}
-              {screen.kind === "workflows" && config && <Workflows config={config} version={configVersion} onSaved={setConfig} onError={report} />}
+              {screen.kind === "optimizers" && config && <Optimizers config={config} version={configVersion} onSaved={takeConfig} onError={report} />}
+              {screen.kind === "voice" && config && <Voice config={config} onError={report} />}
+              {screen.kind === "phone" && config && <Phone config={config} onError={report} />}
+              {screen.kind === "workflows" && config && <Workflows config={config} version={configVersion} onSaved={takeConfig} onError={report} />}
               {screen.kind === "schedules" && (
                 <Schedules projects={projects} profiles={profiles} providers={providers} harnesses={harnesses} defaults={config?.defaults} onOpenSession={(id) => openSession(id)} onError={report} />
               )}

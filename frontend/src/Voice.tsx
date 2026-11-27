@@ -1,5 +1,6 @@
 import { useEffect, useEffectEvent, useState } from "react";
 import { EngineService, type Config, type VoiceStatus } from "./api.ts";
+import { settingsSaver } from "./settingsSaver.ts";
 import DictateButton, { size, useVoiceDownload } from "./Dictation.tsx";
 import { LANGUAGES, t } from "./i18n.ts";
 
@@ -8,11 +9,10 @@ import { LANGUAGES, t } from "./i18n.ts";
 
 interface Props {
   config: Config;
-  onSaved: (c: Config) => void;
   onError: (err: unknown) => void;
 }
 
-export default function Voice({ config, onSaved, onError }: Props) {
+export default function Voice({ config, onError }: Props) {
   const [status, setStatus] = useState<VoiceStatus | null>(null);
   const [heard, setHeard] = useState("");
   const [said, setSaid] = useState("");
@@ -26,9 +26,7 @@ export default function Voice({ config, onSaved, onError }: Props) {
   const stop = () => EngineService.CancelVoiceInstall().then(refresh).catch(onError);
   const remove = () => EngineService.RemoveVoice().then(refresh).catch(onError);
   const setLanguage = (language: string) =>
-    EngineService.SaveSettings({ ...config, voice: { ...config.voice, language } })
-      .then(onSaved)
-      .catch(onError);
+    settingsSaver.change({ voice: { language } }).catch(onError);
 
   const state = status?.state;
   return (

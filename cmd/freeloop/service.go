@@ -963,6 +963,12 @@ func (s *EngineService) SaveSettings(c config.Config) (config.Config, error) {
 	return s.eng.SaveSettings(c)
 }
 
+// ChangeSettings merges a JSON merge patch into the settings (issue 091); the window
+// saves through it, sending only what changed.
+func (s *EngineService) ChangeSettings(patch string) (config.Config, error) {
+	return s.eng.ChangeSettings(patch)
+}
+
 func (s *EngineService) RenameSession(ctx context.Context, sessionID, title string) error {
 	return s.eng.RenameSession(ctx, sessionID, title)
 }

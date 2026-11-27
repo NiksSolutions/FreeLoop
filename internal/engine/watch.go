@@ -102,6 +102,7 @@ func (e *Engine) reload(changed []string) {
 			// A file that cannot be read keeps the settings in force, so a
 			// half-saved edit does not turn off local-only mode or hooks.
 			if !config.Unreadable(issues) {
+				cfg.Revision = e.cfg.Revision + 1
 				e.cfg = cfg
 			}
 			localOnly := e.cfg.Network.LocalOnly

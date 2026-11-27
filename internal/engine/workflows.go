@@ -212,12 +212,13 @@ func (e *Engine) ApproveWorkflow(ctx context.Context, id, fingerprint string) (c
 	if err != nil {
 		return config.Config{}, err
 	}
-	c := e.Config()
-	approvals := map[string]string{}
-	maps.Copy(approvals, c.WorkflowApprovals)
-	approvals[id] = mark
-	c.WorkflowApprovals = approvals
-	return e.SaveSettings(c)
+	return e.updateSettings(func(c *config.Config) error {
+		approvals := map[string]string{}
+		maps.Copy(approvals, c.WorkflowApprovals)
+		approvals[id] = mark
+		c.WorkflowApprovals = approvals
+		return nil
+	})
 }
 
 // SetDefaultWorkflow sets the workflow of new sessions; "" is none. Choosing one runs
@@ -231,9 +232,10 @@ func (e *Engine) SetDefaultWorkflow(ctx context.Context, id string) (config.Conf
 			return config.Config{}, fmt.Errorf("there is no workflow %q", id)
 		}
 	}
-	c := e.Config()
-	c.Defaults.Workflow = id
-	return e.SaveSettings(c)
+	return e.updateSettings(func(c *config.Config) error {
+		c.Defaults.Workflow = id
+		return nil
+	})
 }
 
 // chooseWorkflow decides a new session's workflow: the one asked for, then the

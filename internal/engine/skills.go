@@ -221,9 +221,10 @@ func (e *Engine) SetSkillEnabled(ctx context.Context, name, projectID string, en
 		return list
 	}
 	if projectID == "" {
-		cfg := e.Config()
-		cfg.Skills.Disabled = toggle(cfg.Skills.Disabled)
-		_, err := e.SaveSettings(cfg)
+		_, err := e.updateSettings(func(c *config.Config) error {
+			c.Skills.Disabled = toggle(c.Skills.Disabled)
+			return nil
+		})
 		return err
 	}
 	p, err := e.store.GetProject(ctx, projectID)

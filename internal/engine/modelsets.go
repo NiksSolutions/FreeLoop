@@ -52,28 +52,30 @@ func (e *Engine) ListModelSets(ctx context.Context) []ModelSetInfo {
 // ID.
 func (e *Engine) SaveModelSet(ctx context.Context, set config.ModelSet) (config.Config, error) {
 	set.Name = strings.TrimSpace(set.Name)
-	c := e.Config()
-	c.ModelSets = slices.Clone(c.ModelSets)
-	if i := slices.IndexFunc(c.ModelSets, func(s config.ModelSet) bool { return s.ID == set.ID }); set.ID != "" && i >= 0 {
-		c.ModelSets[i] = set
-	} else {
-		base := config.ModelSetID(set.Name)
-		set.ID = base
-		for n := 2; slices.ContainsFunc(c.ModelSets, func(s config.ModelSet) bool { return s.ID == set.ID }); n++ {
-			set.ID = fmt.Sprintf("%s-%d", base, n)
+	return e.updateSettings(func(c *config.Config) error {
+		c.ModelSets = slices.Clone(c.ModelSets)
+		if i := slices.IndexFunc(c.ModelSets, func(s config.ModelSet) bool { return s.ID == set.ID }); set.ID != "" && i >= 0 {
+			c.ModelSets[i] = set
+		} else {
+			base := config.ModelSetID(set.Name)
+			set.ID = base
+			for n := 2; slices.ContainsFunc(c.ModelSets, func(s config.ModelSet) bool { return s.ID == set.ID }); n++ {
+				set.ID = fmt.Sprintf("%s-%d", base, n)
+			}
+			c.ModelSets = append(c.ModelSets, set)
 		}
-		c.ModelSets = append(c.ModelSets, set)
-	}
-	return e.SaveSettings(c)
+		return nil
+	})
 }
 
 // DeleteModelSet removes a set, and from the workflows that used it.
 func (e *Engine) DeleteModelSet(ctx context.Context, id string) (config.Config, error) {
-	c := e.Config()
-	c.ModelSets = slices.DeleteFunc(slices.Clone(c.ModelSets), func(s config.ModelSet) bool { return s.ID == id })
-	c.WorkflowModelSets = maps.Clone(c.WorkflowModelSets)
-	maps.DeleteFunc(c.WorkflowModelSets, func(_, set string) bool { return set == id })
-	return e.SaveSettings(c)
+	return e.updateSettings(func(c *config.Config) error {
+		c.ModelSets = slices.DeleteFunc(slices.Clone(c.ModelSets), func(s config.ModelSet) bool { return s.ID == id })
+		c.WorkflowModelSets = maps.Clone(c.WorkflowModelSets)
+		maps.DeleteFunc(c.WorkflowModelSets, func(_, set string) bool { return set == id })
+		return nil
+	})
 }
 
 // SetWorkflowModelSet has a workflow use a set; empty, none. The workflow's file and
@@ -82,20 +84,21 @@ func (e *Engine) SetWorkflowModelSet(ctx context.Context, workflowID, setID stri
 	if _, ok := e.findWorkflow(workflowID); !ok {
 		return config.Config{}, fmt.Errorf("there is no workflow %q", workflowID)
 	}
-	c := e.Config()
-	c.WorkflowModelSets = maps.Clone(c.WorkflowModelSets)
-	if c.WorkflowModelSets == nil {
-		c.WorkflowModelSets = map[string]string{}
-	}
-	if setID == "" {
-		delete(c.WorkflowModelSets, workflowID)
-	} else {
+	return e.updateSettings(func(c *config.Config) error {
+		c.WorkflowModelSets = maps.Clone(c.WorkflowModelSets)
+		if c.WorkflowModelSets == nil {
+			c.WorkflowModelSets = map[string]string{}
+		}
+		if setID == "" {
+			delete(c.WorkflowModelSets, workflowID)
+			return nil
+		}
 		if !slices.ContainsFunc(c.ModelSets, func(s config.ModelSet) bool { return s.ID == setID }) {
-			return config.Config{}, fmt.Errorf("there is no model set %q", setID)
+			return fmt.Errorf("there is no model set %q", setID)
 		}
 		c.WorkflowModelSets[workflowID] = setID
-	}
-	return e.SaveSettings(c)
+		return nil
+	})
 }
 
 // workflowModelSet is the set a workflow uses, if any.

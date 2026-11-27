@@ -1034,18 +1034,12 @@ await step("a shortcut is recorded after a click on its key", async () => {
   document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: "L", metaKey: true, shiftKey: true, bubbles: true, cancelable: true }));
   await sleep(300);
   check("the press is taken", key.textContent === "⌘⇧L", key.textContent);
-  // Each change waits for its Saved, as a person's would: two saves of the whole
-  // config under way at once, this page's and the text size keys', can end in either
-  // order, which a slow runner showed (issue 091).
-  const savedNote = () => withText(".settings-content span.ok", "Saved");
-  await until("the press saved", savedNote, 8000).catch(() => null);
-  await until("its Saved gone", () => !savedNote(), 4000).catch(() => null);
+  // Reset and left at once, as a quick person might, while the save of the press may
+  // still be under way: on CI's runner the press used to win (issue 091). The text
+  // size keys below need the Reset in force, and the page is looked at again after.
   (await until("Reset", () => document.querySelector('button[aria-label="Reset Larger text"]'))).click();
   await until("the key as it was", () => key.textContent === "⌘+", 3000).catch(() => null);
   check("Reset gives it back", key.textContent === "⌘+", key.textContent);
-  const settled = await until("the Reset saved", () => savedNote() && !document.querySelector(".settings-save"), 8000).catch(() => false);
-  check("the Reset saves by itself", settled, withText(".settings-save button", "Revert") ? "Save and Revert are offered" : "no Saved");
-  withText(".settings-save button", "Revert")?.click();
   document.querySelector(".settings-nav .settings-back").click();
   await sleep(100);
 });
@@ -1080,6 +1074,17 @@ await step("the text size keys say what they did", async () => {
   await until("the note gone", () => !document.querySelector(".text-size-note"), 4000).catch(() => null);
   check("the note goes by itself", !document.querySelector(".text-size-note"));
   await sleep(600);
+});
+
+await step("the Reset is what was saved", async () => {
+  document.querySelector(".settings-link").click();
+  await until("Settings", () => document.querySelector(".settings-nav"));
+  withText(".settings-nav button", "Keyboard").click();
+  const key = await until("the Larger text key", () => document.querySelector('button[aria-label^="Change Larger text"]'));
+  const settled = await until("nothing left to save", () => !document.querySelector(".settings-save"), 8000).catch(() => false);
+  check("the Reset is what was saved", key.textContent === "⌘+" && settled && !document.querySelector('button[aria-label="Reset Larger text"]'), `${key.textContent}${settled ? "" : ", Save and Revert are offered"}`);
+  document.querySelector(".settings-nav .settings-back").click();
+  await sleep(100);
 });
 
 await step("a style keeps the fonts and colors, and choosing it brings them back", async () => {
@@ -1197,7 +1202,8 @@ await step("the Settings page follows the language chosen, at once", async () =>
   check("the page's lang follows", lang, document.documentElement.lang);
   check("the sections and the column follow", !!withText(".settings-page h3", "Farbmodus und Textgröße") && !!withText(".settings-nav button", "Zurück") && !!withText(".settings-nav h2", "Modelle"));
   pick("en");
-  await until("the heading in English", () => document.querySelector(".settings-page h2")?.textContent === "Appearance", 8000).catch(() => {});
+  // The page's lang, too, a moment after the words.
+  await until("the heading in English", () => document.querySelector(".settings-page h2")?.textContent === "Appearance" && document.documentElement.lang === "en", 8000).catch(() => {});
   check("English comes back", document.querySelector(".settings-page h2")?.textContent === "Appearance" && document.documentElement.lang === "en", `${document.querySelector(".settings-page h2")?.textContent} ${document.documentElement.lang}`);
   document.querySelector(".settings-nav .settings-back").click();
   await sleep(100);

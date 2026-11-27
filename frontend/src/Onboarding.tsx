@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { secretStore } from "./platform.ts";
 import { EngineService, type Config, type HarnessInfo, type ProviderInfo } from "./api.ts";
+import { settingsSaver } from "./settingsSaver.ts";
 import Providers from "./Providers.tsx";
 import ClaudeImport from "./ClaudeImport.tsx";
 import { t } from "./i18n.ts";
@@ -29,13 +30,12 @@ interface Props {
   onDone: (root: string) => void;
   // Called with the demo session (GUI-045) once it exists and the guide is done.
   onDemo: (sessionId: string) => void;
-  onSaved: (c: Config) => void;
   onError: (err: unknown) => void;
 }
 
 type Step = "provider" | "import" | "project";
 
-export default function Onboarding({ config, providers, harnesses, onProvidersChanged, onProjectsChanged, onDone, onDemo, onSaved, onError }: Props) {
+export default function Onboarding({ config, providers, harnesses, onProvidersChanged, onProjectsChanged, onDone, onDemo, onError }: Props) {
   const [step, setStep] = useState<Step>("provider");
   const [root, setRoot] = useState("");
   const [trust, setTrust] = useState(false);
@@ -45,22 +45,18 @@ export default function Onboarding({ config, providers, harnesses, onProvidersCh
   const ready = hasProvider || agents.some((h) => !h.missing);
   // Choosing an agent makes it the default for new sessions.
   const chooseAgent = (h: HarnessInfo) =>
-    EngineService.SaveSettings({ ...config, defaults: { ...config.defaults, profileId: h.id } })
-      .then((c) => {
-        onSaved(c);
-        setStep("import");
-      })
+    settingsSaver
+      .change({ defaults: { profileId: h.id } })
+      .then(() => setStep("import"))
       .catch(onError);
 
   // Finishing or skipping is remembered, so the guide shows once.
   const finish = (folder: string) => {
     setBusy(true);
     const done = () =>
-      EngineService.SaveSettings({ ...config, ui: { ...config.ui, onboarded: true } })
-        .then((c) => {
-          onSaved(c);
-          onDone(folder);
-        })
+      settingsSaver
+        .change({ ui: { onboarded: true } })
+        .then(() => onDone(folder))
         .catch(onError)
         .finally(() => setBusy(false));
     if (!folder) return done();
@@ -79,10 +75,7 @@ export default function Onboarding({ config, providers, harnesses, onProvidersCh
     EngineService.StartDemo()
       .then((s) => {
         onProjectsChanged();
-        return EngineService.SaveSettings({ ...config, ui: { ...config.ui, onboarded: true } }).then((c) => {
-          onSaved(c);
-          onDemo(s.id);
-        });
+        return settingsSaver.change({ ui: { onboarded: true } }).then(() => onDemo(s.id));
       })
       .catch(onError)
       .finally(() => setBusy(false));

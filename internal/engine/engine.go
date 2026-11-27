@@ -208,6 +208,10 @@ type Engine struct {
 	voice *voice
 	// notifying is the notice goroutine, which ends when the bus closes.
 	notifying sync.WaitGroup
+	// settingsMu is held from a read of the config to its write, so two changes made
+	// at once cannot drop one another (issue 091). It is taken before mu, never
+	// while mu is held; saveSettings is called with it held.
+	settingsMu sync.Mutex
 
 	mu sync.Mutex
 	// projects caches trusted projects' .freeloop/ settings, skillCache
@@ -450,6 +454,53 @@ func (e *Engine) Config() config.Config {
 // SaveSettings replaces config.yaml (SET-004, GUI-011). Turning bypass mode
 // off also takes any session out of it on its next mode change.
 func (e *Engine) SaveSettings(c config.Config) (config.Config, error) {
+	e.settingsMu.Lock()
+	defer e.settingsMu.Unlock()
+	return e.saveWritten(c)
+}
+
+// ChangeSettings merges patch, a JSON merge patch (RFC 7386) over the config as the
+// interface sees it, into the config as it is now, and saves that (issue 091). A
+// window sends only what it changed, so a change never carries another writer's
+// older values: the text size keys', a page's, or the engine's own.
+func (e *Engine) ChangeSettings(patch string) (config.Config, error) {
+	return e.updateSettings(func(c *config.Config) error {
+		doc, err := json.Marshal(c)
+		if err != nil {
+			return err
+		}
+		merged, err := mergePatch(doc, []byte(patch))
+		if err != nil {
+			return fmt.Errorf("the change to the settings is not a JSON object: %w", err)
+		}
+		// Into an empty config: decoding into the old one would merge its maps, keeping
+		// a key the change removed. The interface sees every field, so none is lost.
+		var next config.Config
+		dec := json.NewDecoder(bytes.NewReader(merged))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&next); err != nil {
+			return fmt.Errorf("the change to the settings does not fit them: %w", err)
+		}
+		*c = next
+		return nil
+	})
+}
+
+// updateSettings applies change to the config as it is now and saves it as the user's
+// own (saveWritten), holding settingsMu from the read to the write.
+func (e *Engine) updateSettings(change func(*config.Config) error) (config.Config, error) {
+	e.settingsMu.Lock()
+	defer e.settingsMu.Unlock()
+	c := e.Config()
+	if err := change(&c); err != nil {
+		return config.Config{}, err
+	}
+	return e.saveWritten(c)
+}
+
+// saveWritten saves settings the user wrote in the app, approving what they hold that
+// waits nowhere else (writtenMarks). Called with settingsMu held.
+func (e *Engine) saveWritten(c config.Config) (config.Config, error) {
 	marks, err := e.writtenMarks(settingsItems(c))
 	if err != nil {
 		return config.Config{}, err
@@ -458,7 +509,8 @@ func (e *Engine) SaveSettings(c config.Config) (config.Config, error) {
 }
 
 // saveSettings writes config.yaml with marks added to the approvals in force. The
-// form's copy of those is ignored, since it can be older than an approval.
+// form's copy of those is ignored, since it can be older than an approval. Called
+// with settingsMu held.
 func (e *Engine) saveSettings(c config.Config, marks []string) (config.Config, error) {
 	e.mu.Lock()
 	broken := config.Unreadable(e.issues[issueConfig])
@@ -494,6 +546,7 @@ func (e *Engine) saveSettings(c config.Config, marks []string) (config.Config, e
 	}
 	e.mu.Lock()
 	moved := originOf(e.cfg.Web.SearchURL) != originOf(c.Web.SearchURL)
+	c.Revision = e.cfg.Revision + 1
 	e.cfg = c
 	e.mu.Unlock()
 	e.dropBypass(context.Background())

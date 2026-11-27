@@ -309,9 +309,13 @@ func (e *Engine) StartWaiting(profileID string) StartWaits {
 	return waits
 }
 
-// saveChoosing saves settings in which the user just chose what fingerprint
+// chooseSettings saves settings in which the user just chose what fingerprint
 // names, which counts even if a file already said the same.
-func (e *Engine) saveChoosing(c config.Config, fingerprint string) (config.Config, error) {
+func (e *Engine) chooseSettings(change func(*config.Config), fingerprint string) (config.Config, error) {
+	e.settingsMu.Lock()
+	defer e.settingsMu.Unlock()
+	c := e.Config()
+	change(&c)
 	marks, err := e.writtenMarks(settingsItems(c))
 	if err != nil {
 		return config.Config{}, err
@@ -417,6 +421,8 @@ func (e *Engine) revoke(fingerprint string) error {
 	if err != nil {
 		return err
 	}
+	e.settingsMu.Lock()
+	defer e.settingsMu.Unlock()
 	e.mu.Lock()
 	e.cfg.CommandApprovals = slices.DeleteFunc(slices.Clone(e.cfg.CommandApprovals), func(m string) bool { return m == mark })
 	e.mu.Unlock()
@@ -540,6 +546,8 @@ func (e *Engine) ApproveCommands(fingerprints []string) (config.Config, error) {
 		}
 		marks = append(marks, mark)
 	}
+	e.settingsMu.Lock()
+	defer e.settingsMu.Unlock()
 	return e.saveSettings(e.Config(), marks)
 }
 
@@ -571,6 +579,8 @@ func (e *Engine) addApprovals(marks []string) error {
 	if len(marks) == 0 {
 		return nil
 	}
+	e.settingsMu.Lock()
+	defer e.settingsMu.Unlock()
 	_, err := e.saveSettings(e.Config(), marks)
 	return err
 }

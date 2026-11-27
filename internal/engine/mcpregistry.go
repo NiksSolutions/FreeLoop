@@ -280,9 +280,7 @@ func (e *Engine) SetMCPRegistryAddress(address string) error {
 	if address != "" && !registryAddress(address) {
 		return fmt.Errorf("%q is not an https address", address)
 	}
-	c := e.Config()
-	c.MCP.RegistryURL = address
-	_, err := e.saveChoosing(c, config.AddressFingerprint("mcp.registryURL", address))
+	_, err := e.chooseSettings(func(c *config.Config) { c.MCP.RegistryURL = address }, config.AddressFingerprint("mcp.registryURL", address))
 	return err
 }
 

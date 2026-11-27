@@ -161,12 +161,13 @@ func (e *Engine) ApproveOptimizer(ctx context.Context, id, fingerprint string) (
 	if err != nil {
 		return config.Config{}, err
 	}
-	c := e.Config()
-	approvals := map[string]string{}
-	maps.Copy(approvals, c.OptimizerApprovals)
-	approvals[id] = mark
-	c.OptimizerApprovals = approvals
-	return e.SaveSettings(c)
+	return e.updateSettings(func(c *config.Config) error {
+		approvals := map[string]string{}
+		maps.Copy(approvals, c.OptimizerApprovals)
+		approvals[id] = mark
+		c.OptimizerApprovals = approvals
+		return nil
+	})
 }
 
 func notApprovedReason(o config.Optimizer) string {
@@ -211,9 +212,7 @@ func (e *Engine) SetDefaultOptimizer(ctx context.Context, id string) (config.Con
 			return config.Config{}, errors.New(check.Reason)
 		}
 	}
-	c := e.Config()
-	c.Defaults.Optimizer = id
-	return e.saveChoosing(c, config.DefaultOptimizerFingerprint(id))
+	return e.chooseSettings(func(c *config.Config) { c.Defaults.Optimizer = id }, config.DefaultOptimizerFingerprint(id))
 }
 
 // chooseOptimizer decides a new session's optimizer: the one carried over, the
