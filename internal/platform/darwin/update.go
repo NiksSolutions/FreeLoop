@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Updating the app in place on a Mac (SET-008): the bundle the app runs from
@@ -81,6 +82,32 @@ func previous(bundle string) string {
 	return filepath.Join(filepath.Dir(bundle), ".Freeloop-previous.app")
 }
 
+// attachRetryDelay is the wait before attaching a busy disk image again, and twice that
+// before the last try.
+var attachRetryDelay = time.Second
+
+// attach mounts the disk image file at mount: read-only, not shown in the Finder, and
+// nothing in it opened. hdiutil answers "Resource temporarily unavailable" while the
+// system's disk images are busy, as CI's runner showed on 2026-11-27, so that answer
+// is tried again, twice; any other is not.
+func attach(ctx context.Context, run runner, mount, file string) error {
+	var err error
+	for try := range 3 {
+		if try > 0 {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(time.Duration(try) * attachRetryDelay):
+			}
+		}
+		_, err = run(ctx, []string{"/usr/bin/hdiutil", "attach", "-nobrowse", "-readonly", "-noautoopen", "-noverify", "-mountpoint", mount, file})
+		if err == nil || !strings.Contains(err.Error(), "Resource temporarily unavailable") {
+			return err
+		}
+	}
+	return err
+}
+
 // ApplyUpdate replaces the running bundle with the one in the disk image file,
 // a release's of version, and returns the command that opens it.
 func ApplyUpdate(ctx context.Context, file, version, scratch string, run runner) ([]string, error) {
@@ -100,8 +127,7 @@ func ApplyUpdateTo(ctx context.Context, bundle, file, version, scratch string, r
 	if err := os.MkdirAll(mount, 0o700); err != nil {
 		return nil, err
 	}
-	// Read-only, not shown in the Finder, and nothing in it opened.
-	if _, err := run(ctx, []string{"/usr/bin/hdiutil", "attach", "-nobrowse", "-readonly", "-noautoopen", "-noverify", "-mountpoint", mount, file}); err != nil {
+	if err := attach(ctx, run, mount, file); err != nil {
 		return nil, fmt.Errorf("open the disk image: %w", err)
 	}
 	defer run(context.WithoutCancel(ctx), []string{"/usr/bin/hdiutil", "detach", "-force", mount})

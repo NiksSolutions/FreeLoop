@@ -4,12 +4,14 @@ package darwin
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // realRun runs the system's programs, as the engine's runner does.
@@ -201,5 +203,40 @@ func TestCheckBundleTeam(t *testing.T) {
 	// From ad hoc to a team's is the move to signed releases.
 	if err := checkBundle(ctx, "/new.app", "0.2.0", "/running.app", run("not set", "ABCDE12345")); err != nil {
 		t.Errorf("ad hoc to a team: %v", err)
+	}
+}
+
+// hdiutil answers "Resource temporarily unavailable" while the system's disk images are
+// busy (CI's runner, 2026-11-27): attaching is tried again, a moment apart, and any
+// other failure is not.
+func TestAttachTriesABusyImageAgain(t *testing.T) {
+	defer func(d time.Duration) { attachRetryDelay = d }(attachRetryDelay)
+	attachRetryDelay = time.Millisecond
+	busy := errors.New("hdiutil: attach failed - Resource temporarily unavailable")
+	calls := 0
+	run := func(answers ...error) runner {
+		calls = 0
+		return func(context.Context, []string) (string, error) {
+			calls++
+			if calls <= len(answers) {
+				return "", answers[calls-1]
+			}
+			return "", nil
+		}
+	}
+	if err := attach(context.Background(), run(busy, busy), "/m", "/f.dmg"); err != nil || calls != 3 {
+		t.Errorf("busy twice: %v after %d tries", err, calls)
+	}
+	if err := attach(context.Background(), run(busy, busy, busy), "/m", "/f.dmg"); !errors.Is(err, busy) || calls != 3 {
+		t.Errorf("busy each time: %v after %d tries", err, calls)
+	}
+	other := errors.New("hdiutil: attach failed - image not recognized")
+	if err := attach(context.Background(), run(other), "/m", "/f.dmg"); !errors.Is(err, other) || calls != 1 {
+		t.Errorf("another failure: %v after %d tries", err, calls)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := attach(ctx, run(busy, busy), "/m", "/f.dmg"); err == nil || calls != 1 {
+		t.Errorf("cancelled: %v after %d tries", err, calls)
 	}
 }
