@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"regexp/syntax"
 	"slices"
 	"strconv"
 	"strings"
@@ -20,10 +21,11 @@ import (
 // can influence must not choose what enforces the sandbox.
 var bwrapPaths = []string{"/usr/bin/bwrap", "/bin/bwrap", "/usr/local/bin/bwrap"}
 
-// maxPatternWalk bounds how many entries a deny rule's wildcard looks through when a
-// command starts. A project bigger than that fails closed: its commands do not run
-// while such a rule is in place.
-const maxPatternWalk = 200_000
+// maxPatternWalk bounds how many entries the sandbox looks through for what its path
+// patterns match when a command starts: nested repositories, instruction files, what a
+// deny rule names. A project bigger than that fails closed: its commands do not run.
+// Only folders a pattern can match in are looked through (walkStarts).
+var maxPatternWalk = 200_000
 
 // Bubblewrap confines commands with bubblewrap on Linux (ENV-009, OQ-037), as Seatbelt
 // does on macOS. Seatbelt allows by default and denies; bubblewrap builds what the
@@ -262,8 +264,16 @@ func matching(c environment.Confinement, roots []string) (walkedPaths, error) {
 		}
 		return false
 	}
+	var patterns []string
+	for _, res := range [][]string{c.ProtectedPatterns, c.NoMovePatterns, c.NoAccessPatterns} {
+		patterns = append(patterns, res...)
+	}
+	starts := walkStarts(patterns, roots)
+	if len(c.ProtectedNames) > 0 {
+		starts = outermost(append(starts, c.Write...))
+	}
 	seen, n := map[string]bool{}, 0
-	for _, root := range roots {
+	for _, root := range starts {
 		if !exists(root) {
 			continue
 		}
@@ -272,7 +282,7 @@ func matching(c environment.Confinement, roots []string) (walkedPaths, error) {
 				return nil
 			}
 			if n++; n > maxPatternWalk {
-				return fmt.Errorf("a deny rule's wildcard would look through more than %d files in %s; its commands do not run while the rule is in place", maxPatternWalk, root)
+				return fmt.Errorf("the sandbox would have to look through more than %d files in %s for the paths it protects (nested repositories, instruction files, what a deny rule names), so commands do not run in it here", maxPatternWalk, root)
 			}
 			if seen[p] {
 				return nil
@@ -298,6 +308,66 @@ func matching(c environment.Confinement, roots []string) (walkedPaths, error) {
 		}
 	}
 	return w, nil
+}
+
+// walkStarts are the folders to look through for what patterns match under roots: for
+// each pattern, the folder its matches all lie in (literalStart) where that is inside
+// one of roots, or the root that folder holds; every root for a pattern that can match
+// anywhere. A pattern for the project never makes a toolchain's files be looked through.
+func walkStarts(patterns, roots []string) []string {
+	var starts []string
+	for _, re := range patterns {
+		dir := literalStart(re)
+		for _, root := range roots {
+			switch {
+			case dir == "" || within(root, dir):
+				starts = append(starts, root)
+			case within(dir, root):
+				starts = append(starts, dir)
+			}
+		}
+	}
+	return outermost(starts)
+}
+
+// outermost drops the folders inside another of folders, which is looked through
+// with it.
+func outermost(folders []string) []string {
+	folders = slices.Clone(folders)
+	slices.Sort(folders)
+	var out []string
+	for _, f := range slices.Compact(folders) {
+		if !slices.ContainsFunc(out, func(o string) bool { return within(f, o) }) {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// literalStart is the folder every match of re lies in: the plain text after its
+// leading ^ up to the last slash in it, or "" for a pattern that can match anywhere,
+// or whose start is not plain text.
+func literalStart(re string) string {
+	t, err := syntax.Parse(re, syntax.Perl)
+	if err != nil {
+		return ""
+	}
+	t = t.Simplify()
+	if t.Op != syntax.OpConcat || len(t.Sub) == 0 || t.Sub[0].Op != syntax.OpBeginText {
+		return ""
+	}
+	var lit strings.Builder
+	for _, s := range t.Sub[1:] {
+		if s.Op != syntax.OpLiteral || s.Flags&syntax.FoldCase != 0 {
+			break
+		}
+		lit.WriteString(string(s.Rune))
+	}
+	text := lit.String()
+	if i := strings.LastIndex(text, "/"); i > 0 {
+		return text[:i]
+	}
+	return ""
 }
 
 func depth(p string) int { return strings.Count(filepath.Clean(p), string(filepath.Separator)) }

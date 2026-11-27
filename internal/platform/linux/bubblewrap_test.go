@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -353,6 +354,62 @@ func TestProtectedNamesAreFound(t *testing.T) {
 	slices.Sort(got)
 	if want := []string{"AGENTS.md", "src/AGENTS.md", "src/deep/claude.md", "sub/.envrc"}; !slices.Equal(got, want) {
 		t.Errorf("protected = %q, want %q", got, want)
+	}
+}
+
+// The walk looks only where a pattern can match. The toolchains a command may read,
+// such as Go's module cache, are outside the project every built-in pattern names, and
+// counting them made every command fail closed on a developer's machine.
+func TestTheWalkLooksOnlyWherePatternsCanMatch(t *testing.T) {
+	project, _ := filepath.EvalSymlinks(t.TempDir())
+	tools, _ := filepath.EvalSymlinks(t.TempDir())
+	for i := range 300 {
+		f := filepath.Join(tools, "pkg", "mod", fmt.Sprintf("m%d", i/50), fmt.Sprintf("f%d", i))
+		os.MkdirAll(filepath.Dir(f), 0o755)
+		os.WriteFile(f, []byte("x"), 0o644)
+	}
+	os.MkdirAll(filepath.Join(project, "sub", ".git"), 0o755)
+	os.WriteFile(filepath.Join(project, "sub", ".git", "config"), []byte("x"), 0o644)
+	defer func(n int) { maxPatternWalk = n }(maxPatternWalk)
+	maxPatternWalk = 100
+	roots := []string{project, tools}
+	nested := "^" + regexp.QuoteMeta(project) + `/.+/\.git(/.*)?$`
+	w, err := matching(environment.Confinement{Write: []string{project}, Read: []string{tools}, ProtectedPatterns: []string{nested}}, roots)
+	if err != nil {
+		t.Fatalf("the toolchain's files were counted: %v", err)
+	}
+	if !slices.Contains(w.protected, filepath.Join(project, "sub", ".git", "config")) {
+		t.Errorf("protected = %q", w.protected)
+	}
+	// One anchored in the toolchain looks from its folder there.
+	one := "^" + regexp.QuoteMeta(filepath.Join(tools, "pkg", "mod", "m1")) + `/f5[0-9]$`
+	w, err = matching(environment.Confinement{Write: []string{project}, Read: []string{tools}, ProtectedPatterns: []string{one}}, roots)
+	if err != nil || len(w.protected) != 10 {
+		t.Errorf("anchored in the toolchain: %d found, %v", len(w.protected), err)
+	}
+	// One that can match anywhere still looks everywhere, and the limit holds.
+	_, err = matching(environment.Confinement{Write: []string{project}, Read: []string{tools}, NoAccessPatterns: []string{`\.env$`}}, roots)
+	if err == nil || !strings.Contains(err.Error(), "more than 100 files") {
+		t.Errorf("a pattern that can match anywhere: %v", err)
+	}
+}
+
+func TestLiteralStart(t *testing.T) {
+	for re, want := range map[string]string{
+		`^/home/u/proj/.+/\.git(/.*)?$`:   "/home/u/proj",
+		`^/home/u/proj/[Hh][Ee][Aa][Dd]$`: "/home/u/proj",
+		`^/home/u/proj/src/[^/]*\.key$`:   "/home/u/proj/src",
+		`^/home/u/my\ proj/a\.b(/.*)?$`:   "/home/u/my proj",
+		`^/home/u/proj/x$`:                "/home/u/proj",
+		`\.env$`:                          "",
+		`^.*\.env$`:                       "",
+		`^/[^/]+/x$`:                      "",
+		`(?i)^/home/u/proj/x$`:            "",
+		`^/home/u/proj/((a|b)/c|d)$`:      "/home/u/proj",
+	} {
+		if got := literalStart(re); got != want {
+			t.Errorf("%s: %q, want %q", re, got, want)
+		}
 	}
 }
 
