@@ -10,6 +10,10 @@ Each font has a **Weight** beside it, from Light to Semibold, Regular being the 
 
 Colors are set for the light and the dark appearance apart, and a change shows at once. Freeloop warns when text becomes hard to read. The colors are kept in `colors.json` in the data folder, which can also be edited by hand.
 
+## Provider marks
+
+What a session runs on shows in the sidebar and on its pane as a small mark. For llama.cpp, OpenRouter and vLLM it is the project's logo, which their makers let other apps show; for the rest it is a colour and two letters. Under **Provider marks** you can change a mark's colour, type its letters, or choose a picture of your own with **Picture…**, for instance a logo whose maker asks apps to get permission first. The picture is scaled down to a small PNG and kept in `config.yaml`, on this computer only.
+
 ## Styles
 
 A style keeps the two fonts and the colors of both appearances under a name, so you can switch between looks in one step. Theme, text size, the fonts' weights and language are not part of a style.

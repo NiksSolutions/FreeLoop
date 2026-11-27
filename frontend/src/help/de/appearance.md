@@ -10,6 +10,10 @@ Neben jeder Schrift steht ihre **Stärke**, von Leicht bis Halbfett; Normal ist 
 
 Farben werden für die helle und die dunkle Darstellung getrennt festgelegt, und eine Änderung ist sofort zu sehen. Freeloop warnt, wenn Text schwer lesbar wird. Die Farben stehen in `colors.json` im Datenordner, die sich auch von Hand bearbeiten lässt.
 
+## Anbieterkennzeichen
+
+Worauf eine Sitzung läuft, zeigt ein kleines Kennzeichen in der Seitenleiste und in ihrem Bereich. Für llama.cpp, OpenRouter und vLLM ist es das Logo des Projekts, das seine Macher anderen Apps zu zeigen erlauben; für die übrigen eine Farbe und zwei Buchstaben. Unter **Anbieterkennzeichen** lassen sich die Farbe ändern, Buchstaben eingeben oder mit **Bild…** ein eigenes Bild wählen, etwa ein Logo, dessen Hersteller Apps erst um Erlaubnis fragen lässt. Das Bild wird zu einem kleinen PNG verkleinert und in `config.yaml` gespeichert, nur auf diesem Computer.
+
 ## Stile
 
 Ein Stil hält die beiden Schriften und die Farben beider Darstellungen unter einem Namen fest, sodass ein Wechsel zwischen zwei Erscheinungsbildern ein Schritt ist. Farbmodus, Textgröße, die Stärken der Schriften und Sprache gehören nicht zu einem Stil.

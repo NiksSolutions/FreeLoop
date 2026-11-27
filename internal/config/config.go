@@ -262,11 +262,17 @@ type UI struct {
 // Languages are the values ui.language takes (GUI-048).
 var Languages = []string{"system", "en", "de", "nl"}
 
-// SourceMark is a provider's or agent's mark: a colour slot from 1 to SourceSlots, and
-// one or two letters. Zero and empty mean its own.
+// SourceMark is a provider's or agent's mark: a colour slot from 1 to SourceSlots, one
+// or two letters, and a picture. Zero and empty mean its own.
 type SourceMark struct {
 	Slot    int    `yaml:"slot,omitempty" json:"slot"`
 	Letters string `yaml:"letters,omitempty" json:"letters"`
+	// Icon is a picture the user chose, shown in place of the letters or the vendor's
+	// logo: a PNG of at most SourceIconSize pixels a side as a data: URL, which the
+	// window makes from the picture chosen. The app ships a vendor's logo only where
+	// the vendor's terms allow it (GUI-034, RISKS.md L-03); this is how a user shows
+	// another on their own computer.
+	Icon string `yaml:"icon,omitempty" json:"icon"`
 }
 
 // SourceSlots is how many colours marks have (--source-1 and so on in app.css).
@@ -290,6 +296,10 @@ func CleanSourceMarks(in map[string]SourceMark) (map[string]SourceMark, []Issue)
 		if m.Letters != "" && !sourceLetters.MatchString(m.Letters) {
 			issues = append(issues, Issue{Field: "ui.sourceMarks." + id + ".letters", Message: fmt.Sprintf("%q is not one or two letters or digits", m.Letters)})
 			m.Letters = ""
+		}
+		if m.Icon != "" && !ValidSourceIcon(m.Icon) {
+			issues = append(issues, Issue{Field: "ui.sourceMarks." + id + ".icon", Message: fmt.Sprintf("not a PNG of at most %d pixels a side as a data: URL; ignored", SourceIconSize)})
+			m.Icon = ""
 		}
 		if m != (SourceMark{}) {
 			out[id] = m

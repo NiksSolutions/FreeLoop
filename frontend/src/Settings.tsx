@@ -424,7 +424,7 @@ export default function Settings({ page, config, providers, harnesses, environme
         <h3>{t("settings.marks.title")}</h3>
         <p className="muted">{t("settings.marks.intro")}</p>
         <SourceMarks
-          value={form.ui.sourceMarks as Record<string, { slot: number; letters: string }> | null | undefined}
+          value={form.ui.sourceMarks as Record<string, { slot: number; letters: string; icon: string }> | null | undefined}
           providers={providers}
           harnesses={harnesses}
           onChange={(sourceMarks) => setForm({ ...form, ui: { ...form.ui, sourceMarks } })}

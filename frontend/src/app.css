@@ -686,7 +686,7 @@ fieldset {
 }
 
 /* The agent's mark is quiet until its row is pointed at or open (GUI-034). */
-.session-row:not([aria-current="true"]):not(:hover) .source-mark {
+.session-row:not([aria-current="true"]):not(:hover) .source-mark:not(.source-mark-logo) {
   filter: grayscale(1);
   opacity: 0.55;
 }
@@ -6063,6 +6063,52 @@ table.hooks .hook-command {
   border-radius: 0 0 2px 2px;
   background: var(--pane-source, transparent);
   pointer-events: none;
+}
+
+/* A picture in place of the letters (GUI-034): the user's, or a vendor's logo, on the
+   page's own background, as the logos' owners ask, not on the source's colour; a logo is
+   never greyed or faded either. Of a logo's two files the one for the appearance in
+   force shows. */
+.source-mark-logo,
+.source-mark-picture {
+  width: 16px;
+  min-width: 16px;
+  padding: 0;
+  background: none;
+}
+
+.source-mark-logo img,
+.source-mark-picture img {
+  display: block;
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}
+
+.source-mark-picture img {
+  border-radius: 4px;
+}
+
+.vendor-logo-on-dark {
+  display: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .source-mark-logo .vendor-logo-on-light {
+    display: none;
+  }
+
+  :root:not([data-theme="light"]) .source-mark-logo .vendor-logo-on-dark {
+    display: block;
+  }
+}
+
+:root[data-theme="dark"] .source-mark-logo .vendor-logo-on-light {
+  display: none;
+}
+
+:root[data-theme="dark"] .source-mark-logo .vendor-logo-on-dark {
+  display: block;
 }
 
 .source-marks {

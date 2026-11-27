@@ -69,7 +69,7 @@ export const de = translationOf<typeof en>()({
   "settings.styles.title": "Stile",
   "settings.colors.title": "Farben",
   "settings.marks.title": "Anbieterkennzeichen",
-  "settings.marks.intro": "Worauf eine Sitzung läuft, zeigen eine Farbe und zwei Buchstaben, in der Seitenleiste und in ihrem Bereich.",
+  "settings.marks.intro": "Worauf eine Sitzung läuft, steht in der Seitenleiste und in ihrem Bereich: als Logo, wo sein Hersteller anderen Apps erlaubt, es zu zeigen, sonst als Farbe und zwei Buchstaben. Eingegebene Buchstaben oder ein gewähltes Bild erscheinen stattdessen; ein Bild bleibt auf diesem Computer, in config.yaml.",
 
   "settings.keyboard.fixed":
     "{first} bis {last} öffnen die zuoberst aufgeführten Sitzungen, und {once}, {always} und {reject} beantworten eine Freigabeanfrage von überall; diese bleiben, wie sie sind.",
@@ -407,6 +407,11 @@ export const de = translationOf<typeof en>()({
   "marks.colour": "Farbe {slot}",
   "marks.lettersFor": "Buchstaben für {name}",
   "marks.reset": "Kennzeichen von {name} zurücksetzen",
+  "marks.picture": "Bild…",
+  "marks.pictureFor": "Bild für {name} wählen",
+  "marks.removePicture": "Bild entfernen",
+  "marks.removePictureFor": "Bild von {name} entfernen",
+  "marks.pictureBad": "Dieses Bild ließ sich nicht lesen. Eine PNG-, JPEG-, WebP-, GIF- oder SVG-Datei bis 8 MB wählen.",
 
   "mode.ask": "Fragen",
   "mode.ask.hint": "Fragt vor allem, was Dateien ändert oder einen Befehl ausführt, sofern keine Regel entscheidet.",

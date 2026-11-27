@@ -22,12 +22,19 @@ hooks:
     match: shell
     command: "true"
 YAML
+  # And a llama.cpp server, whose logo its makers let other apps show (GUI-034), on a
+  # port where nothing listens: the check only draws its mark.
   cat > "$home/providers.yaml" <<'YAML'
 version: 1
 providers:
   - id: stand-in
     name: Stand-in
     type: scripted
+  - id: llama
+    name: llama.cpp server
+    type: openai_compat
+    preset: llamacpp
+    baseUrl: http://127.0.0.1:9/v1
 YAML
   # A server that cannot start.
   cat > "$home/mcp.yaml" <<'YAML'

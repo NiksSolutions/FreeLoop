@@ -68,7 +68,7 @@ export const nl = translationOf<typeof en>()({
   "settings.styles.title": "Stijlen",
   "settings.colors.title": "Kleuren",
   "settings.marks.title": "Merktekens van aanbieders",
-  "settings.marks.intro": "Waarop een sessie draait, staat als een kleur met twee letters in de zijbalk en op het paneel van de sessie.",
+  "settings.marks.intro": "Waarop een sessie draait, staat in de zijbalk en op het paneel van de sessie: als logo, waar de maker andere apps toestaat het te tonen, anders als een kleur met twee letters. Getypte letters of een gekozen afbeelding verschijnen in plaats daarvan; een afbeelding blijft op deze computer, in config.yaml.",
 
   "settings.keyboard.fixed":
     "{first} tot en met {last} openen de bovenste sessies in de lijst, en {once}, {always} en {reject} beantwoorden een goedkeuringsverzoek van overal; die blijven zoals ze zijn.",
@@ -406,6 +406,11 @@ export const nl = translationOf<typeof en>()({
   "marks.colour": "Kleur {slot}",
   "marks.lettersFor": "Letters voor {name}",
   "marks.reset": "Merkteken van {name} herstellen",
+  "marks.picture": "Afbeelding…",
+  "marks.pictureFor": "Afbeelding kiezen voor {name}",
+  "marks.removePicture": "Afbeelding verwijderen",
+  "marks.removePictureFor": "Afbeelding van {name} verwijderen",
+  "marks.pictureBad": "Die afbeelding kon niet worden gelezen. Kies een PNG-, JPEG-, WebP-, GIF- of SVG-bestand tot 8 MB.",
 
   "mode.ask": "Vragen",
   "mode.ask.hint": "Vraagt vóór alles wat bestanden wijzigt of een opdracht uitvoert, tenzij een regel beslist.",

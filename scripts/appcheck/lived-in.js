@@ -251,6 +251,47 @@ await step("an empty Board offers to start a workflow", async () => {
   await until("back in a session", () => activePane().querySelector(".session-titleline h2")?.textContent === "Work 30", 8000);
 });
 
+await step("a mark shows its vendor's logo where allowed, and the user's own picture before it", async () => {
+  // GUI-034: llama.cpp's logo in the variant for the appearance in force; letters where
+  // there is no logo; a picture chosen in Settings drawn into a PNG, even from an SVG with
+  // a script in it, shown on the sidebar's sessions, and taken away again.
+  document.querySelector(".settings-link").click();
+  (await until("the Appearance page", () => withText(".settings-nav button", "Appearance"))).click();
+  await until("Appearance", () => document.querySelector(".settings-page h2")?.textContent === "Appearance");
+  const row = (name) => all(".source-marks li").find((li) => li.querySelector(".source-marks-name")?.textContent === name);
+  const llama = await until("the llama.cpp server's row", () => row("llama.cpp server"), 8000);
+  const theme = document.documentElement.dataset.theme;
+  const dark = theme === "dark" || (theme !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
+  const shown = () => all(".source-mark-logo img", llama).filter((i) => getComputedStyle(i).display !== "none");
+  await until("the logo drawn", () => shown()[0]?.complete && shown()[0].naturalWidth > 0, 5000).catch(() => {});
+  check(
+    "llama.cpp's mark is its logo, the variant for this appearance, drawn",
+    shown().length === 1 && shown()[0].naturalWidth > 0 && shown()[0].classList.contains(dark ? "vendor-logo-on-dark" : "vendor-logo-on-light"),
+    shown().map((i) => `${i.className} ${i.naturalWidth}`).join(", ") || "none shown",
+  );
+  const demo = row("Scripted demo");
+  const mark = () => demo?.querySelector(".source-mark");
+  check("a provider without a logo keeps its letters", !!demo && !mark().querySelector("img") && /^\S{1,2}$/.test(mark().textContent.trim()), mark()?.outerHTML.slice(0, 120));
+  // An SVG with a script in it: what is kept is a PNG, and nothing ran.
+  const file = new File(['<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" onload="window.pwned=1"><script>window.pwned=1</script><rect width="40" height="40" fill="#e5533d"/></svg>'], "mine.svg", { type: "image/svg+xml" });
+  named("button", "Choose a picture for Scripted demo", demo).click();
+  const chooser = document.querySelector('.settings-page input[type="file"]');
+  const files = new DataTransfer();
+  files.items.add(file);
+  chooser.files = files.files;
+  chooser.dispatchEvent(new Event("change", { bubbles: true }));
+  const picture = await until("the picture", () => mark()?.querySelector("img"), 5000).catch(() => null);
+  check("a picture chosen shows in its mark, as a PNG, and its script did not run", !!picture && picture.src.startsWith("data:image/png;base64,") && window.pwned === undefined, `${picture?.src.slice(0, 30)} pwned ${window.pwned}`);
+  const inSidebar = await until("the picture in the sidebar", () => all(".session-row .source-mark-picture img").length > 0, 8000).catch(() => false);
+  check("the sidebar's sessions on it show the picture", !!inSidebar);
+  named("button", "Remove the picture of Scripted demo", demo).click();
+  await until("the letters again", () => !mark()?.querySelector("img"), 5000).catch(() => {});
+  check("removing the picture brings the letters back", !mark()?.querySelector("img"), mark()?.outerHTML.slice(0, 120));
+  await sleep(800);
+  document.querySelector(".settings-nav .settings-back").click();
+  await sleep(200);
+});
+
 await step("every control has a name", async () => {
   const unnamed = [];
   for (const e of all("button, a[href], summary, [role=tab], [role=menuitem]")) {

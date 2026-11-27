@@ -69,7 +69,7 @@ export const en = {
   "settings.styles.title": "Styles",
   "settings.colors.title": "Colors",
   "settings.marks.title": "Provider marks",
-  "settings.marks.intro": "What each session runs on shows as a colour and two letters, in the sidebar and on its pane.",
+  "settings.marks.intro": "What each session runs on shows in the sidebar and on its pane: as its logo, where its maker allows other apps to show it, else as a colour and two letters. Letters you type, or a picture you choose, show instead; a picture stays on this computer, in config.yaml.",
 
   "settings.keyboard.fixed": "{first} to {last} open the sessions listed first, and {once}, {always} and {reject} answer an approval from anywhere; those stay as they are.",
 
@@ -411,6 +411,11 @@ export const en = {
   "marks.colour": "Colour {slot}",
   "marks.lettersFor": "Letters for {name}",
   "marks.reset": "Reset the mark of {name}",
+  "marks.picture": "Picture…",
+  "marks.pictureFor": "Choose a picture for {name}",
+  "marks.removePicture": "Remove picture",
+  "marks.removePictureFor": "Remove the picture of {name}",
+  "marks.pictureBad": "That picture could not be read. Choose a PNG, JPEG, WebP, GIF or SVG file of up to 8 MB.",
 
   // The permission modes: a name short enough for the composer's control, what the
   // mode does, and what its slash command does.

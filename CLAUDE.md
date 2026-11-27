@@ -27,7 +27,7 @@ Status: M0 to M2 and nearly all of v1 are built; real-provider runs, a first run
 
 ## Hard rules
 
-- **Vendor boundary (HRN-008).** The app never reads, stores, proxies or forwards vendor OAuth tokens or session cookies. A subscription is used only by spawning the unmodified vendor binary, which performs its own sign-in. The built-in harness uses API keys and local endpoints only. Vendor names appear in plain text, never as logos or in the product name.
+- **Vendor boundary (HRN-008).** The app never reads, stores, proxies or forwards vendor OAuth tokens or session cookies. A subscription is used only by spawning the unmodified vendor binary, which performs its own sign-in. The built-in harness uses API keys and local endpoints only. Vendor names appear in plain text and never in the product name. A vendor's logo appears only where the vendor's published terms let a third-party app show it, as the vendor's own file, unchanged (GUI-034, `frontend/src/logos/README.md`, `docs/RISKS.md` L-03); a picture the user chooses for a mark stays theirs, on their computer.
 - **One chokepoint (SEC-003).** Every side effect from every harness passes through the permission broker. Nothing auto-approves on timeout. Deny rules win at every scope; project-level config can tighten but never loosen.
 - **Everything through `Environment` (ENV-001).** No `os/exec` and no direct file I/O in the engine outside `internal/environment`; a lint rule enforces it. External agents' `fs/*` and `terminal/*` protocol requests go through the same layer, so protected paths hold for them too.
 - **The GUI never special-cases a harness (HRN-001).** If a feature seems to need harness-specific UI, the `Harness` interface is wrong; fix the interface.

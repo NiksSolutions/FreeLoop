@@ -95,3 +95,22 @@ test("a provider no longer known is named in the language in force (GUI-048)", (
   assert.equal(sourceName({ harnessId: "builtin", providerId: "" }, providers, harnesses), "Onbekende aanbieder");
   setLanguage("en");
 });
+
+test("a mark's vendor comes from what the source is, and letters the user chose win", () => {
+  const typed = [
+    { id: "work", name: "Work", type: "anthropic" },
+    { id: "router", name: "My router", type: "openai_compat", preset: "openrouter" },
+    { id: "own", name: "Own endpoint", type: "openai_compat", preset: "custom" },
+    { id: "demo", name: "Demo", type: "scripted" },
+  ];
+  const agents = [{ id: "claude-code", name: "Claude Code" }, { id: "mine", name: "Mine" }];
+  const of = sourceIndex(typed, agents, [], { router: { letters: "RT" } });
+  // By type, whatever the ID or name the user gave it.
+  assert.equal(of({ harnessId: "builtin", providerId: "work" }).vendor, "anthropic");
+  assert.equal(of({ harnessId: "claude-code", providerId: "work" }).vendor, "claude");
+  // Letters chosen in Settings show instead of the logo.
+  assert.equal(of({ harnessId: "builtin", providerId: "router" }).vendor, null);
+  assert.equal(of({ harnessId: "builtin", providerId: "router" }).letters, "RT");
+  // A custom endpoint, the demo, an agent of the user's own and what is gone have none.
+  for (const r of [{ providerId: "own" }, { providerId: "demo" }, { harnessId: "mine" }, { providerId: "gone" }]) assert.equal(of({ harnessId: "builtin", ...r }).vendor, null, JSON.stringify(r));
+});

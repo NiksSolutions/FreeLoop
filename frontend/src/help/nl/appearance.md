@@ -10,6 +10,10 @@ Naast elk lettertype staat zijn **Gewicht**, van Licht tot Halfvet; Normaal is d
 
 Kleuren worden apart ingesteld voor de lichte en de donkere weergave, en een wijziging is meteen te zien. Freeloop waarschuwt als tekst moeilijk leesbaar wordt. De kleuren staan in `colors.json` in de gegevensmap, die ook met de hand te bewerken is.
 
+## Merktekens van aanbieders
+
+Waarop een sessie draait, staat als een klein merkteken in de zijbalk en op het paneel van de sessie. Voor llama.cpp, OpenRouter en vLLM is dat het logo van het project, dat de makers andere apps laten tonen; voor de rest een kleur met twee letters. Onder **Merktekens van aanbieders** zijn de kleur te wijzigen, letters te typen of met **Afbeelding…** een eigen afbeelding te kiezen, bijvoorbeeld een logo waarvoor de maker apps eerst om toestemming laat vragen. De afbeelding wordt verkleind tot een kleine PNG en bewaard in `config.yaml`, alleen op deze computer.
+
 ## Stijlen
 
 Een stijl bewaart de twee lettertypen en de kleuren van beide weergaven onder een naam, zodat wisselen tussen twee uiterlijken één stap is. Thema, tekstgrootte, de gewichten van de lettertypen en taal horen niet bij een stijl.
