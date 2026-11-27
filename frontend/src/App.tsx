@@ -72,7 +72,7 @@ import type { HelpPlace } from "./help.ts";
 import { clearSelectionOnClick } from "./selection.ts";
 import Splitter from "./Splitter.tsx";
 import { clampSidebar, rememberSidebar, setPanelWidth, SIDEBAR_MIN, sidebarMax, storedPanel, storedSidebar } from "./sizes.ts";
-import { forgetDraft, pruneDrafts } from "./drafts.ts";
+import { forgetDraft, pruneDrafts, startDraft } from "./drafts.ts";
 import { pruneHistory } from "./history.ts";
 import SourceMark from "./SourceMark.tsx";
 import GitMark from "./GitMark.tsx";
@@ -418,7 +418,6 @@ export default function App() {
   const { registry, collect } = useRegistry();
   const searchInput = useRef<HTMLInputElement>(null);
   // The message a fork was made before, for its composer (SES-009).
-  const [forkDraft, setForkDraft] = useState<{ sid: string; text: string } | null>(null);
 
   // The reducer state lives in a ref so event callbacks always see the latest
   // transcripts; React state mirrors it for rendering.
@@ -1413,10 +1412,9 @@ export default function App() {
       key={s.id}
       session={s}
       focus={screen.kind === "session" && screen.id === s.id ? screen.focus : undefined}
-      initialDraft={forkDraft?.sid === s.id ? forkDraft.text : undefined}
       profiles={profiles}
       onForked={(sid, text) => {
-        setForkDraft({ sid, text });
+        startDraft(sid, text);
         refreshSessions();
         openSession(sid);
       }}
@@ -1957,7 +1955,7 @@ export default function App() {
             }}
             onCreated={(s, draft) => {
               setSessions((list) => (list.some((x) => x.id === s.id) ? list : [s, ...list]));
-              if (draft) setForkDraft({ sid: s.id, text: draft });
+              if (draft) startDraft(s.id, draft);
               openSession(s.id);
             }}
             onError={report}
@@ -2100,7 +2098,7 @@ export default function App() {
             items={attention}
             onOpen={openSession}
             onContinued={(sid, text) => {
-              setForkDraft({ sid, text });
+              startDraft(sid, text);
               refreshSessions();
               openSession(sid);
             }}

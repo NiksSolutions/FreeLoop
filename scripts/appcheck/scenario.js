@@ -2710,4 +2710,28 @@ await step("the page carries its Content Security Policy", async () => {
   check("the page has no inline script", all("script").every((s) => s.src));
 });
 
+// SES-009: a fork's message waits in the new session's box to edit, as a draft like any
+// other: cleared, it stays cleared when the session is opened again (it came back each
+// time, found by the user on 2026-11-27). Last, since it leaves "Check alpha (fork)",
+// which openSession("Check alpha") would also find.
+await step("a fork's message waits in its box once", async () => {
+  const row = (fork) => all(".session-row").find((r) => r.textContent.includes("Check alpha") && r.textContent.includes("(fork)") === fork);
+  const box = () => activePane().querySelector(".composer textarea");
+  row(false).click();
+  const fork = await until("a message to fork from", () => all('button[aria-label="Fork from here"]', activePane()).at(-1), 8000);
+  fork.click();
+  await until("the fork opened", () => activePane().querySelector(".session-header h2")?.textContent.includes("(fork)"), 8000);
+  const held = await until("the message in its box", () => box()?.value.trim(), 5000).catch(() => "");
+  check("the forked message waits in the new session's box", !!held, held);
+  Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(box(), "");
+  box().dispatchEvent(new Event("input", { bubbles: true }));
+  await sleep(300);
+  row(false).click();
+  await until("the first session", () => !activePane().querySelector(".session-header h2")?.textContent.includes("(fork)"), 5000);
+  row(true).click();
+  await until("the fork again", () => activePane().querySelector(".session-header h2")?.textContent.includes("(fork)"), 5000);
+  await sleep(300);
+  check("cleared, its box stays clear when the fork is opened again", box()?.value === "", box()?.value);
+});
+
 return results;

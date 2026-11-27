@@ -58,6 +58,13 @@ export function rememberDraft(sid: string, text: string) {
   attempt((s) => s.removeItem(PREFIX + sid));
 }
 
+// startDraft puts text in a new session's composer: a fork's message, or a continued
+// session's. Kept as the session's draft from then on, so a draft cleared or changed
+// stays as it was left when the session is opened again.
+export function startDraft(sid: string, text: string) {
+  rememberDraft(sid, text);
+}
+
 // storeDraft writes the text for a restart, if it is still the text once redacted.
 export async function storeDraft(sid: string, text: string, redact: (s: string) => Promise<string>) {
   if (!text || text.length > MAX_STORED) {

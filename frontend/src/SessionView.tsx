@@ -77,7 +77,6 @@ interface Props {
   // Shows a project's AFK run in full (WFL-009).
   onShowRun?: (root: string) => void;
   // Text for the composer, as after a fork (SES-009).
-  initialDraft?: string;
   // Profiles to continue the session with (HRN-012).
   profiles: Profile[];
   onForked: (sessionId: string, text: string) => void;
@@ -147,7 +146,7 @@ function panelOpenInitially(): boolean {
   return stored === null ? window.innerWidth > 1000 : stored === "1";
 }
 
-export default function SessionView({ session, transcript, focus, prices, initialDraft, onForked, profiles, provider, providers, environment, harness, project, onProjectsChanged, allowBypass, configVersion, onError, onDeleted, onOpenWindow, knownTags = [], onOpenCompare, active = true, onClosePane, onPaneDrag, source, onRunAFK, onOpenModelSets, onShowRun }: Props) {
+export default function SessionView({ session, transcript, focus, prices, onForked, profiles, provider, providers, environment, harness, project, onProjectsChanged, allowBypass, configVersion, onError, onDeleted, onOpenWindow, knownTags = [], onOpenCompare, active = true, onClosePane, onPaneDrag, source, onRunAFK, onOpenModelSets, onShowRun }: Props) {
   // Beside other panes the panel starts closed and only the active pane shows
   // it; the remembered choice is for a session alone in the window.
   const split = !!onClosePane;
@@ -332,7 +331,7 @@ export default function SessionView({ session, transcript, focus, prices, initia
     return () => clearTimeout(timer);
   }, [announcement]);
   // Kept until sent or deleted, wherever the user goes meanwhile (SES-023).
-  const [draft, setDraft] = useState(() => initialDraft ?? draftOf(session.id));
+  const [draft, setDraft] = useState(() => draftOf(session.id));
   const typed = useRef(draft);
   typed.current = draft;
   useEffect(() => {
