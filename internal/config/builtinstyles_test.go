@@ -78,6 +78,8 @@ func TestBuiltinStyles(t *testing.T) {
 				{"muted", "bg", 4.5}, {"muted", "bg-app", 4.5}, {"faint", "bg", 4.5},
 				{"accent-text", "accent", 4.5}, {"link", "bg", 4.5},
 				{"input-border", "input", 3}, {"ok", "bg", 3}, {"warn", "bg", 3}, {"danger", "bg", 3}, {"git", "bg", 3},
+				// The usage charts' colours, where a style sets them, on the cards' background.
+				{"series-1", "bg", 3}, {"series-2", "bg", 3}, {"series-3", "bg", 3}, {"series-4", "bg", 3}, {"series-5", "bg", 3}, {"series-other", "bg", 3},
 			} {
 				if c[p.fg] == "" || c[p.bg] == "" {
 					continue
