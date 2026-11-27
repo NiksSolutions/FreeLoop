@@ -536,10 +536,12 @@ var cancelWait = 10 * time.Second
 // agent is gone.
 var exitWait = 2 * time.Second
 
-// exited is the error of a prompt whose agent exited, with the last line it wrote
-// to stderr when there is one.
+// exited is the error of a prompt whose agent exited, with the line of what it wrote
+// to stderr that says what went wrong (tellingLine). The rest of what it wrote goes to
+// the log, which the app redacts: a crash's stack says where, which one line cannot.
 func (s *session) exited() error {
 	if tail := strings.TrimSpace(environment.StderrAfterExit(s.proc)); tail != "" {
+		log.Printf("acp: %s exited; the end of what it wrote:\n%s", s.preset.Name, tail)
 		return fmt.Errorf("%w: %s", harness.ErrAgentExited, tellingLine(tail))
 	}
 	return harness.ErrAgentExited

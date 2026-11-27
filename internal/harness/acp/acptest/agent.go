@@ -13,6 +13,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -58,9 +59,25 @@ func Serve() bool {
 		return false
 	}
 	a := &agent{}
-	a.conn = sdk.NewAgentSideConnection(a, os.Stdout, os.Stdin)
+	// The connection starts reading, and running handlers that use a.conn, before
+	// NewAgentSideConnection returns; nothing is read until a.conn is set. A handler
+	// that ran first found it nil, and the agent crashed now and then on CI.
+	ready := make(chan struct{})
+	a.conn = sdk.NewAgentSideConnection(a, os.Stdout, gated{os.Stdin, ready})
+	close(ready)
 	<-a.conn.Done()
 	return true
+}
+
+// gated reads r once ready is closed.
+type gated struct {
+	r     io.Reader
+	ready chan struct{}
+}
+
+func (g gated) Read(p []byte) (int, error) {
+	<-g.ready
+	return g.r.Read(p)
 }
 
 // agent is a reference ACP agent: it edits notes.txt after asking, and
