@@ -1715,6 +1715,11 @@ await step("a second key right after the first answers only one request", async 
   await until("both requests", () => all(".page.attention .attention-request").length >= 2, 8000);
   const y = (init = {}) => document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "y", bubbles: true, cancelable: true, ...init }));
   const waits = (r) => r.isConnected && !r.querySelector(".approval-buttons button:disabled");
+  // What a request's card was when a check failed: it has failed now and then, and its
+  // text alone could not tell an answered card from one drawn again or gone.
+  const why = (r) =>
+    `${r.isConnected ? "on the page" : "no longer on the page"}, ${r.querySelector(".approval-buttons button:disabled") ? "its buttons disabled" : "its buttons live"}, ` +
+    `${current() === r ? "the current one" : current() ? "another is current" : "none is current"}, ${all(".page.attention .attention-request").length} listed: ${r.textContent.slice(0, 80)}`;
   try {
     const first = current();
     await sleep(600);
@@ -1723,10 +1728,10 @@ await step("a second key right after the first answers only one request", async 
     await sleep(50);
     y();
     await sleep(1000);
-    check("a second Y right after the first does not answer the next request", waits(next), next.textContent.slice(0, 120));
+    check("a second Y right after the first does not answer the next request", waits(next), why(next));
     y({ repeat: true });
     await sleep(1000);
-    check("a held Y's repeat answers nothing", waits(next), next.textContent.slice(0, 120));
+    check("a held Y's repeat answers nothing", waits(next), why(next));
     y();
     const answered = await until("Y to answer it", () => !waits(next), 8000).catch(() => false);
     check("Y answers the request once it has been current a moment", answered);
