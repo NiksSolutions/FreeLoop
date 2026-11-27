@@ -256,3 +256,64 @@ func TestSnapshotLeavesOutClaudeWhateverIsIgnored(t *testing.T) {
 		})
 	}
 }
+
+// A turn's end is sent before its session is free, so a rewind right after it waits
+// for that moment, as switching profiles does; a turn still running is refused.
+func TestRewindWaitsForATurnThatIsEnding(t *testing.T) {
+	ctx := context.Background()
+	e := openTest(t, t.TempDir())
+	defer e.Close()
+	ch, cancel := e.Subscribe()
+	defer cancel()
+	e.mu.Lock()
+	e.providers.built["bp"] = &configuredProvider{cfg: config.Provider{ID: "bp", Name: "bp", Type: "scripted"}, p: &byPrompt{}}
+	e.mu.Unlock()
+	root := t.TempDir()
+	ses, err := e.CreateSession(ctx, CreateSessionRequest{ProjectRoot: root, ProviderID: "bp", Model: "m", Mode: "accept_edits"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.Prompt(ctx, ses.ID, "write a.txt one")
+	waitIdle(t, ch, ses.ID)
+	evs, _ := e.Events(ctx, ses.ID, 0, 0)
+	var cp int64
+	for _, ev := range evs {
+		if ev.Type == event.Checkpoint {
+			cp = ev.Seq
+		}
+	}
+	r, err := e.runtimeFor(ctx, ses.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hold := func() chan struct{} {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		r.busy, r.done = true, make(chan struct{})
+		return r.done
+	}
+	done := hold()
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		r.mu.Lock()
+		r.busy = false
+		close(done)
+		r.mu.Unlock()
+	}()
+	if err := e.Rewind(ctx, ses.ID, cp); err != nil {
+		t.Errorf("a rewind just after a turn ended: %v", err)
+	}
+	running := hold()
+	start := time.Now()
+	if err := e.Rewind(ctx, ses.ID, cp); err == nil || !strings.Contains(err.Error(), "stop the running turn") {
+		t.Errorf("a rewind during a turn: %v", err)
+	}
+	if waited := time.Since(start); waited < time.Second {
+		t.Errorf("refused after %s, without the moment a turn gets to end", waited)
+	}
+	// Closing the engine waits for the turn.
+	r.mu.Lock()
+	r.busy = false
+	close(running)
+	r.mu.Unlock()
+}

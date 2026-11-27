@@ -357,15 +357,23 @@ func (e *Engine) Rewind(ctx context.Context, sid string, seq int64) error {
 		return err
 	}
 	// The session counts as busy while files are restored, so a prompt
-	// sent meanwhile waits in the queue and starts afterwards.
+	// sent meanwhile waits in the queue and starts afterwards. A turn that is
+	// just ending gets a moment to finish, as for SwitchProfile: its end is
+	// sent before the session is free.
 	r.mu.Lock()
+	for deadline := time.Now().Add(2 * time.Second); r.busy && !r.stopped; {
+		done := r.done
+		r.mu.Unlock()
+		select {
+		case <-done:
+		case <-time.After(time.Until(deadline)):
+			return errors.New("stop the running turn before rewinding")
+		}
+		r.mu.Lock()
+	}
 	if r.stopped {
 		r.mu.Unlock()
 		return errStopped
-	}
-	if r.busy {
-		r.mu.Unlock()
-		return errors.New("stop the running turn before rewinding")
 	}
 	r.busy, r.done = true, make(chan struct{})
 	r.mu.Unlock()

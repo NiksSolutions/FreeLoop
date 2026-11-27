@@ -354,12 +354,18 @@
     },
     "historyMessage": {
       "type": "object",
-      "description": "Built-in harness context: message number index (0-based) is set to message. Later events with the same index replace earlier ones.",
-      "required": ["index", "message"],
+      "description": "Built-in harness context: message number index (0-based) is set to message. Later events with the same index replace earlier ones. reset starts the context anew from this message (a compaction or a rewind replaced it); clear, with index 0, reset and no message, leaves it empty (a rewind to before the first message).",
+      "required": ["index"],
       "properties": {
         "index": { "type": "integer", "minimum": 0 },
-        "message": { "type": "object", "required": ["role", "parts"] }
-      }
+        "message": { "type": "object", "required": ["role", "parts"] },
+        "reset": { "type": "boolean" },
+        "clear": { "type": "boolean" }
+      },
+      "allOf": [
+        { "if": { "properties": { "clear": { "const": false } } }, "then": { "required": ["message"] } },
+        { "if": { "properties": { "clear": { "const": true } }, "required": ["clear"] }, "then": { "properties": { "index": { "const": 0 }, "reset": { "const": true } }, "required": ["reset"] } }
+      ]
     },
     "gitState": {
       "type": "object",

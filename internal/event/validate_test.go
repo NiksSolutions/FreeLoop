@@ -50,3 +50,33 @@ func TestValidatorCatchesWhatTheSchemaRefuses(t *testing.T) {
 		}
 	}
 }
+
+// A built-in session's context: a message at an index, or, after a rewind to before
+// the first message, cleared, which has no message (found by
+// TestRewindWaitsForATurnThatIsEnding, 2026-11-27).
+func TestHistoryMessages(t *testing.T) {
+	v := schemaValidator(t)
+	ev := func(data string) Event {
+		return Event{V: Version, Seq: 1, SID: "ses_1", TS: time.Now().UTC(), Type: HistoryMessage, Data: json.RawMessage(data)}
+	}
+	msg := `{"role":"user","parts":[{"type":"text","text":"hi"}]}`
+	for _, good := range []string{
+		`{"index":0,"message":` + msg + `}`,
+		`{"index":0,"reset":true,"message":` + msg + `}`,
+		`{"index":0,"reset":true,"clear":true}`,
+	} {
+		if err := v.Validate(ev(good)); err != nil {
+			t.Errorf("%s was refused: %v", good, err)
+		}
+	}
+	for _, bad := range []string{
+		`{"index":2}`,
+		`{"index":1,"clear":false}`,
+		`{"index":1,"reset":true,"clear":true}`,
+		`{"index":0,"clear":true}`,
+	} {
+		if err := v.Validate(ev(bad)); err == nil {
+			t.Errorf("%s was taken", bad)
+		}
+	}
+}
