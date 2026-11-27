@@ -101,7 +101,7 @@ Everything is in one folder, readable and editable by hand; edits are picked up 
 
 A project can add `.freeloop/rules.yaml` (deny rules) and `.freeloop/profiles/`, read once the project is trusted. Set `FREELOOP_HOME` to use another folder.
 
-Freeloop has no telemetry. It connects to the providers, MCP servers and agents you configure, and to five things only if you use them: the update check you can turn on in Settings and the release it downloads when you click to update (GitHub), a token optimizer's pinned download when you click it (GitHub), voice input's speech model when you download it (Hugging Face, and whisper.cpp from GitHub on Windows and Linux), the MCP registry when you browse it, and the push service of a paired phone that turned notifications on (Apple, Google or Mozilla), which gets only a message encrypted for that phone. [docs/SECURITY.md](docs/SECURITY.md) describes the threat model and the limits you should know, among them that the local environment is not a sandbox.
+Freeloop has no telemetry. It connects to the providers, MCP servers and agents you configure, and to six things only if you use them: the update check you can turn on in Settings and the release it downloads when you click to update (GitHub), a token optimizer's pinned download when you click it (GitHub), voice input's speech model when you download it (Hugging Face, and whisper.cpp from GitHub on Windows and Linux), the MCP registry when you browse it, a provider's or agent's logo from its maker's own website when you click Official logo, and the push service of a paired phone that turned notifications on (Apple, Google or Mozilla), which gets only a message encrypted for that phone. [docs/SECURITY.md](docs/SECURITY.md) describes the threat model and the limits you should know, among them that the local environment is not a sandbox.
 
 ## Develop
 
@@ -111,4 +111,4 @@ make test      # Go tests with the race detector, then frontend tests
 make lint      # formatting, vet, architecture boundaries, TypeScript
 ```
 
-Start with [docs/DEVELOPING.md](docs/DEVELOPING.md) for how the code fits together and how to extend it, [CLAUDE.md](CLAUDE.md) for the rules the code follows, then [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Contributions: see [CONTRIBUTING.md](CONTRIBUTING.md).
+Start with [docs/DEVELOPING.md](docs/DEVELOPING.md) for how the code fits together and how to extend it, [CLAUDE.md](CLAUDE.md) for the rules the code follows, then [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Contributions: see [CONTRIBUTING.md](CONTRIBUTING.md). Other companies' and projects' names and logos: [TRADEMARKS.md](TRADEMARKS.md).

@@ -18,7 +18,7 @@ VERSION := $(shell sed -n 's/^ *version: "\(.*\)"/\1/p' build/config.yml)
 # shasum on macOS; sha256sum where Perl's shasum is missing (Git for Windows). Same output.
 SHA256 := $(shell command -v shasum >/dev/null 2>&1 && echo "shasum -a 256" || echo sha256sum)
 
-.PHONY: help tools dev build package whisper-cli install check-app dmg notices windows windows-exe windows-tools linux-package linux-package-arch release release-mac release-windows release-linux release-sums release-sign release-key verify-repro verify-deps bindings test cmd-test test-keychain verify-agents memcheck frontend-test lint fmt clean
+.PHONY: help tools dev build package whisper-cli install check-app dmg notices windows windows-exe windows-tools linux-package linux-package-arch release release-mac release-windows release-linux release-sums release-sign release-key verify-repro verify-deps bindings test cmd-test check-logos test-keychain verify-agents memcheck frontend-test lint fmt clean
 
 help: ## List targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-19s %s\n", $$1, $$2}'
@@ -240,6 +240,9 @@ check-app: ## Drive the real interface in a real WebKit view, on scratch data wi
 
 verify-agents: ## Run the HRN-005 scenario with each preset's real agent on a local stand-in model (HRN-007; downloads the agents)
 	scripts/verify-agents.sh
+
+check-logos: ## Fetch each Official logo from its vendor and re-read the terms behind which logos ship (TRADEMARKS.md); goes to the internet
+	FREELOOP_CHECK_LOGOS=1 go test -count=1 -run '^TestLogosLive$$' -v ./internal/engine/
 
 test-keychain: ## Run the Keychain backend test against the real login keychain
 	FREELOOP_KEYCHAIN_TEST=1 go test -count=1 -run '^(TestKeychain|TestKeychainVault|TestSeatbeltClosesTheKeychain)$$' ./internal/platform/darwin/
