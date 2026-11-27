@@ -57,11 +57,15 @@ export default function Workflows({ config, version, onSaved, onError }: Props) 
       .catch(onError);
   const install = (w: WorkflowStatus) => {
     setInstalling(w.id);
+    // What was written and the list that shows it installed come in one render: set
+    // apart, the card said "Installed …" beside "not installed" until the list came.
     EngineService.InstallWorkflowSkills(w.id)
-      .then((names) => {
-        setInstalled((old) => ({ ...old, [w.id]: names?.length ? t("workflows.installed", { names: names.join(", ") }) : t("workflows.nothingToInstall") }));
-        return refresh();
-      })
+      .then((names) =>
+        EngineService.ListWorkflows().then((l) => {
+          setList(l ?? []);
+          setInstalled((old) => ({ ...old, [w.id]: names?.length ? t("workflows.installed", { names: names.join(", ") }) : t("workflows.nothingToInstall") }));
+        }),
+      )
       .catch(onError)
       .finally(() => setInstalling(""));
   };

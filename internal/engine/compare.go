@@ -196,18 +196,21 @@ func (e *Engine) lastReply(ctx context.Context, sid string) string {
 
 // fullReply is the agent's last message in a session.
 func (e *Engine) fullReply(ctx context.Context, sid string) string {
-	// From the end: the run of message chunks last seen, usage updates among them
-	// not ending it.
+	// From the end: the run of message chunks last seen, ended only by what starts
+	// another item in the conversation (transcript.ts) or another turn. What is
+	// recorded beside a turn, a usage update or the git state after a tool call,
+	// can land among the chunks: a git state cut "done by two" to "two" (CI,
+	// 2026-11-27), and a reviewer's verdict could have been cut so.
 	var parts []string
 	err := e.store.ScanBack(ctx, sid, func(ev event.Event) bool {
-		switch {
-		case ev.Type == event.AgentMessageChunk:
+		switch ev.Type {
+		case event.AgentMessageChunk:
 			var c event.MessageChunk
 			json.Unmarshal(ev.Data, &c)
 			parts = append(parts, c.Content.Text)
 			return false
-		case len(parts) > 0 && ev.Type != event.UsageUpdate:
-			return true
+		case event.UserMessageChunk, event.AgentThoughtChunk, event.ToolCall, event.TurnStarted, event.TurnEnded:
+			return len(parts) > 0
 		}
 		return false
 	})

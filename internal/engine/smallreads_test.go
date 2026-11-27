@@ -119,6 +119,28 @@ func TestLookingBackAnswersAsReadingEverythingDid(t *testing.T) {
 	if got := e.fullReply(ctx, ses.ID); got != "Hello world" {
 		t.Errorf("reply = %q", got)
 	}
+	// What is recorded beside a turn does not end the reply it lands in: the git state
+	// after a tool call, a late update of the call, the turn's end and its status.
+	e.write(ses.ID, event.TurnEnded, event.TurnEndedData{StopReason: "end_turn"})
+	e.write(ses.ID, event.TurnStarted, struct{}{})
+	e.write(ses.ID, event.ToolCall, map[string]any{"toolCallId": "b", "tool": "write_file", "kind": "edit"})
+	chunk("done ")
+	e.write(ses.ID, event.GitState, map[string]any{"branch": "main"})
+	chunk("by ")
+	e.write(ses.ID, event.ToolCallUpdate, map[string]any{"toolCallId": "b", "status": "completed"})
+	chunk("two")
+	e.write(ses.ID, event.TurnEnded, event.TurnEndedData{StopReason: "end_turn"})
+	e.write(ses.ID, event.SessionStatus, event.SessionStatusData{Status: "idle"})
+	if got := e.fullReply(ctx, ses.ID); got != "done by two" {
+		t.Errorf("reply with the git state among it = %q", got)
+	}
+	// A thought between two runs of text starts another item, as the window shows it.
+	chunk("before ")
+	e.write(ses.ID, event.AgentThoughtChunk, event.MessageChunk{Content: event.ContentBlock{Type: "text", Text: "hmm"}})
+	chunk("after")
+	if got := e.fullReply(ctx, ses.ID); got != "after" {
+		t.Errorf("reply after a thought = %q", got)
+	}
 
 	e.write(ses.ID, event.UserMessageChunk, event.MessageChunk{Content: event.ContentBlock{Type: "text", Text: "go"}})
 	e.write(ses.ID, event.Error, event.ErrorData{Message: "first"})
