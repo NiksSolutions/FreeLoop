@@ -125,7 +125,7 @@ func TestLookingBackAnswersAsReadingEverythingDid(t *testing.T) {
 	e.write(ses.ID, event.TurnStarted, struct{}{})
 	e.write(ses.ID, event.ToolCall, map[string]any{"toolCallId": "b", "tool": "write_file", "kind": "edit"})
 	chunk("done ")
-	e.write(ses.ID, event.GitState, map[string]any{"branch": "main"})
+	e.write(ses.ID, event.GitState, event.GitStateData{Repo: true, Branch: "main", Dirty: 1})
 	chunk("by ")
 	e.write(ses.ID, event.ToolCallUpdate, map[string]any{"toolCallId": "b", "status": "completed"})
 	chunk("two")
