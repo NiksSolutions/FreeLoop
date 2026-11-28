@@ -124,6 +124,41 @@ func TestSearchCatchesUpOldTranscripts(t *testing.T) {
 	}
 }
 
+// A write that comes while another connection writes waits for it. The first
+// time a connection uses the search index, SQLite reads the index's settings
+// inside the transaction, and a transaction that read before it wrote got
+// "database is locked" at once, without waiting, if another write was under
+// way (seen on Windows, where a catch-up and an append met).
+func TestWritesWaitForEachOther(t *testing.T) {
+	ctx := context.Background()
+	s := openTest(t, t.TempDir(), nil)
+	a, _ := s.CreateSession(ctx, session.Session{Title: "a", HarnessID: "builtin"})
+	s.indexed.Wait()
+	// Each connection below is new, as after a restart.
+	s.db.SetMaxIdleConns(0)
+	hold, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := hold.ExecContext(ctx, `UPDATE sessions SET title = 'held' WHERE id = ?`, a.ID); err != nil {
+		t.Fatal(err)
+	}
+	written := make(chan error, 1)
+	go func() {
+		written <- s.writeIndex(ctx, a.ID, batch{rows: []row{{seq: 1, kind: HitUser, body: "an ocelot"}}}, -1, "", nil)
+	}()
+	time.Sleep(300 * time.Millisecond)
+	if err := hold.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-written; err != nil {
+		t.Fatalf("a write while another was under way: %v", err)
+	}
+	if h := searchFor(t, s, "ocelot"); len(h) != 1 {
+		t.Errorf("ocelot = %+v", h)
+	}
+}
+
 // SES-007's acceptance: a phrase from a tool result weeks old is found in
 // under a second, among months of sessions.
 func TestSearchIsFast(t *testing.T) {

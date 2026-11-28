@@ -56,8 +56,11 @@ func openDB(dbPath string) (*sql.DB, error) {
 	for _, suffix := range []string{"", "-wal", "-shm"} {
 		os.Chmod(dbPath+suffix, 0o600)
 	}
+	// Every transaction writes, and takes the write lock as it begins
+	// (_txlock): one that read first would get SQLITE_BUSY at once, without
+	// the busy timeout, if another connection was writing then.
 	dsn := "file:" + uriPath(dbPath) +
-		"?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"
+		"?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_txlock=immediate"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("store: open db: %w", err)
